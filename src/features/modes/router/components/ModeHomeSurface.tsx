@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { BookOpen, Compass, Feather, HelpCircle, Import, List, MessageSquare, Plug, Server } from "lucide-react";
+import { BookOpen, Compass, Feather, Import, MessageSquare, Orbit, Plug, Server } from "lucide-react";
 import { useConnections } from "../../../catalog/connections/index";
+import { useRecentChatSummaries } from "../../../catalog/chats/index";
 import { NewChatConnectionGate } from "../../shared/chat-ui/new-chat-gate";
 import {
   filterLanguageGenerationConnections,
@@ -11,7 +12,6 @@ import { useChatStore } from "../../../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { hasEmbeddedTauriRuntime } from "../../../../shared/api/remote-runtime";
-import { HomeCreditsModal } from "./HomeCreditsModal";
 import { HomeKoiRing } from "./HomeKoiRing";
 import { HomeModeChoices } from "./HomeModeChoices";
 import { LotusDivider } from "../../../../shared/components/ui/LotusDivider";
@@ -26,6 +26,7 @@ const quickStartModePreloads: Record<QuickStartMode, () => Promise<unknown>> = {
   conversation: () => import("../../conversation/index"),
   roleplay: () => import("../../roleplay/index"),
   fanfic: () => import("../../fanfic/index"),
+  trance: () => import("../../trance/index"),
 };
 const preloadedQuickStartModes = new Set<QuickStartMode>();
 
@@ -108,9 +109,11 @@ export function ModeHomeSurface({
   const theme = useUIStore((state) => state.theme);
   // The Pond theme sets the logo inside a ring of swimming koi.
   const visualTheme = useUIStore((state) => state.visualTheme);
-  const [creditsOpen, setCreditsOpen] = useState(false);
   const [homeSplashText] = useState(() => pickHomeSplashText());
   const libraryPresence = useLibraryPresence();
+  // Same query RecentChats reads, so this costs no extra request.
+  const { data: recentChatSummaries } = useRecentChatSummaries(3);
+  const hasChats = (recentChatSummaries?.length ?? 0) > 0;
   const languageConnections = useMemo(
     () =>
       filterLanguageGenerationConnections(
@@ -191,7 +194,6 @@ export function ModeHomeSurface({
 
   return (
     <>
-      <HomeCreditsModal open={creditsOpen} onClose={() => setCreditsOpen(false)} />
       <div
         data-component="ChatArea.EmptyState"
         className="koi-pond-surface flex min-w-0 flex-1 flex-col items-center overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6"
@@ -261,7 +263,9 @@ export function ModeHomeSurface({
                   <div className="text-center">
                     {homeTitle}
                     <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--foreground)]/80 sm:mt-3 sm:text-lg">
-                      To get started, choose the type of chat you'd like to have with the AI
+                      {hasChats
+                        ? "Pick up a recent chat, or start something new"
+                        : "To get started, choose the type of chat you'd like to have with the AI"}
                     </p>
                   </div>
                 </>
@@ -273,7 +277,7 @@ export function ModeHomeSurface({
             ) : (
               <div
                 className={cn(
-                  "grid w-full max-w-[22rem] min-w-0 grid-cols-3 gap-2 px-0 @xl:max-w-[32rem] @xl:gap-4",
+                  "grid w-full max-w-[22rem] min-w-0 grid-cols-2 gap-2 px-0 @xl:max-w-[42rem] @xl:grid-cols-4 @xl:gap-4",
                   showQuickStartEntranceEffects && "stagger-children",
                 )}
               >
@@ -310,6 +314,17 @@ export function ModeHomeSurface({
                   onPrewarm={() => prewarmQuickStartMode("fanfic")}
                   onClick={() => handleQuickStart("fanfic")}
                 />
+                <QuickStartCard
+                  icon={<Orbit size="1.125rem" />}
+                  label="Trance"
+                  bg="linear-gradient(135deg, #c4b5ff 0%, #8065f0 55%, #33246e 100%)"
+                  iconColor="#f3efff"
+                  labelColor="#a993ff"
+                  shadowColor="rgba(169,147,255,0.18)"
+                  tooltip="A hypnosis session in a character's voice: pick the feel and length, then read it one line at a time"
+                  onPrewarm={() => prewarmQuickStartMode("trance")}
+                  onClick={() => handleQuickStart("trance")}
+                />
               </div>
             )}
           </section>
@@ -319,16 +334,13 @@ export function ModeHomeSurface({
           {/* Pond folds these into Deki's dialogue box (its quick menu). */}
           {!isPond && (
             <section data-home-section="suggestions" aria-labelledby="home-next-steps" className="w-full max-w-[32rem]">
-              <div className="mb-2 flex items-center justify-between gap-3 px-1">
-                <h4
-                  id="home-next-steps"
-                  className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--muted-foreground)]"
-                >
-                  Next steps
-                </h4>
-                <span className="text-[0.625rem] text-[var(--muted-foreground)]/65">Choose your path</span>
-              </div>
-              <div className="grid gap-2 @md:grid-cols-2 @xl:grid-cols-3">
+              <h4
+                id="home-next-steps"
+                className="mb-2 px-1 text-center text-xs font-bold uppercase tracking-[0.16em] text-[var(--muted-foreground)]"
+              >
+                Next steps
+              </h4>
+              <div className="flex flex-wrap justify-center gap-2">
                 {homeSuggestions.map((suggestion) => {
                   const Icon =
                     suggestion.destination === "server-setup"
@@ -338,13 +350,21 @@ export function ModeHomeSurface({
                         : suggestion.destination === "library-import"
                           ? Import
                           : Compass;
+                  // Nothing replies until a model is connected, so that step stands out from the optional ones.
+                  const blocking =
+                    suggestion.destination === "connect-model" || suggestion.destination === "server-setup";
                   return (
                     <button
                       key={suggestion.destination}
                       type="button"
                       data-home-suggestion={suggestion.destination}
                       onClick={() => runHomeSuggestion(suggestion.destination)}
-                      className="group min-h-24 rounded-xl border border-[var(--border)] bg-[var(--card)]/70 p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/7"
+                      className={cn(
+                        "group min-h-24 w-full rounded-xl border p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[var(--primary)]/45 hover:bg-[var(--primary)]/7 @md:w-[calc(50%-0.25rem)] @xl:w-[calc(33.333%-0.34rem)]",
+                        blocking
+                          ? "border-[var(--primary)]/55 bg-[var(--primary)]/10"
+                          : "border-[var(--border)] bg-[var(--card)]/70",
+                      )}
                     >
                       <Icon
                         size="1rem"
@@ -362,80 +382,13 @@ export function ModeHomeSurface({
             </section>
           )}
 
-          {/* The credits sit at the bottom of the window when Home is shorter
-              than it (mt-auto in a full-height column), else after the content. */}
-          <footer className="mt-auto flex w-full flex-col items-center gap-4 pt-2 sm:gap-5">
-            {isPond ? (
+          {/* Pond closes Home with the lotus (a pause). The project notices, licence links, credits and the
+              tour now live in Help ("About De-Koi"). */}
+          {isPond && (
+            <footer className="mt-auto flex w-full justify-center pt-2">
               <LotusDivider />
-            ) : (
-              <div
-                className={cn(
-                  "w-48",
-                  showQuickStartEntranceEffects ? "retro-divider" : "h-px rounded-[1px] bg-[var(--border)]/40",
-                )}
-              />
-            )}
-
-            <div className="flex w-full max-w-2xl flex-col items-center gap-2">
-              <p className="max-w-[36rem] px-1 text-center text-[0.625rem] leading-snug text-[var(--muted-foreground)]/55 sm:text-xs">
-                De-Koi is an unofficial project that began as a fork of{" "}
-                <a
-                  href="https://github.com/Pasta-Devs/Marinara-Engine"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/30 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  Marinara Engine
-                </a>
-                .
-              </p>
-              <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 text-center text-[0.625rem] leading-tight text-[var(--muted-foreground)]/45">
-                <span>AGPL-3.0-or-later</span>
-                <span>No warranty</span>
-                <a
-                  href="https://github.com/The-Koi-Pond/De-Koi"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  Source
-                </a>
-                <a
-                  href="https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/LICENSE.txt"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  License
-                </a>
-                <a
-                  href="https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/NOTICE.md"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  Notices
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setCreditsOpen(true)}
-                  className="underline decoration-[var(--muted-foreground)]/25 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
-                >
-                  <List size="0.75rem" aria-hidden="true" className="mr-1 inline-block align-[-0.125rem]" />
-                  Credits
-                </button>
-              </div>
-
-              <button
-                onClick={() => useUIStore.getState().setOnboardingTourOpen(true)}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)]/40 transition-colors hover:bg-[var(--secondary)]/60 hover:text-[var(--muted-foreground)]"
-                title="Replay tutorial"
-              >
-                <HelpCircle size="0.75rem" />
-                Show me around
-              </button>
-            </div>
-          </footer>
+            </footer>
+          )}
         </div>
       </div>
       {pendingNewChatMode && (

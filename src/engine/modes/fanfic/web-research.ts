@@ -10,7 +10,7 @@ export interface FanficWebSource {
   text: string;
 }
 
-export interface FanficWebResearchResult {
+interface FanficWebResearchResult {
   sources: FanficWebSource[];
   failures: unknown[];
 }

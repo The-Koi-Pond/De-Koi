@@ -18,6 +18,7 @@ const DESTINATION_MODES: Partial<Record<DiscoveryChatDestination, readonly Disco
 
 function modeLabel(mode: DiscoveryMode) {
   if (mode === "fanfic") return "Fanfic";
+  if (mode === "trance") return "Trance";
   return mode === "roleplay" ? "Roleplay" : "Conversation";
 }
 
@@ -65,8 +66,7 @@ export function getDiscoveryActionLabel(action: DiscoveryAction) {
 }
 
 export type DiscoveryActionOutcome =
-  | { status: "handled" }
-  | { status: "blocked"; message: string; fallback: DiscoveryAction };
+  { status: "handled" } | { status: "blocked"; message: string; fallback: DiscoveryAction };
 
 export function resolveDiscoveryAction(action: DiscoveryAction): DiscoveryActionOutcome {
   if (action.type !== "open-chat-destination") return { status: "handled" };

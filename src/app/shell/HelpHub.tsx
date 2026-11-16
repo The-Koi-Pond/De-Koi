@@ -15,7 +15,7 @@ import { APP_VERSION } from "../../engine/contracts/constants/defaults";
 import { SUPPORT_LINKS } from "../../shared/config/support-links";
 import { openExternalUrl } from "../../shared/api/external-link-api";
 import { openBugReport } from "../../shared/lib/support-report";
-import { buildSlashHelpText } from "../../shared/lib/slash-commands";
+import { listSlashCommandHelp } from "../../shared/lib/slash-commands";
 import { DISCOVERY_APP_EVENT } from "../../shared/lib/discovery-navigation";
 import { useChatStore } from "../../shared/stores/chat.store";
 import { useSetupJourneyStore } from "../../shared/stores/setup-journey.store";
@@ -149,21 +149,84 @@ export function HelpHub() {
       </div>
 
       <section className="mt-4 rounded-md border border-[var(--border)] bg-[var(--card)]/60 p-3">
-        <div className="flex items-center gap-2 text-xs font-semibold text-[var(--foreground)]">
+        <h3 className="flex items-center gap-2 text-xs font-semibold text-[var(--foreground)]">
           <Keyboard size="0.875rem" aria-hidden />
-          Shortcut Reference
-        </div>
-        <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--background)]/75 p-2 text-[0.66rem] leading-relaxed text-[var(--muted-foreground)]">
-          {buildSlashHelpText()}
-        </pre>
+          Chat commands
+        </h3>
+        <p className="mt-1 text-[0.7rem] text-[var(--muted-foreground)]">
+          Type these in the message box. Start with / to see suggestions as you type.
+        </p>
+        <dl className="mt-2 max-h-56 divide-y divide-[var(--border)]/60 overflow-auto rounded-md bg-[var(--background)]/75 px-2">
+          {listSlashCommandHelp().map((command) => (
+            <div key={command.usage} className="py-1.5">
+              <dt>
+                <code className="text-[0.7rem] font-medium text-[var(--foreground)]">{command.usage}</code>
+              </dt>
+              <dd className="text-[0.7rem] leading-snug text-[var(--muted-foreground)]">{command.description}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
 
-      <section className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)]/25 px-3 py-2 text-[0.7rem] text-[var(--muted-foreground)]">
-        <Info size="0.8125rem" aria-hidden />
-        <span>De-Koi {APP_VERSION}</span>
-        <span aria-hidden>/</span>
-        <span>Press ? to open Help.</span>
+      <section
+        aria-labelledby="help-about-heading"
+        className="mt-3 rounded-md border border-[var(--border)] bg-[var(--secondary)]/25 px-3 py-2.5 text-[0.7rem] text-[var(--muted-foreground)]"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 id="help-about-heading" className="flex items-center gap-2">
+            <Info size="0.8125rem" aria-hidden />
+            <span className="font-semibold text-[var(--foreground)]">About De-Koi {APP_VERSION}</span>
+          </h3>
+          <span aria-hidden>/</span>
+          <span>Press ? to open Help.</span>
+        </div>
+        <p className="mt-2 leading-relaxed">
+          De-Koi is an unofficial project that began as a fork of{" "}
+          <a
+            href="https://github.com/Pasta-Devs/Marinara-Engine"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={ABOUT_LINK}
+          >
+            Marinara Engine
+          </a>
+          .
+        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>AGPL-3.0-or-later</span>
+          <span>No warranty</span>
+          <a
+            href="https://github.com/The-Koi-Pond/De-Koi"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={ABOUT_LINK}
+          >
+            Source
+          </a>
+          <a
+            href="https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/LICENSE.txt"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={ABOUT_LINK}
+          >
+            License
+          </a>
+          <a
+            href="https://github.com/The-Koi-Pond/De-Koi/blob/HEAD/NOTICE.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={ABOUT_LINK}
+          >
+            Notices
+          </a>
+          <button type="button" onClick={() => useUIStore.getState().openModal("credits")} className={ABOUT_LINK}>
+            Credits
+          </button>
+        </div>
       </section>
     </div>
   );
 }
+
+const ABOUT_LINK =
+  "underline decoration-[var(--muted-foreground)]/35 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40";

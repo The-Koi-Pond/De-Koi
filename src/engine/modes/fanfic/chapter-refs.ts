@@ -95,9 +95,7 @@ export function fanficCanonLine(layout: FanficChapterLayout): FanficChapterRef[]
 
 /** What a write produces: the next main chapter, a new extra after main chapter N, or a new version of a chapter. */
 export type FanficWriteTarget =
-  | { kind: "main" }
-  | { kind: "extra"; parentChapter: number }
-  | { kind: "existing"; messageId: string };
+  { kind: "main" } | { kind: "extra"; parentChapter: number } | { kind: "existing"; messageId: string };
 
 /**
  * The stored messages a write reads, in reading order: each main chapter followed by its canon extras, and for an

@@ -243,6 +243,7 @@ export function QuickSwitcherMobile() {
         ref={btnRef}
         onClick={() => setOpen((v) => !v)}
         title="Quick Switcher"
+        aria-label="Switch connection or persona"
         className={cn(
           CHAT_INPUT_ICON_BUTTON_CLASS,
           open ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,

@@ -10,7 +10,10 @@ export type ResolvedCharacterNowListening = {
 };
 
 export type CharacterMusicPlaybackCue = {
+  /** Title and artist (or taste words) to search for. */
   query: string;
+  /** The song's direct link, if it has one. YouTube plays it; Spotify searches `query` instead. */
+  url: string | null;
 };
 
 function readRecord(value: unknown): Record<string, unknown> {
@@ -222,8 +225,9 @@ export function buildCharacterMusicPlaybackCue(
   listening: ResolvedCharacterNowListening | null | undefined,
 ): CharacterMusicPlaybackCue | null {
   if (!listening) return null;
-  const query = listening.url || listening.query;
-  return query ? { query } : null;
+  const url = listening.url?.trim() || null;
+  const query = listening.query.trim();
+  return query || url ? { query, url } : null;
 }
 
 export function parseMusicTextList(value: string): string[] {

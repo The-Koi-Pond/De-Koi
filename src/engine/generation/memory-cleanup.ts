@@ -19,6 +19,7 @@ import {
 } from "../entities/memory-maintenance";
 import { reviewMemoryValues } from "./memory-value-review";
 import { generateStructured } from "./structured-generation";
+import { isRecord } from "../shared/value-readers";
 
 const SYSTEM_PROMPT = [
   "You propose reversible cleanup for stored De-Koi memories.",
@@ -50,10 +51,6 @@ const REASONS = new Set<MemoryCleanupReason>([
   "Overlapping memories",
   "Possible conflict",
 ]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function scopeKey(scope: MemoryCleanupScope): string {
   return `${scope.kind}:${scope.id}`;

@@ -1,3 +1,4 @@
+import { isRecord } from "../../engine/shared/value-readers";
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -26,10 +27,6 @@ export function isDuplicateCreateError(error: unknown, entity: string, id: strin
     (error as ApiError).status === 400 &&
     error.message.trim() === `${entity}/${id} already exists`
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 export function parseRetryAfterMs(value: string | null): number | null {

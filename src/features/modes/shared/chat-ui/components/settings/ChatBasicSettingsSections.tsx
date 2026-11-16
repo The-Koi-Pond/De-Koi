@@ -46,54 +46,6 @@ export function ChatBasicSettingsSections({
   return (
     <>
       <Section
-        label="Chat Name"
-        icon={<LetterText size="0.875rem" />}
-        help="This name is only visible to you — it won't be sent to the AI or affect the conversation in any way."
-      >
-        {editingName ? (
-          <div className="flex gap-2">
-            <input
-              value={nameVal}
-              onChange={(event) => onNameValChange(event.target.value)}
-              onKeyDown={(event) => event.key === "Enter" && onSaveName()}
-              autoFocus
-              className="flex-1 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--primary)]/40"
-            />
-            <button onClick={onSaveName} className="rounded-lg bg-[var(--primary)] px-3 py-2 text-xs text-white">
-              <Check size="0.75rem" />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={onEditName}
-            className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--accent)]"
-          >
-            {chat.name}
-          </button>
-        )}
-      </Section>
-
-      <Section
-        label="Vision / Image Input Connection"
-        icon={<Eye size="0.875rem" />}
-        help="Optional language model used when your message includes an image. Without an override, De-Koi uses the normal chat connection."
-      >
-        <ConnectionSelect
-          value={visionConnectionId ?? ""}
-          connections={textConnectionsList}
-          includeModel
-          includeRandom={false}
-          emptyLabel="Use chat connection"
-          showVisionCapability
-          onChange={onVisionConnectionChange}
-        />
-        <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
-          Connections marked vision-capable are identified below. Confirm model support with your provider before
-          relying on image input.
-        </p>
-      </Section>
-
-      <Section
         label="Connection"
         icon={<Plug size="0.875rem" />}
         help="Which AI provider and model to use for this chat. 'Random' picks a different connection each time from your random pool."
@@ -150,6 +102,54 @@ export function ChatBasicSettingsSections({
           )}
         </Section>
       )}
+
+      <Section
+        label="Vision / Image Input Connection"
+        icon={<Eye size="0.875rem" />}
+        help="Optional language model used when your message includes an image. Without an override, De-Koi uses the normal chat connection."
+      >
+        <ConnectionSelect
+          value={visionConnectionId ?? ""}
+          connections={textConnectionsList}
+          includeModel
+          includeRandom={false}
+          emptyLabel="Use chat connection"
+          showVisionCapability
+          onChange={onVisionConnectionChange}
+        />
+        <p className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]">
+          Connections marked vision-capable are identified below. Confirm model support with your provider before
+          relying on image input.
+        </p>
+      </Section>
+
+      <Section
+        label="Chat Name"
+        icon={<LetterText size="0.875rem" />}
+        help="This name is only visible to you — it won't be sent to the AI or affect the conversation in any way."
+      >
+        {editingName ? (
+          <div className="flex gap-2">
+            <input
+              value={nameVal}
+              onChange={(event) => onNameValChange(event.target.value)}
+              onKeyDown={(event) => event.key === "Enter" && onSaveName()}
+              autoFocus
+              className="flex-1 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--primary)]/40"
+            />
+            <button onClick={onSaveName} className="rounded-lg bg-[var(--primary)] px-3 py-2 text-xs text-white">
+              <Check size="0.75rem" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={onEditName}
+            className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--accent)]"
+          >
+            {chat.name}
+          </button>
+        )}
+      </Section>
     </>
   );
 }

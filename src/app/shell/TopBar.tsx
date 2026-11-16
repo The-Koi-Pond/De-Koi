@@ -51,13 +51,13 @@ export function TopBar({
   dekiOpen: _dekiOpen = false,
   onOpenDeki: _onOpenDeki,
   onGoHome,
-  onCloseLeftSidebar,
+  onShowChatList,
   onOpenHelp,
 }: {
   dekiOpen?: boolean;
   onOpenDeki?: () => void;
   onGoHome?: () => void;
-  onCloseLeftSidebar?: () => void;
+  onShowChatList?: () => void;
   onOpenHelp?: () => void;
 }) {
   const activeChatId = useChatStore((s) => s.activeChatId);
@@ -134,7 +134,7 @@ export function TopBar({
     closeAllDetails();
     closeRightPanel();
     setTrackerPanelOpen(false);
-    onCloseLeftSidebar?.();
+    onShowChatList?.();
     onGoHome?.();
   };
 

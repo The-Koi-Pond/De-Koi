@@ -17,6 +17,7 @@ const LOCAL_BINARY_ASSET_DIRS: &[&str] = &[
     "knowledge-sources",
     "lorebooks/images",
     "sprites",
+    "voice-notes",
 ];
 
 async fn run_blocking_export(
@@ -231,15 +232,6 @@ pub fn profile_import_preview_file(
     path: String,
 ) -> Result<Value, AppError> {
     profile::preview_profile_file_path(&state, &path)
-}
-
-#[tauri::command]
-pub fn profile_import_file(
-    state: State<'_, AppState>,
-    path: String,
-    preview_fingerprint: Option<String>,
-) -> Result<Value, AppError> {
-    profile::import_profile_file_path(&state, &path, preview_fingerprint.as_deref())
 }
 
 #[tauri::command]

@@ -9,8 +9,13 @@ use zip::write::SimpleFileOptions;
 
 #[path = "exports/card_v3.rs"]
 mod card_v3;
+#[path = "exports/linked_lorebooks.rs"]
+mod linked_lorebooks;
 
-use card_v3::{build_portable_card, CardTarget, ExportReport};
+use card_v3::{build_portable_card, character_book, CardTarget, DepthPlacement, ExportReport};
+use linked_lorebooks::{
+    character_filter_tags, entry_visible_to_character, linked_character_lorebooks,
+};
 
 #[derive(Clone, Copy)]
 enum SpriteExportOwnerKind {
@@ -101,7 +106,7 @@ pub(crate) fn export_record_with_options(
     }
     let compatible = format == Some("compatible") && collection != "prompts";
     let item = if compatible {
-        compatible_record(collection, &record)?
+        compatible_record(state, collection, &record)?
     } else {
         native_record_export(state, kind, collection, &record, include_memories)?
     };
@@ -134,7 +139,7 @@ pub(crate) fn export_records(
                 message_swipes::materialize_message(state, &mut record, true)?;
             }
             items.push(if format == Some("compatible") {
-                compatible_record(collection, &record)?
+                compatible_record(state, collection, &record)?
             } else {
                 record
             });
@@ -176,14 +181,15 @@ pub(crate) fn export_records(
 
 pub(crate) fn export_character_png(state: &AppState, id: &str) -> AppResult<Value> {
     let character = get_required(state, "characters", id)?;
-    let card = compatible_character_export(&character);
+    let card = compatible_character_card(state, &character)?;
     let name = card
         .get("data")
         .and_then(|data| data.get("name"))
         .and_then(Value::as_str)
         .unwrap_or("character");
-    let avatar_png =
-        avatar_data_url(state, &character).and_then(|value| png_data_url_bytes(&value));
+    let avatar_png = avatar_data_url(state, &character)
+        .map(|value| avatar_png_bytes(&value))
+        .transpose()?;
     Ok(binary_download(
         character_card_png(&card, avatar_png.as_deref())?,
         "image/png",
@@ -539,7 +545,7 @@ fn export_named_records(
             continue;
         };
         let item = if compatible {
-            compatible_record(collection, &record)?
+            compatible_record(state, collection, &record)?
         } else {
             native_record_export(state, kind, collection, &record, include_memories)?
         };
@@ -638,9 +644,9 @@ fn no_matching_bulk_export_error(collection: &str) -> AppError {
     ))
 }
 
-fn compatible_record(collection: &str, record: &Value) -> AppResult<Value> {
+fn compatible_record(state: &AppState, collection: &str, record: &Value) -> AppResult<Value> {
     Ok(match collection {
-        "characters" => compatible_character_export(record),
+        "characters" => compatible_character_card(state, record)?,
         "personas" => compatible_persona_export(record),
         _ => record.clone(),
     })
@@ -759,6 +765,20 @@ fn compatible_character_export(character: &Value) -> Value {
         "spec_version": "2.0",
         "data": character_data_value(character)
     })
+}
+
+/// A single compatible (V2) card for the character, carrying its linked
+/// lorebooks the same way V3 and CHARX exports do.
+fn compatible_character_card(state: &AppState, character: &Value) -> AppResult<Value> {
+    let mut card = compatible_character_export(character);
+    let id = record_id(character, "character")?;
+    let data = character_data_value(character);
+    if let Some(book) = character_book(state, id, &data, DepthPlacement::ExtensionsOnly)? {
+        if let Some(object) = card["data"].as_object_mut() {
+            object.insert("character_book".to_string(), book);
+        }
+    }
+    Ok(card)
 }
 
 fn persona_export_envelope(state: &AppState, persona: &Value) -> AppResult<Value> {
@@ -1388,12 +1408,32 @@ fn character_card_png(card: &Value, png_bytes: Option<&[u8]>) -> AppResult<Vec<u
     Ok(bytes)
 }
 
-fn png_data_url_bytes(value: &str) -> Option<Vec<u8>> {
-    let (header, payload) = value.split_once(',')?;
-    if !header.to_ascii_lowercase().starts_with("data:image/png") {
-        return None;
+/// The avatar as PNG bytes for a PNG card. PNG avatars pass through; JPEG,
+/// WebP and GIF avatars are converted so the card keeps its picture.
+fn avatar_png_bytes(data_url: &str) -> AppResult<Vec<u8>> {
+    let unreadable = |detail: String| {
+        AppError::new(
+            "png_export_error",
+            format!(
+                "The avatar could not be turned into a PNG card ({detail}). Export as CHARX or Character Card V3 instead."
+            ),
+        )
+    };
+    let (header, payload) = data_url
+        .split_once(',')
+        .ok_or_else(|| unreadable("not an inline image".to_string()))?;
+    let bytes = general_purpose::STANDARD
+        .decode(payload.trim())
+        .map_err(|error| unreadable(error.to_string()))?;
+    if header.to_ascii_lowercase().starts_with("data:image/png") {
+        return Ok(bytes);
     }
-    general_purpose::STANDARD.decode(payload).ok()
+    let image = image::load_from_memory(&bytes).map_err(|error| unreadable(error.to_string()))?;
+    let mut png = Cursor::new(Vec::new());
+    image
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|error| unreadable(error.to_string()))?;
+    Ok(png.into_inner())
 }
 
 fn inject_text_chunk(png: &[u8], keyword: &str, text: &str) -> AppResult<Vec<u8>> {
@@ -1587,6 +1627,61 @@ mod tests {
             "data:image/png;base64,{}",
             general_purpose::STANDARD.encode(tiny_png_bytes())
         )
+    }
+
+    #[test]
+    fn png_card_export_converts_jpeg_and_webp_avatars() {
+        let state = test_state("png-card-avatar-formats");
+        let picture = image::RgbImage::from_pixel(3, 2, image::Rgb([200, 40, 90]));
+        for (id, mime, format) in [
+            ("char-jpeg", "jpeg", image::ImageFormat::Jpeg),
+            ("char-webp", "webp", image::ImageFormat::WebP),
+        ] {
+            let mut encoded = Cursor::new(Vec::new());
+            picture
+                .write_to(&mut encoded, format)
+                .expect("encode avatar");
+            state
+                .storage
+                .create(
+                    "characters",
+                    json!({
+                        "id": id,
+                        "avatar": format!(
+                            "data:image/{mime};base64,{}",
+                            general_purpose::STANDARD.encode(encoded.into_inner())
+                        ),
+                        "data": { "name": format!("Avatar {mime}") }
+                    }),
+                )
+                .expect("seed character");
+
+            let download = export_character_png(&state, id).expect("png card export");
+            let bytes = general_purpose::STANDARD
+                .decode(download["base64"].as_str().expect("base64"))
+                .expect("decode");
+            let card = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+                .expect("export is a PNG");
+            assert_eq!((card.width(), card.height()), (3, 2), "{mime} avatar kept");
+            assert!(
+                bytes.windows(6).any(|window| window == b"chara\0"),
+                "{mime} card text embedded"
+            );
+        }
+
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-broken",
+                    "avatar": "data:image/jpeg;base64,bm90IGFuIGltYWdl",
+                    "data": { "name": "Broken" }
+                }),
+            )
+            .expect("seed broken avatar");
+        let error = export_character_png(&state, "char-broken").expect_err("unreadable avatar");
+        assert!(error.to_string().contains("CHARX"), "{error}");
     }
 
     fn seed_portable_character(state: &AppState) {
@@ -1913,6 +2008,132 @@ mod tests {
             );
         }
         assert!(!skipped.contains("Character memories"));
+    }
+
+    fn decoded_json(download: &Value) -> Value {
+        let bytes = general_purpose::STANDARD
+            .decode(download["base64"].as_str().expect("base64"))
+            .expect("decode");
+        serde_json::from_slice(&bytes).expect("json download")
+    }
+
+    fn book_entry_names(card: &Value) -> Vec<String> {
+        card["data"]["character_book"]["entries"]
+            .as_array()
+            .expect("character_book entries")
+            .iter()
+            .map(|entry| entry["name"].as_str().unwrap_or("").to_string())
+            .collect()
+    }
+
+    #[test]
+    fn card_exports_carry_shared_lorebooks_filtered_per_character() {
+        let state = test_state("shared-lorebook-cards");
+        seed_portable_character(&state);
+        state
+            .storage
+            .create(
+                "characters",
+                json!({ "id": "char-luna", "data": { "name": "Luna", "tags": [] } }),
+            )
+            .expect("seed second character");
+        for (id, enabled) in [("book-circus", true), ("book-off", false)] {
+            state
+                .storage
+                .create(
+                    "lorebooks",
+                    json!({
+                        "id": id,
+                        "name": if enabled { "Circus" } else { "Switched Off" },
+                        "characterIds": ["char-sol", "char-luna"],
+                        "enabled": enabled,
+                        "scanDepth": 3,
+                        "tokenBudget": 3000,
+                    }),
+                )
+                .expect("seed shared lorebook");
+        }
+        for (index, (book, name, filter)) in [
+            ("book-circus", "Everyone", json!({})),
+            ("book-circus", "Luna only", json!({ "characterFilterMode": "include", "characterFilterIds": ["char-luna"] })),
+            ("book-circus", "Not Sol", json!({ "characterFilterMode": "exclude", "characterFilterIds": ["char-sol"] })),
+            ("book-circus", "Fantasy cards", json!({ "characterTagFilterMode": "include", "characterTagFilters": [" Fantasy "] })),
+            ("book-circus", "Deep", json!({ "position": 2, "depth": 5 })),
+            ("book-off", "Never", json!({})),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut entry = json!({
+                "id": format!("shared-{index}"),
+                "lorebookId": book,
+                "name": name,
+                "content": format!("{name} lore"),
+                "keys": [name.to_ascii_lowercase()],
+                "order": index,
+                "enabled": true,
+            });
+            for (key, value) in filter.as_object().expect("filter object") {
+                entry[key] = value.clone();
+            }
+            state
+                .storage
+                .create("lorebook-entries", entry)
+                .expect("seed shared entry");
+        }
+
+        let sol = decoded_json(
+            &export_record_with_options(
+                &state,
+                "marinara_character",
+                "characters",
+                "char-sol",
+                Some("v3"),
+                false,
+            )
+            .expect("v3 export"),
+        );
+        assert_eq!(
+            book_entry_names(&sol),
+            [
+                "Koi",
+                "Lantern",
+                "Shrine",
+                "Note",
+                "Everyone",
+                "Fantasy cards",
+                "Deep"
+            ]
+        );
+        assert_eq!(
+            sol["data"]["character_book"]["name"],
+            "Sol Lorebook + Circus"
+        );
+        assert_eq!(sol["data"]["character_book"]["scan_depth"], 3);
+        assert!(!sol.to_string().contains("book-circus"));
+
+        let luna = decoded_json(
+            &export_record_with_options(
+                &state,
+                "marinara_character",
+                "characters",
+                "char-luna",
+                Some("compatible"),
+                false,
+            )
+            .expect("compatible export"),
+        );
+        assert_eq!(luna["spec"], "chara_card_v2");
+        assert_eq!(
+            book_entry_names(&luna),
+            ["Everyone", "Luna only", "Not Sol", "Deep"]
+        );
+        assert_eq!(luna["data"]["character_book"]["name"], "Circus");
+        assert_eq!(luna["data"]["character_book"]["token_budget"], 3000);
+        let deep = &luna["data"]["character_book"]["entries"][3];
+        assert_eq!(deep["content"], "Deep lore");
+        assert_eq!(deep["extensions"]["depth"], 5);
+        assert_eq!(deep["extensions"]["position"], 4);
     }
 
     #[test]

@@ -35,17 +35,36 @@ import {
 } from "../../../../shared/lib/voice-recorder";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { StreamingSpeaker } from "./voice-call-streaming-speech";
+import { prepareThinkingSounds, type VoiceCallThinkingSounds } from "./voice-call-thinking-sounds";
 
 export interface VoiceCallCharacter {
   id: string | null;
   name: string;
 }
 
+export interface VoiceCallSendOptions {
+  /** The call's voice performs delivery tags ("[sighs]"), so the reply may use them. */
+  deliveryTags: boolean;
+}
+
+/** Sends the words as a text. Resolves once the reply has finished: false when no reply came. */
+export type VoiceCallSend = (text: string, options: VoiceCallSendOptions) => Promise<boolean>;
+
 export interface VoiceCallContext {
   chatId: string;
   character: VoiceCallCharacter;
-  /** Sends the words as a text. Resolves once the reply has finished: false when no reply came. */
-  sendText: (text: string) => Promise<boolean>;
+  sendText: VoiceCallSend;
+}
+
+/**
+ * True when the voice performs audio tags instead of reading them out: ElevenLabs Eleven v3 and v4 (older
+ * ElevenLabs models and other providers would say "sighs" out loud). Requests through a NanoGPT relay are left
+ * out because what reaches ElevenLabs there isn't known.
+ */
+export function voicePerformsDeliveryTags(config: TTSConfig | null): boolean {
+  if (!config?.enabled || config.source !== "elevenlabs") return false;
+  if (/nano-gpt\.com/i.test(config.baseUrl)) return false;
+  return /^eleven_v[34](?:_|$)/i.test(config.model.trim());
 }
 
 interface StoredMessage {
@@ -76,8 +95,7 @@ type SpeechRecognitionLike = {
   continuous: boolean;
   interimResults: boolean;
   onresult:
-    | ((event: { results: ArrayLike<ArrayLike<{ transcript?: string }> & { isFinal?: boolean }> }) => void)
-    | null;
+    ((event: { results: ArrayLike<ArrayLike<{ transcript?: string }> & { isFinal?: boolean }> }) => void) | null;
   onerror: ((event: { error?: string }) => void) | null;
   onend: (() => void) | null;
   start: () => void;
@@ -146,8 +164,8 @@ function microphoneErrorMessage(error: unknown): string {
 
 function microphoneFor(stream: MediaStream): VoiceMicrophone<Blob> {
   return {
-    listen: ({ signal, guarded, onLevel, onSpeechStart }) =>
-      recordUtterance(stream, signal, { guarded, onLevel, onSpeechStart, maxWaitMs: LISTEN_WINDOW_MS }),
+    listen: ({ signal, guarded, onLevel, onSpeechStart, onSpeechEnd }) =>
+      recordUtterance(stream, signal, { guarded, onLevel, onSpeechStart, onSpeechEnd, maxWaitMs: LISTEN_WINDOW_MS }),
     onEnded: (listener) => {
       const tracks = stream.getAudioTracks();
       const onEnded = () => listener();
@@ -220,6 +238,7 @@ function sendReply(
   context: () => VoiceCallContext,
   text: string,
   onText: (streamed: string) => void,
+  options: VoiceCallSendOptions,
 ): VoiceReplyHandle {
   const { chatId, sendText } = context();
   const before = useChatStore.getState();
@@ -260,7 +279,7 @@ function sendReply(
     try {
       // A reply already being written here (sent just before the call started) goes first.
       await chatReplyFinished(chatId);
-      const replied = await sendText(text);
+      const replied = await sendText(text, options);
       if (!replied) return null;
     } finally {
       unfollow();
@@ -285,9 +304,16 @@ function sendReply(
 
 // ── Speaker ───────────────────────────────────
 
-function speakerFor(config: TTSConfig, character: VoiceCallCharacter, turnKey: string): VoiceReplySpeaker {
+function speakerFor(
+  config: TTSConfig,
+  character: VoiceCallCharacter,
+  turnKey: string,
+  onFirstSound: () => void,
+  thinkingSounds: VoiceCallThinkingSounds | null,
+): VoiceReplySpeaker {
   const controller = new AbortController();
   const { signal } = controller;
+  let sounded = false;
   const speaker = new StreamingSpeaker({
     signal,
     prefetchAhead: PREFETCH_AHEAD,
@@ -309,13 +335,22 @@ function speakerFor(config: TTSConfig, character: VoiceCallCharacter, turnKey: s
         signal,
       ).catch(() => undefined); // Reported when the piece plays and fetches it again.
     },
-    play: (requests) =>
-      ttsService.speakSequence(requests, turnKey, {
+    play: async (requests) => {
+      // A thinking sound still playing finishes first: the reply starts right after it instead of cutting it off.
+      await thinkingSounds?.idle();
+      if (signal.aborted) return;
+      await ttsService.speakSequence(requests, turnKey, {
         signal,
         playbackRate: clientSidePlaybackRate(config),
         lookahead: 1,
         throwOnError: true,
-      }),
+        onPartAudible: () => {
+          if (sounded) return;
+          sounded = true;
+          onFirstSound();
+        },
+      });
+    },
   });
   return {
     get started() {
@@ -345,10 +380,14 @@ function speakerFor(config: TTSConfig, character: VoiceCallCharacter, turnKey: s
 /** `context` is read on every use, so the session follows the latest character and send function. */
 export function createVoiceCallPorts(context: () => VoiceCallContext): VoiceSessionPorts<Blob> {
   let config: TTSConfig | null = null;
+  let thinkingSounds: VoiceCallThinkingSounds | null = null;
   return {
-    setup: async () => {
+    setup: async (signal) => {
       config = await loadSpeechConfig(true);
       const voiceReplies = Boolean(config?.enabled);
+      if (config?.enabled && config.voiceCallThinkingSounds) {
+        thinkingSounds = prepareThinkingSounds(config, context().character, signal);
+      }
       if (config && providerSpeechInputEnabled(config)) {
         if (!canRecordAudio()) throw new Error(VOICE_NEEDS_HTTPS_MESSAGE);
         return { voiceReplies, input: recorderInput(config) };
@@ -367,13 +406,22 @@ export function createVoiceCallPorts(context: () => VoiceCallContext): VoiceSess
         },
       };
     },
-    reply: { send: (text, onText) => sendReply(context, text, onText) },
+    reply: {
+      send: (text, onText) => sendReply(context, text, onText, { deliveryTags: voicePerformsDeliveryTags(config) }),
+    },
     speech: {
-      begin: (turnKey) => {
+      begin: (turnKey, onFirstSound) => {
         if (!config?.enabled) return null;
         const { chatId, character } = context();
-        return speakerFor(config, character, `voice-call:${chatId}:${Date.now()}:${turnKey}`);
+        return speakerFor(
+          config,
+          character,
+          `voice-call:${chatId}:${Date.now()}:${turnKey}`,
+          onFirstSound,
+          thinkingSounds,
+        );
       },
+      thinkingSound: () => thinkingSounds?.next() ?? null,
     },
   };
 }

@@ -10,10 +10,9 @@ import type { RoleplayContinuityDirectorState } from "./roleplay-continuity-dire
 import type { RoleplayWorldTickState } from "./roleplay-world-tick.js";
 
 /** The primary chat modes the engine supports. */
-export type ChatMode = "conversation" | "roleplay" | "fanfic";
+export type ChatMode = "conversation" | "roleplay" | "fanfic" | "trance";
 /** Legacy persisted/imported mode name. New inputs should migrate this to "roleplay". */
 export type LegacyChatMode = "visual_novel";
-export type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
 
 /** How a multi-character (group) chat is handled. */
 export type GroupChatMode = "merged" | "individual";
@@ -129,14 +128,7 @@ export interface ChatSummaryEntry {
 
 /** Values a Roleplay workflow receipt may retain; chat content is intentionally excluded. */
 export type RoleplayWorkflowApplicationFieldValue =
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | string[]
-  | Record<string, string | null>
-  | Record<string, number>;
+  string | number | boolean | null | undefined | string[] | Record<string, string | null> | Record<string, number>;
 
 /** A reversible field-level change made by a Roleplay workflow profile. */
 export interface RoleplayWorkflowApplicationChange {
@@ -255,6 +247,8 @@ export function getEffectiveMemoryRecallEnabled(
 ): boolean {
   // Fanfic chats are written from the request and outline; recall would leak other chats into the fic.
   if (chatMode === "fanfic") return false;
+  // Trance sessions are written from the request alone and have no messages to recall from.
+  if (chatMode === "trance") return false;
   if (typeof metadata?.enableMemoryRecall === "boolean") return metadata.enableMemoryRecall;
   if (chatMode === "conversation" || chatMode === "roleplay" || chatMode === "visual_novel") return true;
   return metadata?.sceneStatus === "active";
@@ -396,16 +390,6 @@ export interface ChatMetadata {
   dmTargetCharacterId?: string | null;
   /** Per-chat roleplay narration voice/style guidance. */
   narratorStyleInstructions?: string | null;
-  /** Music source constraint for Spotify DJ in roleplay and visual novel chats. */
-  spotifySourceType?: SpotifySourceType;
-  /** Spotify playlist ID used when spotifySourceType is "playlist". */
-  spotifyPlaylistId?: string | null;
-  /** Human-readable playlist name cached for prompts/display. */
-  spotifyPlaylistName?: string | null;
-  /** Spotify artist name used when spotifySourceType is "artist". */
-  spotifyArtist?: string | null;
-  /** Recently selected Spotify track URIs for roleplay/conversation Spotify DJ de-duplication. */
-  spotifyRecentTracks?: string[];
   /** Durable count of autonomous messages the user has not viewed yet. */
   autonomousUnreadCount?: number;
   /** Character IDs that contributed to the current autonomous unread state. */
@@ -430,12 +414,25 @@ export interface ChatMetadata {
   selfiePositivePrompt?: string;
   /** Extra negative prompt/tags sent with generated conversation selfies. */
   selfieNegativePrompt?: string;
+  /**
+   * Send the character's full-body sprite (or their avatar when they have none) to the image model with each selfie, so the
+   * picture keeps their look. Off unless turned on: some services start from the reference image instead of reading it.
+   */
+  selfieUseAvatarReferences?: boolean;
+  /** Per character: how often a texts-first message comes with a selfie. Missing means "rare". */
+  unpromptedPhotoFrequency?: Record<string, "never" | "rare" | "sometimes">;
+  /** Per character: how often a reply (or a text sent first) goes out as a voice note. Missing means "rare". */
+  voiceNoteFrequency?: Record<string, "never" | "rare" | "sometimes">;
 
   // ── Fanfic Mode Fields ──
   /** Fanfic mode request, outline, and outline approval. */
   fanfic?: import("./fanfic.js").FanficState | null;
   /** On a fanfic chapter's comment thread (a chat owned by the fic): the chapter it is under. */
   fanficComment?: import("./fanfic.js").FanficCommentThread;
+
+  // ── Trance Mode Fields ──
+  /** Trance mode request, written script and past runs. */
+  trance?: import("./trance.js").TranceState | null;
 
   // ── Conversation-Mode Auto-Summarization ──
   /** Per-day auto-generated conversation summaries (key: "DD.MM.YYYY"). */

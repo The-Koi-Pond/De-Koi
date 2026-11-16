@@ -1,15 +1,18 @@
 import { Mic, MicOff, PhoneOff, SkipForward } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { VoiceReaction } from "../../../../engine/shared/voice-session/voice-reactions";
-import type { VoiceMicState } from "../../../../engine/shared/voice-session/voice-session";
+import type { VoiceMicState, VoiceTurnTiming } from "../../../../engine/shared/voice-session/voice-session";
 import { cn } from "../../../../shared/lib/utils";
 import { holdNotificationPingsQuiet } from "../../../../shared/lib/notification-sound";
 import { useChatStore } from "../../../../shared/stores/chat.store";
+import { useUIStore } from "../../../../shared/stores/ui.store";
 import { useSprites } from "../../../catalog/sprites/index";
 import { isFullBodySpriteExpression } from "../../../runtime/visuals/sprite-display-modes";
 import { spriteUrlForExpression } from "../../../runtime/visuals/sprite-expression-lookup";
 import { useReplyWait } from "../../shared/chat-ui/index";
 import { useVoiceCall, type VoiceCallCharacter, type VoiceCallPhase } from "../hooks/use-voice-call";
+import type { VoiceCallSend } from "../lib/voice-call-ports";
+import { stripDeliveryTags } from "../../../../engine/modes/chat/voice-call/delivery-tags";
 
 const PHASE_TEXT: Record<VoiceCallPhase, string> = {
   connecting: "Connecting…",
@@ -25,7 +28,7 @@ const PHASE_TEXT: Record<VoiceCallPhase, string> = {
 export interface VoiceCallOverlayProps {
   chatId: string;
   character: VoiceCallCharacter & { avatarUrl?: string | null };
-  sendText: (text: string) => Promise<boolean>;
+  sendText: VoiceCallSend;
   onClose: () => void;
 }
 
@@ -61,6 +64,32 @@ function MicIndicator({ mic, destination }: { mic: VoiceMicState; destination: s
         <MicOff aria-hidden size="0.8rem" />
       )}
       {text}
+    </p>
+  );
+}
+
+function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** Debug mode: how long the last reply took to start talking, stage by stage. */
+function CallTiming({ timing }: { timing: VoiceTurnTiming }) {
+  const stages: Array<[string, number | null]> = [
+    ["pause", timing.endOfSpeechMs],
+    ["transcribe", timing.transcribeMs],
+    ["cut-off stop", timing.sendMs >= 50 ? timing.sendMs : null],
+    ["first words", timing.firstWordsMs],
+    ["first sentence", timing.firstSentenceMs],
+    ["voice", timing.voiceMs],
+  ];
+  const from = timing.endOfSpeechMs === null ? "your words came in" : "you stopped talking";
+  return (
+    <p data-testid="voice-call-timing" className="max-w-md text-xs tabular-nums text-[var(--muted-foreground)]">
+      Voice started {seconds(timing.totalMs)} after {from}:{" "}
+      {stages
+        .filter((stage): stage is [string, number] => stage[1] !== null)
+        .map(([name, ms]) => `${name} ${seconds(ms)}`)
+        .join(" · ")}
     </p>
   );
 }
@@ -103,6 +132,7 @@ function CallFace({ character, reaction }: { character: VoiceCallOverlayProps["c
 export function VoiceCallOverlay({ chatId, character, sendText, onClose }: VoiceCallOverlayProps) {
   const call = useVoiceCall({ chatId, character, sendText });
   const { hangUp, phase } = call;
+  const debugMode = useUIStore((s) => s.debugMode);
   const endCall = useCallback(() => {
     hangUp();
     onClose();
@@ -162,6 +192,7 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
         {wait.slow && (
           <p className="text-xs text-[var(--muted-foreground)]">Still waiting on the model. Interrupt to cancel.</p>
         )}
+        {debugMode && call.timing && <CallTiming timing={call.timing} />}
       </div>
 
       <div className="relative flex items-center justify-center">
@@ -200,7 +231,7 @@ export function VoiceCallOverlay({ chatId, character, sendText, onClose }: Voice
             {call.said && (
               <p className="whitespace-pre-line text-[var(--foreground)]">
                 <span className="font-medium">{character.name}: </span>
-                {call.said}
+                {stripDeliveryTags(call.said)}
               </p>
             )}
             {call.bargeIn === "button" && (phase === "thinking" || phase === "speaking") && (

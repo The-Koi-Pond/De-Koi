@@ -31,7 +31,7 @@ const SOURCE_HEADER_CHARS = 200;
 /** A quote shorter than this could match by accident, so it can't prove it came from the page. */
 const MIN_QUOTE_WORDS = 4;
 
-export class FanficVoiceParseError extends FanficReplyParseError {
+class FanficVoiceParseError extends FanficReplyParseError {
   constructor(detail: string) {
     super(`The voice sheets reply could not be read (${detail}).`);
     this.name = "FanficVoiceParseError";
@@ -57,7 +57,7 @@ export function fanficVoiceQueries(request: FanficRequest): string[] {
     .slice(0, MAX_QUERIES);
 }
 
-export function buildFanficVoiceMessages(args: {
+function buildFanficVoiceMessages(args: {
   request: FanficRequest;
   characters: string[];
   castCards: string;

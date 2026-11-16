@@ -1,4 +1,5 @@
 import type { DekiEntryAction, DekiWorkspaceRowChange } from "../../../../engine/deki/deki-entry";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 export type DekiActionDiffPart = {
   text: string;
@@ -24,10 +25,6 @@ type FlatValue = {
   path: string;
   value: unknown;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function parseJsonObject(value: unknown): Record<string, unknown> | null {
   if (isRecord(value)) return value;

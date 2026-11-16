@@ -1510,6 +1510,7 @@ export const ChatInput = memo(function ChatInput({
                 : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
           )}
           title="Attach files"
+          aria-label="Attach files"
         >
           <Paperclip size="1rem" />
         </button>
@@ -1524,6 +1525,7 @@ export const ChatInput = memo(function ChatInput({
         {/* Text input */}
         <textarea
           ref={textareaRef}
+          aria-label="Message"
           onChange={handleInput}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
@@ -1558,6 +1560,7 @@ export const ChatInput = memo(function ChatInput({
               emojiOpen ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,
             )}
             title="Emoji"
+            aria-label="Emoji"
           >
             <Smile size="1.125rem" />
           </button>

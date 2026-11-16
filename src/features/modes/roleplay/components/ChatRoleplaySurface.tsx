@@ -27,7 +27,6 @@ import {
   PenLine,
   ScrollText,
   Settings2,
-  Swords,
   ChevronUp,
   ArrowRightLeft,
   GitBranch,
@@ -62,9 +61,10 @@ import { ChatInput } from "../../shared/chat-ui/index";
 import { CyoaChoices } from "./CyoaChoices";
 import { ContinuityDirectorReviewBadge, continuityDirectorReviewLabel } from "./ContinuityDirectorReviewBadge";
 import { RoleplaySceneSoundBar } from "./RoleplaySceneSoundBar";
+import { EncounterLauncher, LazyEncounterHost } from "../encounter/components/EncounterLauncher";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
 import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
-import { ChatCommonOverlays } from "../../shared/chat-ui/index";
+import { ChatCommonOverlays, MakeFromThisButton, MakeFromThisDialog } from "../../shared/chat-ui/index";
 import { useJumpToMessage } from "../../shared/chat-ui/index";
 import { ActiveWorldInfoButton } from "../../../runtime/visuals/index";
 import type { SpriteDisplayMode } from "../../../runtime/visuals/sprite-display-modes";
@@ -120,11 +120,6 @@ const SpriteOverlay = lazy(async () => {
 const EchoChamberPanel = lazy(async () => {
   const module = await import("../../shared/chat-ui/index");
   return { default: module.EchoChamberPanel };
-});
-
-const EncounterModal = lazy(async () => {
-  const module = await import("./EncounterModal");
-  return { default: module.EncounterModal };
 });
 
 const SummaryPopover = lazy(async () => {
@@ -578,6 +573,7 @@ function SummaryButton({
           )
         }
         title="Chat Summary"
+        aria-label="Chat Summary"
       >
         {children ?? <ScrollText size="0.875rem" />}
       </button>
@@ -651,6 +647,7 @@ function AuthorNotesButton({ chatId, chatMeta }: { chatId: string | null; chatMe
               : "bg-foreground/5 border-foreground/10 text-foreground/60 hover:bg-foreground/10 hover:text-foreground",
         )}
         title="Author's Notes"
+        aria-label="Author's Notes"
       >
         <PenLine size="0.875rem" />
       </button>
@@ -721,8 +718,10 @@ type RoleplaySurfaceProps = {
   expressionAgentEnabled: boolean;
   expressionAvatarsEnabled: boolean;
   expressionAvatarResolver?: ExpressionAvatarResolver;
-  combatAgentEnabled: boolean;
-  encounterActive: boolean;
+  /** The chat has the Combat agent on, which is what offers the Encounter button. */
+  encountersEnabled: boolean;
+  /** This chat owns the app's encounter, so its setup dialog or combat window shows. */
+  encounterShown: boolean;
   spritePosition: SpriteSide;
   spriteCharacterIds: string[];
   spriteDisplayModes: SpriteDisplayMode[];
@@ -780,7 +779,7 @@ type RoleplaySurfaceProps = {
   onRerunSingleTracker: (agentType: string) => void;
   onRetryFailedAgents?: () => void;
   onRetryAgent?: (agentType: string) => void;
-  onStartEncounter: () => void;
+  onOpenEncounterSetup: () => void;
   onConcludeScene: () => void;
   onReopenScene: () => void;
   onAbandonScene: () => void;
@@ -828,8 +827,8 @@ export function ChatRoleplaySurface({
   expressionAgentEnabled,
   expressionAvatarsEnabled,
   expressionAvatarResolver,
-  combatAgentEnabled,
-  encounterActive,
+  encountersEnabled,
+  encounterShown,
   spritePosition,
   spriteCharacterIds,
   spriteDisplayModes,
@@ -886,7 +885,7 @@ export function ChatRoleplaySurface({
   onRerunSingleTracker,
   onRetryFailedAgents,
   onRetryAgent,
-  onStartEncounter,
+  onOpenEncounterSetup,
   onConcludeScene,
   onReopenScene,
   onAbandonScene,
@@ -992,6 +991,7 @@ export function ChatRoleplaySurface({
   const { setRightSlot } = useTopBarActions();
   const [toolsSheetOpen, setToolsSheetOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [makeFromOpen, setMakeFromOpen] = useState(false);
   const moreMenuBtnRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const branchSelectorRef = useRef<ChatBranchSelectorHandle | null>(null);
@@ -1114,6 +1114,19 @@ export function ChatRoleplaySurface({
     setRightSlot(
       <>
         <button
+          type="button"
+          onClick={() => {
+            setMoreMenuOpen(false);
+            setToolsSheetOpen(false);
+            setMakeFromOpen(true);
+          }}
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-[var(--primary)] transition-all active:scale-90 hover:bg-[var(--accent)]/30"
+          title="Make from this"
+          aria-label="Make from this"
+        >
+          <Sparkles size="1.15rem" />
+        </button>
+        <button
           ref={moreMenuBtnRef}
           type="button"
           onClick={() => {
@@ -1170,7 +1183,7 @@ export function ChatRoleplaySurface({
     if (topChromeRef.current) observer.observe(topChromeRef.current);
     if (inputChromeRef.current) observer.observe(inputChromeRef.current);
     return () => observer.disconnect();
-  }, [activeChatId, addonsReady, agentsUiEnabled, centerCompact, chatMeta.sceneStatus, combatAgentEnabled]);
+  }, [activeChatId, addonsReady, agentsUiEnabled, centerCompact, chatMeta.sceneStatus, encountersEnabled]);
 
   useEffect(() => {
     setAddonsReady(false);
@@ -1247,6 +1260,7 @@ export function ChatRoleplaySurface({
                   </div>
                 )}
                 <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-1.5">
+                  {chat && <MakeFromThisButton onClick={() => setMakeFromOpen(true)} />}
                   <ChatBranchSelector
                     activeChatId={activeChatId}
                     activeChatName={chat?.name}
@@ -1330,11 +1344,7 @@ export function ChatRoleplaySurface({
               </div>
             </div>
 
-            {encounterActive && (
-              <Suspense fallback={null}>
-                <EncounterModal />
-              </Suspense>
-            )}
+            {encounterShown && <LazyEncounterHost chatId={activeChatId} />}
 
             <div
               className={cn("absolute inset-0 z-10 overflow-clip min-w-0", TRACKER_SCROLL_AVOIDANCE_CLASS)}
@@ -1535,18 +1545,7 @@ export function ChatRoleplaySurface({
                     onReopen={onReopenScene}
                   />
                 )}
-                {!isConcludedScene && combatAgentEnabled && (
-                  <div className="flex justify-center py-1">
-                    <button
-                      onClick={onStartEncounter}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs text-foreground/50 transition-all hover:bg-foreground/10 hover:text-orange-300"
-                      title="Start Combat Encounter"
-                    >
-                      <Swords size="0.875rem" />
-                      <span>Encounter</span>
-                    </button>
-                  </div>
-                )}
+                {encountersEnabled && !isConcludedScene && <EncounterLauncher onStart={onOpenEncounterSetup} />}
                 {!isConcludedScene && (
                   <ChatInput
                     mode={isRoleplay ? "roleplay" : "conversation"}
@@ -1620,6 +1619,14 @@ export function ChatRoleplaySurface({
           </>
         )}
 
+        {chat && (
+          <MakeFromThisDialog
+            open={makeFromOpen}
+            onClose={() => setMakeFromOpen(false)}
+            source={{ id: chat.id, mode: chat.mode, characterIds: chat.characterIds, linked: !!chat.connectedChatId }}
+          />
+        )}
+
         {/* More options top sheet */}
         {moreMenuOpen &&
           createPortal(
@@ -1640,6 +1647,20 @@ export function ChatRoleplaySurface({
                 </p>
 
                 <div className="flex flex-col pb-3">
+                  {/* Make a fic, trance and more from this */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      setMakeFromOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-400 to-pink-500 text-white shadow-sm">
+                      <Sparkles size="0.9rem" />
+                    </div>
+                    <span className="text-sm font-medium text-[var(--foreground)]">Make a fic, trance and more</span>
+                  </button>
                   {/* Branches */}
                   {chat?.groupId && (
                     <div

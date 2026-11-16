@@ -29,6 +29,7 @@ import {
   WorldTickStateError,
   type WorldTickStateOptions,
 } from "./world-tick-state";
+import { errorMessage } from "../../../shared/error-text";
 
 export type WorldTickErrorCode =
   | "chat_not_found"
@@ -76,10 +77,6 @@ const proposalSchema = z.object({
     }),
   ),
 });
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function rawState(chat: JsonRecord): unknown {
   return parseRecord(chat.metadata)[WORLD_TICK_METADATA_KEY] ?? null;

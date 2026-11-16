@@ -61,32 +61,6 @@ function eventRecord(event: unknown): Record<string, unknown> {
 }
 
 const noopIntegrations: IntegrationGateway = {
-  spotify: {
-    async playbackAvailable() {
-      return false;
-    },
-    async player() {
-      return asStorageValue({});
-    },
-    async playlists() {
-      return asStorageValue({});
-    },
-    async playlistTracks() {
-      return asStorageValue({});
-    },
-    async searchTracks() {
-      return asStorageValue({});
-    },
-    async playTrack() {
-      return asStorageValue({});
-    },
-    async play() {
-      return asStorageValue({});
-    },
-    async volume() {
-      return asStorageValue({});
-    },
-  },
   customTools: {
     async execute() {
       return asStorageValue({});

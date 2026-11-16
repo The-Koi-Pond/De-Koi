@@ -235,6 +235,8 @@ const CHAT_SURFACE_CHARACTER_SUMMARY_OPTIONS = {
       "extensions.boxColor",
       "extensions.publicProfile",
       "extensions.musicProfile",
+      "extensions.sceneBackgrounds",
+      "extensions.startsStaged",
     ],
   },
 };

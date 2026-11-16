@@ -1,12 +1,9 @@
+import { isRecord } from "../../engine/shared/value-readers";
 const SECRET_REPLACEMENT = "[redacted]";
 const LOCAL_PATH_REPLACEMENT = "[redacted local path]";
 const DATA_URI_REPLACEMENT = "[redacted data uri]";
 const ENCODED_REPLACEMENT = "[redacted encoded data]";
 const STACK_LINE_LIMIT = 5;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 function sensitiveKey(key: string): boolean {
   const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");

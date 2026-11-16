@@ -1139,6 +1139,8 @@ export function GeneralSettings() {
 export function AppearanceSettings() {
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
+  const followSystemTheme = useUIStore((s) => s.followSystemTheme);
+  const setFollowSystemTheme = useUIStore((s) => s.setFollowSystemTheme);
   const visualTheme = useUIStore((s) => s.visualTheme);
   const setVisualTheme = useUIStore((s) => s.setVisualTheme);
   const chatBackground = useUIStore((s) => s.chatBackground);
@@ -1313,13 +1315,22 @@ export function AppearanceSettings() {
       <label className="flex flex-col gap-1">
         <span className="text-xs font-medium inline-flex items-center gap-1">
           Color Scheme{" "}
-          <HelpTooltip text="Switch between dark and light mode. Dark mode is easier on the eyes in low-light environments." />
+          <HelpTooltip text="Dark, light, or match your device's setting (switching when it does). Dark mode is easier on the eyes in low light." />
         </span>
         <select
-          value={theme}
-          onChange={(e) => setTheme(e.target.value as "dark" | "light")}
+          value={followSystemTheme ? "system" : theme}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value === "system") {
+              setFollowSystemTheme(true);
+              return;
+            }
+            setFollowSystemTheme(false);
+            setTheme(value === "light" ? "light" : "dark");
+          }}
           className="rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]"
         >
+          <option value="system">Match system</option>
           <option value="dark">Dark</option>
           <option value="light">Light</option>
         </select>

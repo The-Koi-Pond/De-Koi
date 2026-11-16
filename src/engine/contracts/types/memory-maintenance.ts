@@ -1,7 +1,5 @@
 export type MemoryCleanupScope =
-  | { kind: "chat"; id: string }
-  | { kind: "scene"; id: string }
-  | { kind: "character"; id: string };
+  { kind: "chat"; id: string } | { kind: "scene"; id: string } | { kind: "character"; id: string };
 
 type MemoryCleanupStatus = "active" | "pinned" | "deleted" | "wrong" | "stale" | "superseded";
 
@@ -36,11 +34,7 @@ export interface MemoryCleanupSource {
 export type MemoryCleanupProposalType = "discard" | "keep_one" | "combine" | "clarify" | "conflict";
 
 export type MemoryCleanupReason =
-  | "Low-value memory"
-  | "Repeated fact"
-  | "Overlapping memories"
-  | "Context clarification"
-  | "Possible conflict";
+  "Low-value memory" | "Repeated fact" | "Overlapping memories" | "Context clarification" | "Possible conflict";
 
 export interface MemoryCleanupProposal {
   id: string;

@@ -1,15 +1,8 @@
 export type StorageManagedAssetKind =
-  | "avatar"
-  | "avatar-thumbnail"
-  | "background"
-  | "entity-image"
-  | "gallery"
-  | "lorebook"
-  | "sprite";
+  "avatar" | "avatar-thumbnail" | "background" | "entity-image" | "gallery" | "lorebook" | "sprite";
 
 export type StorageReadJsonField =
-  | { name: string; kind: "array" }
-  | { name: string; kind: "object"; fallback: "empty-object" | "null" };
+  { name: string; kind: "array" } | { name: string; kind: "object"; fallback: "empty-object" | "null" };
 
 export interface StorageInvalidationRule {
   kinds: readonly StorageManagedAssetKind[];

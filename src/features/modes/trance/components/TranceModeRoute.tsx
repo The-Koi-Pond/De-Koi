@@ -1,0 +1,379 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FolderOpen, Loader2, Orbit, Play, RefreshCw, Share2, SlidersHorizontal } from "lucide-react";
+import { useChatSurfaceCharacterSummariesByIds } from "../../../catalog/characters/index";
+import { useChat } from "../../../catalog/chats/index";
+import type { TranceAfter, TranceFinish, TranceState } from "../../../../engine/contracts/types/trance";
+import { readTranceDraftPitches } from "../../../../engine/modes/trance/from-chat";
+import { readTranceSource } from "../../../../engine/modes/trance/source";
+import {
+  TRANCE_ENDING_LABELS,
+  defaultTranceRequest,
+  tranceEstimatedMinutes,
+  tranceStage,
+  tranceTagSummary,
+} from "../../../../engine/modes/trance/request";
+import { toUserMessage } from "../../../../shared/lib/error-message";
+import { useChatStore } from "../../../../shared/stores/chat.store";
+import { useUIStore } from "../../../../shared/stores/ui.store";
+import {
+  shareTranceSession,
+  useOpenSharedTrance,
+  useTranceChat,
+  useTranceRecordRun,
+  useTranceRequestSave,
+  useTranceScript,
+} from "../hooks/use-trance";
+import { tranceCharacterColors } from "../lib/trance-colors";
+import { TrancePlayer } from "./TrancePlayer";
+import { TranceRequestForm, type TranceRequestSubmit } from "./TranceRequestForm";
+import { TranceSessionOptions } from "./TranceSessionOptions";
+import { TranceStartFromChat } from "./TranceStartFromChat";
+import { MakeFromThisButton, MakeFromThisDialog } from "../../shared/chat-ui/index";
+import { useDiscardUntouchedNewChat } from "../../shared/chat-ui/new-chat-drafts";
+
+export interface TranceModeRouteProps {
+  activeChatId: string;
+}
+
+function errorText(error: unknown, fallback: string): string | null {
+  if (!error) return null;
+  if (error instanceof DOMException && error.name === "AbortError") return null;
+  return toUserMessage(error, { fallback });
+}
+
+const FINISH_LABELS: Record<TranceFinish, string> = {
+  completed: "Finished",
+  gentle: "Woke early",
+  calm: "Left through the calm exit",
+  stop: "Stopped",
+};
+
+function PastRuns({ state }: { state: TranceState }) {
+  if (state.runs.length === 0) return null;
+  return (
+    <section className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)] p-3">
+      <h3 className="mb-2 text-sm font-bold text-[var(--foreground)]">Past runs</h3>
+      <ul className="flex flex-col gap-2">
+        {state.runs.slice(0, 5).map((run) => (
+          <li key={run.at} className="text-sm text-[var(--foreground)]">
+            <span className="font-semibold">{FINISH_LABELS[run.finishedBy]}</span>
+            {run.rating !== null && <span className="text-[var(--muted-foreground)]"> · felt {run.rating}/10</span>}
+            {run.fullyAwake === false && <span className="text-[var(--muted-foreground)]"> · needed waking more</span>}
+            {run.seconds !== null && (
+              <span className="text-[var(--muted-foreground)]">
+                {" "}
+                · took {Math.max(1, Math.round(run.seconds / 60))} min
+              </span>
+            )}
+            {run.at && <span className="text-[var(--muted-foreground)]"> · {new Date(run.at).toLocaleString()}</span>}
+            {run.note && <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">{run.note}</p>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Lets someone open a session a friend shared, instead of filling in the form. */
+function OpenSharedTrance({ chatId }: { chatId: string }) {
+  const openShared = useOpenSharedTrance(chatId);
+  const input = useRef<HTMLInputElement>(null);
+  const error = errorText(openShared.error, "That shared trance couldn't be opened.");
+  return (
+    <div className="mx-auto flex w-full max-w-xl flex-wrap items-center justify-center gap-x-2 gap-y-1 px-4 pt-4 text-center">
+      <p className="text-sm text-[var(--muted-foreground)]">Got a trance from a friend?</p>
+      <input
+        ref={input}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        aria-hidden="true"
+        tabIndex={-1}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) openShared.mutate(file);
+        }}
+      />
+      <button
+        type="button"
+        disabled={openShared.isPending}
+        onClick={() => input.current?.click()}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)] disabled:opacity-60"
+      >
+        {openShared.isPending ? (
+          <Loader2 size="0.875rem" className="animate-spin" aria-hidden="true" />
+        ) : (
+          <FolderOpen size="0.875rem" aria-hidden="true" />
+        )}
+        Open a shared trance
+      </button>
+      {error && (
+        <p role="alert" className="w-full text-sm text-[var(--foreground)]">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function TranceModeRoute({ activeChatId }: TranceModeRouteProps) {
+  const { chat, state, isLoading, error } = useTranceChat(activeChatId);
+  const saveRequest = useTranceRequestSave(activeChatId);
+  const script = useTranceScript(activeChatId);
+  const recordRun = useTranceRecordRun(activeChatId);
+  const [editing, setEditing] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [makeFromOpen, setMakeFromOpen] = useState(false);
+  const backdrop = useUIStore((state) => state.tranceBackdrop);
+  const voiceMode = useUIStore((state) => state.tranceVoice);
+  const pace = useUIStore((state) => state.trancePace);
+  const buttonWords = useUIStore((state) => state.tranceButtonWords);
+  const ambience = useUIStore((state) => state.tranceAmbience);
+  const ambienceVolume = useUIStore((state) => state.tranceAmbienceVolume);
+  const stage = tranceStage(state);
+  const characterIds = useMemo(() => chat?.characterIds ?? [], [chat?.characterIds]);
+  // A session made from a chat, roleplay or fic: it opens on ideas drawn from it, and new ideas keep drawing on it
+  // while that chat is still here.
+  const draftIdeas = useMemo(() => readTranceDraftPitches(chat?.metadata), [chat?.metadata]);
+  const source = useMemo(() => readTranceSource(chat?.metadata), [chat?.metadata]);
+  const { data: sourceChat } = useChat(source?.chatId ?? null);
+  const sourceName = sourceChat ? sourceChat.name?.trim() || source?.name || "your chat" : null;
+  const { data: characterRows } = useChatSurfaceCharacterSummariesByIds(
+    characterIds.slice(0, 1),
+    characterIds.length > 0,
+  );
+  const guide = (characterRows as Array<{ data?: { name?: string; extensions?: unknown } }> | undefined)?.[0];
+  // The linked card's name, or the name a shared session came with.
+  const guideName = guide?.data?.name?.trim() || state?.guideName || "";
+  const characterName = guideName || "Your guide";
+  const colors = useMemo(() => tranceCharacterColors(guide?.data?.extensions), [guide?.data?.extensions]);
+
+  useEffect(() => {
+    if (chat) useChatStore.getState().setActiveChat(chat);
+  }, [chat]);
+
+  // Started with New and left on the session form with nothing saved (no request or guide): drop it.
+  useDiscardUntouchedNewChat(
+    activeChatId,
+    !isLoading && !!chat && stage === "request" && !saveRequest.isPending && characterIds.length === 0,
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6 text-[var(--muted-foreground)]">
+        <Loader2 className="animate-spin" aria-hidden="true" />
+        <span className="sr-only">Loading the session</span>
+      </div>
+    );
+  }
+  if (error || !chat) {
+    return (
+      <p role="alert" className="p-6 text-sm text-[var(--foreground)]">
+        {errorText(error, "This session couldn't be loaded.") ?? "This session couldn't be loaded."}
+      </p>
+    );
+  }
+
+  if (playing && state?.script) {
+    // The session covers the whole app: one line on a quiet screen, nothing else to read.
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Trance session"
+        className="fixed inset-0 z-[100] flex flex-col overflow-y-auto pt-[env(safe-area-inset-top)]"
+      >
+        <TrancePlayer
+          key={state.script.createdAt}
+          script={state.script}
+          ending={state.request.ending}
+          saving={recordRun.isPending}
+          saveError={errorText(recordRun.error, "That couldn't be saved. Try again.")}
+          onFinish={(after: TranceAfter) => recordRun.mutate(after, { onSuccess: () => setPlaying(false) })}
+          backdrop={backdrop}
+          voiceMode={voiceMode}
+          pace={pace}
+          buttonWords={buttonWords}
+          characterId={characterIds[0] ?? null}
+          characterName={characterName}
+          colors={colors}
+          ambience={ambience}
+          ambienceVolume={ambienceVolume}
+        />
+      </div>
+    );
+  }
+
+  const submit = (input: TranceRequestSubmit) => {
+    script.reset();
+    saveRequest.mutate(
+      { request: input.request, connectionId: input.connectionId, characterId: input.characterId },
+      {
+        onSuccess: () => {
+          setEditing(false);
+          script.mutate();
+        },
+      },
+    );
+  };
+
+  if (stage === "request" || editing) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {stage === "request" && draftIdeas.length === 0 && (
+          <>
+            <TranceStartFromChat chatId={activeChatId} />
+            <OpenSharedTrance chatId={activeChatId} />
+          </>
+        )}
+        <TranceRequestForm
+          // Basing the session on a chat brings a new guide and ideas: the form starts again with them.
+          key={source?.chatId ?? "own"}
+          initial={state?.request ?? defaultTranceRequest()}
+          initialCharacterId={characterIds[0] ?? null}
+          initialConnectionId={chat.connectionId ?? null}
+          submitting={saveRequest.isPending}
+          error={errorText(saveRequest.error, "The session couldn't be saved. Try again.")}
+          onSubmit={submit}
+          initialPath={stage === "request" ? null : "build"}
+          initialIdeas={stage === "request" ? draftIdeas : []}
+          sourceChatId={sourceChat ? source!.chatId : null}
+          sourceName={sourceName}
+          onCancel={stage === "request" ? undefined : () => setEditing(false)}
+        />
+      </div>
+    );
+  }
+
+  const request = state!.request;
+  const writeError = errorText(script.error, "The session couldn't be written. Try again.");
+  const minutes = state?.script
+    ? tranceEstimatedMinutes(state.script.lines.length, state.script.linesPerMinute)
+    : request.minutes;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-4 px-4 py-8 text-center">
+        <Orbit size="2rem" className="text-[var(--primary)]" aria-hidden="true" />
+        <div>
+          <h2 className="text-lg font-bold text-[var(--foreground)]">{request.pitch?.title ?? characterName}</h2>
+          {request.pitch && <p className="text-sm text-[var(--muted-foreground)]">with {characterName}</p>}
+          {request.pitch?.summary && (
+            <p className="mx-auto mt-1 max-w-md text-sm text-[var(--foreground)]">{request.pitch.summary}</p>
+          )}
+          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+            {tranceTagSummary(request)} · about {minutes} min · {TRANCE_ENDING_LABELS[request.ending]}
+          </p>
+        </div>
+
+        {script.isPending ? (
+          <div className="flex flex-col items-center gap-3 py-4" role="status">
+            <Loader2 className="animate-spin text-[var(--primary)]" aria-hidden="true" />
+            <p className="text-sm text-[var(--foreground)]">Writing your session…</p>
+            <p className="text-xs text-[var(--muted-foreground)]">
+              Get comfortable. Longer sessions take a little longer to write.
+            </p>
+            <button
+              type="button"
+              onClick={script.stop}
+              className="rounded-lg px-3 py-1.5 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            >
+              Stop
+            </button>
+          </div>
+        ) : stage === "ready" ? (
+          <>
+            <TranceSessionOptions characterId={characterIds[0] ?? null} characterName={characterName} />
+            <p className="max-w-md text-sm text-[var(--muted-foreground)]">
+              Settle in somewhere comfortable.{" "}
+              {voiceMode === "eyes-closed"
+                ? "Close your eyes whenever you like and listen; each line follows by itself."
+                : pace === "auto"
+                  ? "Each line moves on by itself; pause at the top if you want a moment."
+                  : "Read each line as it comes and press the button (or Space) to go on."}{" "}
+              <strong className="font-semibold text-[var(--foreground)]">I need out</strong> is always at the top if you
+              want to stop. It stays dim so it won't catch your eye, and it always works.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                recordRun.reset();
+                setPlaying(true);
+              }}
+              className="inline-flex items-center gap-2 rounded-full bg-[var(--primary)] px-8 py-3 text-base font-semibold text-[var(--primary-foreground)]"
+            >
+              <Play size="1.125rem" aria-hidden="true" />
+              Start
+            </button>
+          </>
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-2">
+            {writeError ? (
+              <p role="alert" className="text-sm text-[var(--foreground)]">
+                {writeError}
+              </p>
+            ) : (
+              <p className="text-sm text-[var(--muted-foreground)]">This session hasn't been written yet.</p>
+            )}
+            <button
+              type="button"
+              onClick={() => script.mutate()}
+              className="rounded-full bg-[var(--primary)] px-6 py-2.5 text-sm font-semibold text-[var(--primary-foreground)]"
+            >
+              Write the session
+            </button>
+          </div>
+        )}
+
+        {!script.isPending && (
+          <div className="flex flex-wrap justify-center gap-2">
+            {stage === "ready" && (
+              <button
+                type="button"
+                onClick={() => script.mutate()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)]"
+              >
+                <RefreshCw size="0.875rem" aria-hidden="true" />
+                New script, same settings
+              </button>
+            )}
+            {stage === "ready" && state && (
+              <button
+                type="button"
+                onClick={() => shareTranceSession(state, guideName)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)]"
+              >
+                <Share2 size="0.875rem" aria-hidden="true" />
+                Share
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--foreground)]"
+            >
+              <SlidersHorizontal size="0.875rem" aria-hidden="true" />
+              Change settings
+            </button>
+            {/* Talk it over with the guide, or turn the session into a fic. */}
+            {stage === "ready" && characterIds.length > 0 && (
+              <MakeFromThisButton onClick={() => setMakeFromOpen(true)} className="py-1.5 text-sm" />
+            )}
+          </div>
+        )}
+        <MakeFromThisDialog
+          open={makeFromOpen}
+          onClose={() => setMakeFromOpen(false)}
+          source={{ id: activeChatId, mode: "trance", characterIds }}
+        />
+        {stage === "ready" && writeError && (
+          <p role="alert" className="text-sm text-[var(--foreground)]">
+            {writeError}
+          </p>
+        )}
+        {state && <PastRuns state={state} />}
+      </div>
+    </div>
+  );
+}

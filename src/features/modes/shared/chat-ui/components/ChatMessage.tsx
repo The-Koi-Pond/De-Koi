@@ -1190,10 +1190,7 @@ export const ChatMessage = memo(function ChatMessage({
   const scopedRegexMode = useChatStore((s) => {
     const meta = s.activeChat?.metadata;
     return (meta as Record<string, unknown> | undefined)?.scopedRegexMode as
-      | "disabled"
-      | "exclusive"
-      | "chat"
-      | undefined;
+      "disabled" | "exclusive" | "chat" | undefined;
   });
 
   const scopedCharacterMap = useMemo(() => {

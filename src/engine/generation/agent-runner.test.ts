@@ -92,32 +92,6 @@ function testStorage(agentRows: JsonRecord[], connections: JsonRecord[], agentRu
 }
 
 const noopIntegrations: IntegrationGateway = {
-  spotify: {
-    async playbackAvailable() {
-      return false;
-    },
-    async player<T = unknown>() {
-      return asStorageValue<T>({});
-    },
-    async playlists<T = unknown>() {
-      return asStorageValue<T>({});
-    },
-    async playlistTracks<T = unknown>() {
-      return asStorageValue<T>({});
-    },
-    async searchTracks<T = unknown>() {
-      return asStorageValue<T>({});
-    },
-    async playTrack<T = unknown>() {
-      return asStorageValue<T>({});
-    },
-    async play<T = unknown>() {
-      return asStorageValue<T>({});
-    },
-    async volume<T = unknown>() {
-      return asStorageValue<T>({});
-    },
-  },
   customTools: {
     async execute<T = unknown>() {
       return asStorageValue<T>({});

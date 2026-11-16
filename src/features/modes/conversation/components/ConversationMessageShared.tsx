@@ -2,6 +2,8 @@ import { memo, useMemo, type CSSProperties, type MouseEvent, type ReactNode, typ
 import { createPortal } from "react-dom";
 import { Brain, ChevronRight, EyeOff, RefreshCw, Trash2, User, X } from "lucide-react";
 import type { Message, MessageAttachment, MessageExtra, MessageSwipe } from "../../../../engine/contracts/types/chat";
+import { isVoiceNoteAttachment } from "../../../../engine/modes/chat/voice-notes/voice-notes";
+import { VoiceNotePlayer } from "./VoiceNotePlayer";
 import type { ConversationAvatarOverride } from "../../../../engine/contracts/types/character";
 import { formatTextQuotes, type QuoteFormat } from "../../../../shared/lib/dialogue-quotes";
 import { applyTextareaQuoteFormat } from "../../../../shared/lib/textarea-quotes";
@@ -554,6 +556,8 @@ export function ConversationMessageBodyContent({
 }) {
   if (context.isHiddenCollapsed) return null;
   if (context.editing) return <ConversationMessageEditForm context={context} />;
+  // A voice note shows its player; the message text is its transcript.
+  const voiceNote = context.isStreaming ? undefined : context.attachments.find(isVoiceNoteAttachment);
 
   return (
     <>
@@ -606,6 +610,13 @@ export function ConversationMessageBodyContent({
                   />
                 )}
               </StreamingReveal>
+            ) : voiceNote ? (
+              <VoiceNotePlayer
+                chatId={context.message.chatId}
+                filename={voiceNote.filename}
+                url={voiceNote.url}
+                transcript={context.renderedContent}
+              />
             ) : groupedBubbleContent ? (
               groupedBubbleContent
             ) : context.renderedContentParts ? (

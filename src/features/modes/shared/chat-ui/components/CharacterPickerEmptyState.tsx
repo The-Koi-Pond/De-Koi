@@ -3,7 +3,8 @@ import { Loader2, Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
 import {
   blankCharacterCreateInput,
-  starterCharacterCreateInput,
+  starterStagingAssetUrl,
+  useAddStarterCharacter,
   useCreateCharacter,
 } from "../../../../catalog/characters/index";
 import type { StarterCharacter } from "../../../../../engine/modes/roleplay/starter-characters";
@@ -88,16 +89,21 @@ function StarterCharacterChoices({
   starters: readonly StarterCharacter[];
   onCreated: (characterId: string, name: string) => void;
 }) {
-  const createCharacter = useCreateCharacter();
+  const { add } = useAddStarterCharacter();
   const [creatingId, setCreatingId] = useState<string | null>(null);
 
   const choose = async (starter: StarterCharacter) => {
     if (creatingId) return;
     setCreatingId(starter.id);
     try {
-      const result = await createCharacter.mutateAsync(starterCharacterCreateInput(starter));
-      const id = (result as { id?: string } | undefined)?.id;
-      if (!id) throw new Error("The new character came back without an id.");
+      const { id, artError } = await add(starter);
+      if (artError) {
+        toast.error(`${starter.name} was added, but their pictures couldn't be saved.`, {
+          description: toUserMessage(artError, {
+            fallback: "You can add sprites and an avatar later in Characters.",
+          }),
+        });
+      }
       onCreated(id, starter.name);
     } catch (error) {
       toast.error(toUserMessage(error, { fallback: `Couldn't add ${starter.name}. Try again.` }));
@@ -122,6 +128,12 @@ function StarterCharacterChoices({
               size="0.875rem"
               className="mt-0.5 shrink-0 animate-spin text-[var(--primary)]"
               aria-hidden="true"
+            />
+          ) : starter.staging ? (
+            <img
+              src={starterStagingAssetUrl(starter.staging, starter.staging.avatar)}
+              alt=""
+              className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-[var(--border)]"
             />
           ) : (
             <Plus size="0.875rem" className="mt-0.5 shrink-0 text-[var(--primary)]" aria-hidden="true" />

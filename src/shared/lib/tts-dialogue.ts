@@ -194,7 +194,7 @@ function resolveNpcDefaultVoice(
   return pool[stableTTSIndex(seed, pool.length)] ?? "";
 }
 
-function resolveTTSVoiceForSpeaker(
+export function resolveTTSVoiceForSpeaker(
   config: Pick<TTSConfig, "voice"> &
     Partial<
       Pick<

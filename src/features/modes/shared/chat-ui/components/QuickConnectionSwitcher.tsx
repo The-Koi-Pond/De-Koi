@@ -101,6 +101,7 @@ export function QuickConnectionSwitcher({ className }: { className?: string }) {
         ref={btnRef}
         onClick={() => setOpen((v) => !v)}
         title="Quick Connection Switcher"
+        aria-label="Switch connection"
         className={cn(
           CHAT_INPUT_ICON_BUTTON_CLASS,
           open ? CHAT_INPUT_ICON_BUTTON_ACTIVE_CLASS : CHAT_INPUT_ICON_BUTTON_IDLE_CLASS,

@@ -1,3 +1,4 @@
+import { isRecord } from "../../../shared/value-readers";
 // ──────────────────────────────────────────────
 // Conversation message reactions (tapbacks)
 // ──────────────────────────────────────────────
@@ -14,10 +15,6 @@ export interface MessageReaction {
   /** "user", or the reacting character's id. */
   by: string;
   at: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Reads the reactions saved on a message's extra, dropping malformed entries and duplicate reactors. */

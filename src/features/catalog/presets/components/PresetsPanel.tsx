@@ -41,7 +41,8 @@ import {
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { boolish } from "../../../../engine/generation/runtime-records";
-import { isRecord, normalizeChoiceSelections, type ChoiceSelections } from "../lib/choice-selections";
+import { isRecord } from "../../../../engine/shared/value-readers";
+import { normalizeChoiceSelections, type ChoiceSelections } from "../lib/choice-selections";
 import {
   CatalogActionBar,
   CatalogRowActions,
@@ -769,15 +770,7 @@ export function PresetsPanel() {
               </button>
             </div>
 
-            <div className="mt-1 flex flex-col gap-1">
-              {displayedPresetFolders.map(renderPresetFolder)}
-              {presetFolderList.length === 0 && (
-                <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2.5 text-center text-[0.625rem] text-[var(--muted-foreground)]">
-                  No folders yet - click <FolderPlus size="0.625rem" className="inline" aria-hidden="true" /> to create
-                  one
-                </div>
-              )}
-            </div>
+            <div className="mt-1 flex flex-col gap-1">{displayedPresetFolders.map(renderPresetFolder)}</div>
           </div>
         )}
 

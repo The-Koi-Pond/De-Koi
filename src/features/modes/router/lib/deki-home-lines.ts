@@ -1,6 +1,6 @@
 import type { HomeSuggestionDestination } from "./home-suggestions";
 
-export type HomeMode = "conversation" | "roleplay" | "fanfic";
+export type HomeMode = "conversation" | "roleplay" | "fanfic" | "trance";
 
 /*
  * What Deki says in their bubble on the Pond theme's Home screen, in
@@ -13,6 +13,8 @@ const MODE_LINES: Record<HomeMode, string> = {
   conversation: "Conversation: chat with characters like you're texting them. Or with the model itself!",
   roleplay: "Roleplay: you play a part, the AI plays everyone else, and a story happens. My favourite!",
   fanfic: "Fanfic: pick the fandom, ships and tropes, then read your story chapter by chapter.",
+  trance:
+    "Trance: a hypnosis session in a character's voice. Pick the feel and length, then just read along, one line at a time.",
 };
 
 const NEXT_STEP_LINES: Record<HomeSuggestionDestination, string> = {

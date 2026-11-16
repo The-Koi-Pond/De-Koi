@@ -3,11 +3,10 @@
 import { phoneNotificationsApi } from "../api/phone-notifications-api";
 import { LOCAL_NOTIFICATION_ACTIVATION_EVENT, type LocalNotificationActivationDetail } from "./local-notifications";
 
-export const PUSH_SERVICE_WORKER_URL = "/push-sw.js";
+const PUSH_SERVICE_WORKER_URL = "/push-sw.js";
 
 export type PhoneNotificationSupport =
-  | { supported: true }
-  | { supported: false; reason: "insecure" | "unsupported" | "no-runner" };
+  { supported: true } | { supported: false; reason: "insecure" | "unsupported" | "no-runner" };
 
 export async function phoneNotificationSupport(): Promise<PhoneNotificationSupport> {
   if (typeof window === "undefined") return { supported: false, reason: "unsupported" };

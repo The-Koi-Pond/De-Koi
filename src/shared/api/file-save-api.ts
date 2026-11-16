@@ -1,6 +1,7 @@
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { triggerDownload, type DownloadPayload } from "./download-payload";
 import { hasEmbeddedTauriIpc, invokeTauri } from "./tauri-client";
+import { errorMessage } from "../../engine/shared/error-text";
 
 type BrowserSaveFilePicker = (options?: {
   suggestedName?: string;
@@ -82,10 +83,6 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 function nativeSaveSessionId(): string {
   return `save-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 type NativeSaveSession = {

@@ -4,6 +4,7 @@ import {
   type ActiveLorebookScopeLorebook,
   type ActiveLorebookScopeReason,
 } from "./active-lorebook-scope";
+import { isRecord } from "../../shared/value-readers";
 
 type LorebookKeeperTargetSource = "configured" | "proposed" | "active";
 
@@ -15,10 +16,6 @@ export interface LorebookKeeperTarget {
 
 export interface LorebookKeeperTargetContext extends ActiveLorebookScopeContext {
   proposedLorebookId?: unknown;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function parseRecord(value: unknown): Record<string, unknown> {

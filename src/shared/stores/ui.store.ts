@@ -1,6 +1,7 @@
 // --------------------------------------------------
 // Zustand Store: UI Slice
 // --------------------------------------------------
+import { systemColorScheme } from "../lib/system-color-scheme";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { normalizeQuoteFormat } from "../lib/dialogue-quotes";
@@ -124,7 +125,8 @@ export const useUIStore = create<UIState>()(
       settingsTab: "general",
       pendingSettingsDestination: null,
       modal: null,
-      theme: "dark" as const,
+      theme: systemColorScheme(),
+      followSystemTheme: true,
       chatBackground: null,
       chatBackgroundBlur: 0,
       characterDetailId: null,
@@ -179,10 +181,10 @@ export const useUIStore = create<UIState>()(
       quoteFormat: "straight" as QuoteFormat,
       trimIncompleteModelOutput: false,
       speechToTextEnabled: false,
-      spotifyPlayerEnabled: false,
+      musicPlayerEnabled: false,
       remoteRuntimeUrl: "",
-      spotifyMobileWidgetCollapsed: false,
-      spotifyMobileWidgetPosition: { x: 16, y: 96 },
+      musicPlayerMobileWidgetCollapsed: false,
+      musicPlayerMobileWidgetPosition: { x: 16, y: 96 },
       intuitiveSwipeNavigation: false,
       intuitiveSwipeRerollLatest: false,
       editLastMessageOnArrowUp: true,
@@ -216,6 +218,12 @@ export const useUIStore = create<UIState>()(
       enterToSendConvo: true,
       weatherEffects: true,
       roleplaySceneSound: false,
+      tranceBackdrop: "drift",
+      tranceVoice: "off",
+      trancePace: "press",
+      tranceButtonWords: "quiet",
+      tranceAmbience: "auto",
+      tranceAmbienceVolume: 0.5,
       sceneAmbientVolume: 0.35,
       sceneEffectsVolume: 0.6,
       hudPosition: "top" as HudPosition,
@@ -305,6 +313,7 @@ export const useUIStore = create<UIState>()(
       openModal: (type, props) => set({ modal: { type, props } }),
       closeModal: () => set({ modal: null }),
       setTheme: (theme) => set({ theme }),
+      setFollowSystemTheme: (follow) => set({ followSystemTheme: follow }),
       setChatBackground: (url) => set({ chatBackground: url }),
       setChatBackgroundBlur: (v) =>
         set({ chatBackgroundBlur: Math.max(0, Math.min(24, Math.round(Number.isFinite(v) ? v : 0))) }),
@@ -455,12 +464,12 @@ export const useUIStore = create<UIState>()(
       setQuoteFormat: (v) => set({ quoteFormat: normalizeQuoteFormat(v) }),
       setTrimIncompleteModelOutput: (v) => set({ trimIncompleteModelOutput: v }),
       setSpeechToTextEnabled: (v) => set({ speechToTextEnabled: v }),
-      setSpotifyPlayerEnabled: (v) => set({ spotifyPlayerEnabled: v }),
+      setMusicPlayerEnabled: (v) => set({ musicPlayerEnabled: v }),
       setRemoteRuntimeUrl: (v) => set({ remoteRuntimeUrl: v.trim() }),
-      setSpotifyMobileWidgetCollapsed: (v) => set({ spotifyMobileWidgetCollapsed: v }),
-      setSpotifyMobileWidgetPosition: (position) =>
+      setMusicPlayerMobileWidgetCollapsed: (v) => set({ musicPlayerMobileWidgetCollapsed: v }),
+      setMusicPlayerMobileWidgetPosition: (position) =>
         set({
-          spotifyMobileWidgetPosition: {
+          musicPlayerMobileWidgetPosition: {
             x: Number.isFinite(position.x) ? Math.max(8, Math.round(position.x)) : 16,
             y: Number.isFinite(position.y) ? Math.max(8, Math.round(position.y)) : 96,
           },
@@ -511,6 +520,12 @@ export const useUIStore = create<UIState>()(
       setEnterToSendConvo: (v) => set({ enterToSendConvo: v }),
       setWeatherEffects: (v) => set({ weatherEffects: v }),
       setRoleplaySceneSound: (v) => set({ roleplaySceneSound: v }),
+      setTranceBackdrop: (v) => set({ tranceBackdrop: v }),
+      setTranceVoice: (v) => set({ tranceVoice: v }),
+      setTrancePace: (v) => set({ trancePace: v }),
+      setTranceButtonWords: (v) => set({ tranceButtonWords: v }),
+      setTranceAmbience: (v) => set({ tranceAmbience: v }),
+      setTranceAmbienceVolume: (v) => set({ tranceAmbienceVolume: Math.min(1, Math.max(0, v)) }),
       setSceneAmbientVolume: (v) => set({ sceneAmbientVolume: Math.max(0, Math.min(1, v)) }),
       setSceneEffectsVolume: (v) => set({ sceneEffectsVolume: Math.max(0, Math.min(1, v)) }),
       setHudPosition: (v) => set({ hudPosition: v }),

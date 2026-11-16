@@ -4,12 +4,41 @@ import type { FanficState } from "../../contracts/types/fanfic";
 import type { StorageGateway } from "../../capabilities/storage";
 import {
   fanficBatchContinues,
+  fanficDurationLabel,
   fanficFollowUpInput,
   fanficFollowUpWrite,
+  fanficWriteAllEstimateMinutes,
   fanficWriteSavedFinished,
   fanficWriteSavedFinishedId,
 } from "./batch";
 import { defaultFanficRequest, normalizeFanficRequest } from "./request";
+
+describe("Write all estimate", () => {
+  const at = (minutes: number) => new Date(Date.UTC(2026, 10, 11, 1, 0) + minutes * 60_000).toISOString();
+
+  it("uses the fic's median chapter gap times the chapters left", () => {
+    // Gaps of 8, 10 and 12 minutes; the 3-hour gap is a break and doesn't count.
+    const times = [at(0), at(8), at(18), at(30), at(210)];
+    expect(fanficWriteAllEstimateMinutes(times, 4)).toBe(40);
+  });
+
+  it("has no estimate until two chapters were written back to back", () => {
+    expect(fanficWriteAllEstimateMinutes([at(0)], 3)).toBeNull();
+    expect(fanficWriteAllEstimateMinutes([at(0), at(120)], 3)).toBeNull();
+    expect(fanficWriteAllEstimateMinutes([], 3)).toBeNull();
+  });
+
+  it("reads times out of order and skips unreadable ones", () => {
+    expect(fanficWriteAllEstimateMinutes([at(20), "not a date", at(0), at(10)], 2)).toBe(20);
+  });
+
+  it("words minutes and hours", () => {
+    expect(fanficDurationLabel(7)).toBe("about 7 min");
+    expect(fanficDurationLabel(60)).toBe("about 1 h");
+    expect(fanficDurationLabel(83)).toBe("about 1 h 25 min");
+    expect(fanficDurationLabel(119)).toBe("about 2 h");
+  });
+});
 
 const state = (approved = true, autoPolish = false): FanficState => ({
   version: 1,

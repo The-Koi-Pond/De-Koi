@@ -17,8 +17,9 @@ describe("built-in agent chat mode availability", () => {
     expect([...filterAgentIdsForChatMode(["illustrator"], "conversation")]).toEqual(["illustrator"]);
   });
 
-  it("maps legacy Spotify active agents to Music Player for roleplay chats", () => {
+  it("maps legacy Spotify active agents to Music Player in every chat mode", () => {
     expect(enabledChatAgentIds({ activeAgentIds: ["spotify", "builtin:spotify"] }, "roleplay")).toEqual(["music-dj"]);
+    expect(enabledChatAgentIds({ activeAgentIds: ["spotify"] }, "conversation")).toEqual(["music-dj"]);
     expect(isBuiltInAgentAvailableInChatMode("roleplay", "music-dj")).toBe(true);
     expect(isBuiltInAgentAvailableInChatMode("roleplay", "spotify")).toBe(true);
   });

@@ -3,6 +3,7 @@ import { LOCAL_SIDECAR_CONNECTION_ID } from "../../engine/contracts/types/sideca
 import { useUIStore } from "../stores/ui.store";
 import { ApiError, parseRetryAfterMs } from "./api-errors";
 import { ignoreLlmStreamCancelFailure } from "./llm-cancel-logging";
+import { isRecord } from "../../engine/shared/value-readers";
 
 const REMOTE_COMMANDS = new Set([
   "character_web_search",
@@ -43,6 +44,7 @@ const REMOTE_COMMANDS = new Set([
   "tts_update_config",
   "tts_voices",
   "tts_speak",
+  "tts_voice_note",
   "stt_transcribe",
   "translate_text_command",
   "discord_webhook_send",
@@ -53,28 +55,16 @@ const REMOTE_COMMANDS = new Set([
   "music_stop",
   "music_set_volume",
   "music_fresh_pick",
-  "spotify_playback_available",
-  "spotify_status",
-  "spotify_authorize",
-  "spotify_exchange",
-  "spotify_disconnect",
-  "spotify_player",
-  "spotify_devices",
-  "spotify_access_token",
-  "spotify_playlists",
-  "spotify_playlist_tracks",
-  "spotify_search_tracks",
-  "spotify_play_track",
-  "spotify_dj_deki_playlist",
-  "spotify_dj_mari_playlist",
-  "spotify_player_play",
-  "spotify_player_pause",
-  "spotify_player_next",
-  "spotify_player_previous",
-  "spotify_player_transfer",
-  "spotify_player_volume",
-  "spotify_player_shuffle",
-  "spotify_player_repeat",
+  "music_resume",
+  "music_playback_state",
+  "music_settings",
+  "music_update_settings",
+  "music_sign_in_start",
+  "music_sign_in_status",
+  "music_sign_in_finish",
+  "music_disconnect",
+  "music_playlists",
+  "music_devices",
   "knowledge_sources_list",
   "knowledge_source_upload",
   "knowledge_source_delete",
@@ -501,10 +491,6 @@ function remoteInvokeHeaders(target: RuntimeTarget, command: string, args?: Reco
     "content-type": "application/json",
     ...(remoteInvokeRequiresAdmin(command, args) ? adminSecretHeader() : {}),
   });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function readString(value: unknown): string {

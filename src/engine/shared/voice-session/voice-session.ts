@@ -16,18 +16,15 @@ import type {
   VoiceReplyHandle,
   VoiceReplySpeaker,
   VoiceSessionPorts,
+  VoiceThinkingSound,
 } from "../../capabilities/voice";
-import { soundsLikeReplyEcho } from "./echo";
+import { soundsLikeReplyEcho, soundsLikeThinkingSound } from "./echo";
+import { VoiceTurnTimer, type VoiceHeardMarks, type VoiceTurnTiming } from "./voice-turn-timing";
+
+export type { VoiceTurnTiming } from "./voice-turn-timing";
 
 export type VoiceSessionPhase =
-  | "connecting"
-  | "listening"
-  | "transcribing"
-  | "thinking"
-  | "speaking"
-  | "interrupted"
-  | "ended"
-  | "error";
+  "connecting" | "listening" | "transcribing" | "thinking" | "speaking" | "interrupted" | "ended" | "error";
 
 /** What the microphone is doing. "sending" means audio is on its way to `destination`. */
 export type VoiceMicState = "off" | "opening" | "listening" | "sending";
@@ -52,6 +49,8 @@ export interface VoiceSessionSnapshot {
   readonly voiceReplies: boolean;
   /** True while a cut-off reply is being stopped, before the user's words are sent. */
   readonly stopping: boolean;
+  /** How long the latest voiced reply took to start, stage by stage; null until one has. */
+  readonly timing: VoiceTurnTiming | null;
 }
 
 export type VoiceSessionEvent =
@@ -62,6 +61,10 @@ export type VoiceSessionEvent =
   | { type: "reply"; sessionId: number; turn: number; text: string }
   | { type: "interrupted"; sessionId: number; turn: number; by: "voice" | "button" }
   | { type: "resumed"; sessionId: number; turn: number; reason: "silence" | "echo" }
+  /** A thinking sound ("Hmm…") started while the reply was being written. */
+  | { type: "thinking_sound"; sessionId: number; turn: number; text: string }
+  /** A reply's voice started: how long it took, stage by stage. */
+  | { type: "timing"; sessionId: number; turn: number; timing: VoiceTurnTiming }
   | { type: "error"; sessionId: number; message: string }
   | { type: "ended"; sessionId: number };
 
@@ -98,9 +101,23 @@ interface Turn {
   /** Times this turn's voice was held for speech that turned out to be noise or its own echo. */
   falseAlarms: number;
   cancelled: boolean;
+  timer: VoiceTurnTimer;
+  /** Waiting to play a thinking sound if the reply is still silent by then. */
+  thinkingSoundTimer: ReturnType<typeof setTimeout> | null;
+  thinkingSound: VoiceThinkingSound | null;
+  /** What the thinking sound said, kept after it stops so its echo is still recognised. */
+  thinkingSoundText: string;
   /** Resolves once the turn has finished or been stopped. */
   over: Promise<void>;
   markOver: () => void;
+}
+
+/** How long a reply stays silent before the character makes a thinking sound. */
+const THINKING_SOUND_DELAY_MS = 400;
+
+export interface VoiceSessionOptions {
+  /** Overrides THINKING_SOUND_DELAY_MS (tests). */
+  thinkingSoundDelayMs?: number;
 }
 
 /** False alarms in one reply after which talking over the voice is turned off for the rest of the call. */
@@ -146,8 +163,17 @@ class Session<Utterance> implements VoiceSession {
   private discardUtterance = false;
   private speechIdleWaiters: Array<() => void> = [];
   private unmuteWaiters: Array<() => void> = [];
+  /** When the current recording's speech ended, as reported by the microphone. */
+  private speechEnd: Omit<VoiceHeardMarks, "textAt"> | null = null;
+  /** When the latest words to send were heard; the next turn is timed from them. */
+  private heardMarks: VoiceHeardMarks | null = null;
+  /** Thinking sounds stay occasional: never on two turns in a row. */
+  private lastTurnHadThinkingSound = false;
 
-  constructor(private readonly ports: VoiceSessionPorts<Utterance>) {
+  constructor(
+    private readonly ports: VoiceSessionPorts<Utterance>,
+    private readonly options: VoiceSessionOptions = {},
+  ) {
     this.snapshot = {
       sessionId: this.id,
       phase: "connecting",
@@ -161,6 +187,7 @@ class Session<Utterance> implements VoiceSession {
       muted: false,
       voiceReplies: true,
       stopping: false,
+      timing: null,
     };
   }
 
@@ -238,6 +265,7 @@ class Session<Utterance> implements VoiceSession {
 
       const listen = new AbortController();
       this.listenController = listen;
+      this.speechEnd = null;
       const unlink = linkAbort(this.life.signal, listen);
       let utterance: Utterance | null;
       try {
@@ -249,6 +277,11 @@ class Session<Utterance> implements VoiceSession {
           },
           onSpeechStart: () => {
             if (this.listenController === listen) this.onSpeechStart();
+          },
+          onSpeechEnd: (quietForMs) => {
+            if (this.listenController !== listen) return;
+            const now = Date.now();
+            this.speechEnd = { speechEndedAt: now - Math.max(0, quietForMs), recordingEndedAt: now };
           },
         });
       } catch (error) {
@@ -274,9 +307,19 @@ class Session<Utterance> implements VoiceSession {
         this.update({ mic: this.mic ? "listening" : "off" });
       }
       if (this.over) return;
+      if (text) this.heardMarks = this.heardFromRecording();
       this.dispatch(text);
       this.release("speech");
     }
+  }
+
+  /** When the words just transcribed were heard, from what the microphone reported about the recording. */
+  private heardFromRecording(): VoiceHeardMarks {
+    return {
+      speechEndedAt: this.speechEnd?.speechEndedAt ?? null,
+      recordingEndedAt: this.speechEnd?.recordingEndedAt ?? null,
+      textAt: Date.now(),
+    };
   }
 
   /** The recognizer owns the microphone, so it listens only between replies. */
@@ -313,6 +356,8 @@ class Session<Utterance> implements VoiceSession {
       }
       // Muted (or hung up) mid-utterance: what was caught before that isn't sent.
       if (this.over || listen.signal.aborted || !text) continue;
+      // The recognizer doesn't say when the user stopped talking: time the turn from its text.
+      this.heardMarks = { speechEndedAt: null, recordingEndedAt: null, textAt: Date.now() };
       this.startTurn(text);
     }
   }
@@ -324,12 +369,14 @@ class Session<Utterance> implements VoiceSession {
     this.speechActive = true;
     const turn = this.turn;
     this.speechBeganDuring = turn;
+    if (turn) this.quietThinkingSound(turn); // never over the user
     if (!turn || turn.cancelled || turn.pausedForUser) return;
     if (this.snapshot.bargeIn === "speakers" && turn.speaker?.isAudible()) {
       this.discardUtterance = true;
       return;
     }
     turn.pausedForUser = true;
+    turn.timer.hold();
     turn.speaker?.pause();
     this.update({ phase: "interrupted" });
   }
@@ -348,7 +395,10 @@ class Session<Utterance> implements VoiceSession {
       else this.update({ phase: "listening" });
       return;
     }
-    if (!text || (turn.speaker && soundsLikeReplyEcho(text, turn.replyText))) {
+    const echo =
+      (turn.speaker && soundsLikeReplyEcho(text, turn.replyText)) ||
+      (turn.thinkingSoundText !== "" && soundsLikeThinkingSound(text, turn.thinkingSoundText));
+    if (!text || echo) {
       if (turn.pausedForUser) {
         this.resumeTurn(turn);
         this.emit({ type: "resumed", turn: turn.id, reason: text ? "echo" : "silence" });
@@ -379,6 +429,7 @@ class Session<Utterance> implements VoiceSession {
   private stopTurn(turn: Turn, by: "voice" | "button"): void {
     if (turn.cancelled) return;
     turn.cancelled = true;
+    this.quietThinkingSound(turn);
     turn.speaker?.stop();
     this.emit({ type: "interrupted", turn: turn.id, by });
     this.update({ phase: "interrupted", stopping: true });
@@ -414,26 +465,43 @@ class Session<Utterance> implements VoiceSession {
     const over = new Promise<void>((resolve) => {
       markOver = resolve;
     });
-    const speaker = this.ports.speech.begin(`${this.id}:${id}`);
+    const heard = this.heardMarks;
+    this.heardMarks = null;
     const turn: Turn = {
       id,
-      speaker,
+      speaker: null,
       handle: null,
       replyText: "",
       pausedForUser: false,
       falseAlarms: 0,
       cancelled: false,
+      timer: new VoiceTurnTimer(id, heard, Date.now()),
+      thinkingSoundTimer: null,
+      thinkingSound: null,
+      thinkingSoundText: "",
       over,
       markOver,
     };
+    const speaker = this.ports.speech.begin(`${this.id}:${id}`, () => this.onFirstSound(turn));
+    turn.speaker = speaker;
     this.turn = turn;
+    const thinkingSoundAllowed = !this.lastTurnHadThinkingSound;
+    this.lastTurnHadThinkingSound = false;
+    if (speaker && thinkingSoundAllowed && this.ports.speech.thinkingSound) {
+      turn.thinkingSoundTimer = setTimeout(
+        () => this.playThinkingSound(turn),
+        this.options.thinkingSoundDelayMs ?? THINKING_SOUND_DELAY_MS,
+      );
+    }
     this.update({ phase: "thinking", heard: text, said: "" });
     this.emit({ type: "heard", turn: id, text });
     const live = () => this.turn === turn && !turn.cancelled && !this.over;
     turn.handle = this.ports.reply.send(text, (streamed) => {
       if (!live()) return;
+      turn.timer.firstWords(Date.now());
       this.setReplyText(turn, streamed);
       speaker?.push(streamed);
+      if (speaker?.started) turn.timer.firstPiece(Date.now());
       this.update(speaker?.started && !turn.pausedForUser ? { said: streamed, phase: "speaking" } : { said: streamed });
     });
     void this.followTurn(turn, live)
@@ -462,9 +530,42 @@ class Session<Utterance> implements VoiceSession {
     }
     if (turn.speaker) {
       if ((saved || turn.speaker.started) && !turn.pausedForUser) this.update({ phase: "speaking" });
-      await turn.speaker.finish(saved);
+      const finishing = turn.speaker.finish(saved);
+      if (turn.speaker.started) turn.timer.firstPiece(Date.now());
+      await finishing;
     }
     if (live()) this.endTurn(turn);
+  }
+
+  /** Fills the silence with one short sound, unless the reply has started, the user is talking, or it's over. */
+  private playThinkingSound(turn: Turn): void {
+    turn.thinkingSoundTimer = null;
+    if (this.over || this.turn !== turn || turn.cancelled || turn.pausedForUser || this.speechActive) return;
+    if (turn.speaker?.started) return;
+    const sound = this.ports.speech.thinkingSound?.() ?? null;
+    if (!sound) return;
+    turn.thinkingSound = sound;
+    turn.thinkingSoundText = sound.text;
+    this.lastTurnHadThinkingSound = true;
+    this.emit({ type: "thinking_sound", turn: turn.id, text: sound.text });
+    void sound.play().then(() => {
+      if (turn.thinkingSound === sound) turn.thinkingSound = null;
+    });
+  }
+
+  private quietThinkingSound(turn: Turn): void {
+    if (turn.thinkingSoundTimer) clearTimeout(turn.thinkingSoundTimer);
+    turn.thinkingSoundTimer = null;
+    turn.thinkingSound?.stop();
+    turn.thinkingSound = null;
+  }
+
+  private onFirstSound(turn: Turn): void {
+    if (this.over || this.turn !== turn || turn.cancelled) return;
+    const timing = turn.timer.firstSound(Date.now());
+    if (!timing) return;
+    this.update({ timing });
+    this.emit({ type: "timing", turn: turn.id, timing });
   }
 
   private setReplyText(turn: Turn, text: string): void {
@@ -475,6 +576,7 @@ class Session<Utterance> implements VoiceSession {
 
   private endTurn(turn: Turn): void {
     if (this.turn !== turn) return;
+    this.quietThinkingSound(turn);
     this.turn = null;
     turn.markOver();
     if (!this.stopping) this.update({ phase: "listening" });
@@ -545,6 +647,7 @@ class Session<Utterance> implements VoiceSession {
     this.listenController?.abort();
     const turn = this.turn;
     this.turn = null;
+    if (turn) this.quietThinkingSound(turn);
     turn?.speaker?.stop(); // the reply's text, if still coming, keeps arriving in the chat
     turn?.markOver();
     this.release("speech");
@@ -589,6 +692,9 @@ class Session<Utterance> implements VoiceSession {
   }
 }
 
-export function createVoiceSession<Utterance>(ports: VoiceSessionPorts<Utterance>): VoiceSession {
-  return new Session(ports);
+export function createVoiceSession<Utterance>(
+  ports: VoiceSessionPorts<Utterance>,
+  options: VoiceSessionOptions = {},
+): VoiceSession {
+  return new Session(ports, options);
 }

@@ -39,6 +39,8 @@ const TASK_SCOPE: Record<ModelRouteTask, string> = {
   fanficPlanning: "A fic's research, outline, voice sheets, and the outline updates after each chapter.",
   fanficChecks:
     "A fic's story ledger, continuity and voice checks, and the editor pass. Chapters stay on the fic's connection.",
+  encounters:
+    "Setting up Roleplay combat encounters, each turn, and the fight summary. The Combat agent's own connection isn't used.",
 };
 
 function connectionLabel(connection: JsonRecord): string {
@@ -119,8 +121,8 @@ function CheapHelperSetup({
       </label>
       <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
         Copies the connection with its small model (Claude Haiku, Gemini Flash or a GPT mini) and sends the helpers
-        below that have no model picked to it. Memory, recaps and checks cost a fraction as much; replies and chapters
-        stay on each chat's model.
+        below that have no model picked to it. Memory, recaps and checks cost a fraction as much; replies, chapters and
+        combat encounters stay on each chat's model.
       </p>
       <div className="flex flex-col gap-2">
         <select

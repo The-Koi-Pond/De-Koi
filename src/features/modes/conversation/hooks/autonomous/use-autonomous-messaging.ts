@@ -91,6 +91,7 @@ export function useAutonomousMessaging(
           chatId,
           connectionId: null,
           forCharacterId: characterId,
+          textsFirst: true,
         });
         if (pollEpochRef.current !== epoch) return;
         if (produced) {

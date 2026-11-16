@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   applyPendingProfile: vi.fn(async () => true),
   chatPresets: [] as Array<Record<string, unknown>>,
   connections: [] as Array<Record<string, unknown>>,
-  createCharacter: vi.fn(async () => ({ id: "character-new" })),
+  createCharacter: vi.fn(async (_input?: unknown) => ({ id: "character-new" })),
   createMessage: vi.fn(async () => ({ id: "message-1" })),
   lorebooks: [] as Array<Record<string, unknown>>,
   toastError: vi.fn(),
@@ -40,6 +40,14 @@ vi.mock("../../../../catalog/characters/index", async (importOriginal) => {
     useCharacterSummaries: () => ({ data: [], isError: false, isFetching: false }),
     useCharacterSummariesByIds: () => ({ data: [] }),
     useCreateCharacter: () => ({ isPending: false, mutateAsync: mocks.createCharacter }),
+    // Saving the starter's bundled pictures is the hook's own job; setup only needs the new card's id.
+    useAddStarterCharacter: () => ({
+      isPending: false,
+      add: async (starter: Parameters<typeof actual.starterCharacterCreateInput>[0]) => {
+        const result = await mocks.createCharacter(actual.starterCharacterCreateInput(starter));
+        return { id: result.id, artError: null };
+      },
+    }),
   };
 });
 
@@ -264,11 +272,20 @@ describe("ChatSetupWizard Roleplay exits", () => {
 
     expect(mocks.createCharacter).toHaveBeenCalledOnce();
     const [input] = mocks.createCharacter.mock.calls[0] as unknown as [
-      { name: string; data: { first_mes: string; scenario: string } },
+      {
+        name: string;
+        data: {
+          first_mes: string;
+          scenario: string;
+          extensions: { startsStaged?: boolean; sceneBackgrounds?: Array<{ background: string }> };
+        };
+      },
     ];
     expect(input.name).toBe("Wisp");
     expect(input.data.first_mes).toContain("Do we have a deal");
     expect(input.data.scenario).not.toBe("");
+    expect(input.data.extensions.startsStaged).toBe(true);
+    expect(input.data.extensions.sceneBackgrounds?.[0]?.background).toBe("wisp-apartment.webp");
     expect(mocks.updateChat.mock.calls.map(([update]) => update)).toContainEqual(
       expect.objectContaining({ id: "chat-1", characterIds: ["character-new"], name: "Wisp" }),
     );

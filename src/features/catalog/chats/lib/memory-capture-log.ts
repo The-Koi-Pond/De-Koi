@@ -114,14 +114,12 @@ function captureReport(value: unknown): MemoryCaptureReport | null {
   const skipped = (Array.isArray(report.skipped) ? report.skipped : [])
     .map(record)
     .filter((skip) => SKIP_REASONS.has(text(skip.reason)))
-    .map(
-      (skip): MemoryCaptureSkip => ({
-        reason: text(skip.reason) as MemoryCaptureSkipReason,
-        ...(text(skip.kind) ? { kind: text(skip.kind) } : {}),
-        ...(text(skip.content) ? { content: text(skip.content) } : {}),
-        ...(skip.afterCorrection === true ? { afterCorrection: true } : {}),
-      }),
-    );
+    .map((skip): MemoryCaptureSkip => ({
+      reason: text(skip.reason) as MemoryCaptureSkipReason,
+      ...(text(skip.kind) ? { kind: text(skip.kind) } : {}),
+      ...(text(skip.content) ? { content: text(skip.content) } : {}),
+      ...(skip.afterCorrection === true ? { afterCorrection: true } : {}),
+    }));
   const transcript = text(report.transcript);
   return {
     version: 1,

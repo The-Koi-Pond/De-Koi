@@ -6,14 +6,11 @@ import { fitGenerationRequestToContextWindow, ROLEPLAY_SOFT_CONTEXT_TOKENS } fro
 function longRoleplayHistory(): LlmMessage[] {
   return [
     { role: "system", content: "Keep the roleplay coherent.", contextKind: "prompt" },
-    ...Array.from(
-      { length: 48 },
-      (_, index): LlmMessage => ({
-        role: index % 2 === 0 ? "user" : "assistant",
-        content: `history-${index} ${"detail ".repeat(420)}`,
-        contextKind: "history",
-      }),
-    ),
+    ...Array.from({ length: 48 }, (_, index): LlmMessage => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `history-${index} ${"detail ".repeat(420)}`,
+      contextKind: "history",
+    })),
     { role: "user", content: "The current turn", contextKind: "history" },
   ];
 }

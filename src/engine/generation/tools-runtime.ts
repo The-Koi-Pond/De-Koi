@@ -1,4 +1,4 @@
-import { BUILT_IN_TOOLS, DEFAULT_AGENT_TOOLS, type ToolDefinition } from "../contracts/types/agent";
+import { BUILT_IN_TOOLS, type ToolDefinition } from "../contracts/types/agent";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmToolDefinition } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
@@ -161,7 +161,6 @@ const MAX_LOREBOOK_ENTRY_CONTENT_BYTES = 64 * 1024;
 const MAX_LOREBOOK_ENTRY_DESCRIPTION_BYTES = 4 * 1024;
 const MAX_LOREBOOK_ENTRY_NAME_LENGTH = 160;
 const MAX_LOREBOOK_ENTRY_KEYS = 24;
-const SPOTIFY_RECENT_TRACK_HISTORY_LIMIT = 24;
 
 export function normalizeToolCall(value: unknown): LLMToolCall | null {
   if (!isRecord(value)) return null;
@@ -265,81 +264,6 @@ function stringArrayArg(args: JsonRecord, key: string): string[] {
   return value.map((item) => readString(item).trim()).filter(Boolean);
 }
 
-function normalizeSpotifyPlayableUri(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const uri = value.trim();
-  const suffixedTrack = uri.match(/^spotify:track:([A-Za-z0-9]{22})_candidate$/);
-  if (suffixedTrack) return `spotify:track:${suffixedTrack[1]}`;
-  return /^spotify:[a-z]+:[A-Za-z0-9]+$/i.test(uri) ? uri : null;
-}
-
-function normalizeSpotifyTrackUri(value: unknown): string | null {
-  const uri = normalizeSpotifyPlayableUri(value);
-  return uri?.startsWith("spotify:track:") ? uri : null;
-}
-
-function normalizeSpotifyTrackHistory(value: unknown, limit = SPOTIFY_RECENT_TRACK_HISTORY_LIMIT): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const entry of value) {
-    const uri = normalizeSpotifyTrackUri(entry);
-    if (!uri || seen.has(uri)) continue;
-    seen.add(uri);
-    normalized.push(uri);
-    if (normalized.length >= limit) break;
-  }
-  return normalized;
-}
-
-function spotifyPlaybackAppliedTrackUris(result: unknown, fallbackTrackUris: string[]): string[] {
-  if (!isRecord(result) || result.success === false || result.applied !== true) {
-    return [];
-  }
-  const responseSources = [result.queued, result.uris].filter(Array.isArray);
-  if (responseSources.length === 0) return fallbackTrackUris;
-  return uniqueStrings(responseSources.flatMap((source) => normalizeSpotifyTrackHistory(source)));
-}
-
-function appendSpotifyTrackHistory(history: unknown, uris: unknown[]): string[] {
-  const next: string[] = [];
-  const seen = new Set<string>();
-  for (const entry of uris) {
-    const uri = normalizeSpotifyTrackUri(entry);
-    if (!uri || seen.has(uri)) continue;
-    seen.add(uri);
-    next.push(uri);
-  }
-  for (const uri of normalizeSpotifyTrackHistory(history)) {
-    if (seen.has(uri)) continue;
-    seen.add(uri);
-    next.push(uri);
-    if (next.length >= SPOTIFY_RECENT_TRACK_HISTORY_LIMIT) break;
-  }
-  return next.slice(0, SPOTIFY_RECENT_TRACK_HISTORY_LIMIT);
-}
-
-function getSpotifyRecentTrackUris(metadata?: JsonRecord): string[] {
-  if (!metadata) return [];
-  const seen = new Set<string>();
-  const recent: string[] = [];
-  for (const source of [metadata.spotifyRecentTracks, metadata.gameRecentSpotifyTracks]) {
-    for (const uri of normalizeSpotifyTrackHistory(source)) {
-      if (seen.has(uri)) continue;
-      seen.add(uri);
-      recent.push(uri);
-      if (recent.length >= SPOTIFY_RECENT_TRACK_HISTORY_LIMIT) return recent;
-    }
-  }
-  return recent;
-}
-
-function getSpotifyRecentTrackMetadataKey(metadata: JsonRecord): "spotifyRecentTracks" | "gameRecentSpotifyTracks" {
-  return metadata.gameUseSpotifyMusic === true || typeof metadata.gameSpotifySourceType === "string"
-    ? "gameRecentSpotifyTracks"
-    : "spotifyRecentTracks";
-}
-
 function uniqueStrings(values: string[]): string[] {
   const seen = new Set<string>();
   return values.filter((value) => {
@@ -431,26 +355,6 @@ async function updateChatMetadata(
     input.chat.metadata = metadata;
     return metadata;
   });
-}
-
-async function rememberSpotifyPlayedTracks(
-  storage: StorageGateway,
-  input: ToolRuntimeInput,
-  uris: unknown[],
-): Promise<void> {
-  const trackUris = uris.map(normalizeSpotifyTrackUri).filter((uri): uri is string => Boolean(uri));
-  if (trackUris.length === 0) return;
-  try {
-    await updateChatMetadata(storage, input, (current) => {
-      const key = getSpotifyRecentTrackMetadataKey(current);
-      return {
-        ...current,
-        [key]: appendSpotifyTrackHistory(current[key], trackUris),
-      };
-    });
-  } catch (error) {
-    console.warn("[tools-runtime] Failed to persist Spotify recent tracks", { error });
-  }
 }
 
 async function withChatMetadataQueue<T>(chatId: string, task: () => Promise<T>): Promise<T> {
@@ -742,7 +646,7 @@ export async function executeBuiltInTool(
   agent: JsonRecord,
   call: LLMToolCall,
 ): Promise<unknown> {
-  const { storage, integrations } = deps;
+  const { storage } = deps;
   const toolName = call.function?.name || call.name;
   const args = toolArguments(call);
   const chatId = requireChatId(input);
@@ -860,70 +764,9 @@ export async function executeBuiltInTool(
       });
       return { success: true, key, value };
     }
-    case "spotify_get_current_playback":
-      return integrations.spotify.player({ agentId: spotifyAgentId(agent) });
-    case "spotify_get_playlists": {
-      const limit = Math.max(1, Math.min(50, Math.trunc(numberArg(args, "limit", 20))));
-      return integrations.spotify.playlists({ agentId: spotifyAgentId(agent), limit });
-    }
-    case "spotify_get_playlist_tracks": {
-      const playlistId = stringArg(args, "playlistId");
-      if (!playlistId) toolError("playlistId is required.");
-      const recentTrackUris = getSpotifyRecentTrackUris(parseRecord(input.chat.metadata));
-      const body: JsonRecord = {
-        agentId: spotifyAgentId(agent),
-        playlistId,
-        query: stringArg(args, "query"),
-        mood: stringArg(args, "mood"),
-        limit: Math.max(1, Math.min(80, Math.trunc(numberArg(args, "candidateLimit", numberArg(args, "limit", 50))))),
-      };
-      if (recentTrackUris.length > 0) {
-        body.recentTrackUris = recentTrackUris;
-      }
-      const offset = numberArg(args, "offset", Number.NaN);
-      if (Number.isFinite(offset)) body.offset = Math.max(0, Math.trunc(offset));
-      return integrations.spotify.playlistTracks(body);
-    }
-    case "spotify_search": {
-      const recentTrackUris = getSpotifyRecentTrackUris(parseRecord(input.chat.metadata));
-      const body: JsonRecord = {
-        agentId: spotifyAgentId(agent),
-        query: stringArg(args, "query"),
-        limit: Math.max(1, Math.min(50, Math.trunc(numberArg(args, "limit", 10)))),
-      };
-      if (recentTrackUris.length > 0) {
-        body.recentTrackUris = recentTrackUris;
-      }
-      return integrations.spotify.searchTracks(body);
-    }
-    case "spotify_play": {
-      const rawUris = stringArrayArg(args, "uris");
-      const uris = rawUris.map(normalizeSpotifyPlayableUri).filter((uri): uri is string => Boolean(uri));
-      const singleUri = normalizeSpotifyPlayableUri(args.uri);
-      if (singleUri && !uris.includes(singleUri)) uris.unshift(singleUri);
-      if (uris.length === 0) toolError("uri or uris must be a valid Spotify URI.");
-      const body: JsonRecord = { agentId: spotifyAgentId(agent) };
-      const trackUris = uris.filter((candidate) => candidate.startsWith("spotify:track:"));
-      if (trackUris.length > 0) body.uris = trackUris;
-      else body.contextUri = uris[0];
-      const result = await integrations.spotify.play(body);
-      const playedTrackUris = spotifyPlaybackAppliedTrackUris(result, trackUris);
-      await rememberSpotifyPlayedTracks(storage, input, playedTrackUris);
-      return result;
-    }
-    case "spotify_set_volume":
-      return integrations.spotify.volume({
-        agentId: spotifyAgentId(agent),
-        volume: Math.max(0, Math.min(100, Math.trunc(numberArg(args, "volume", 50)))),
-      });
     default:
       return null;
   }
-}
-
-function spotifyAgentId(agent: JsonRecord): string {
-  const settings = parseRecord(agent.settings);
-  return readString(settings.spotifyAgentId).trim() || readString(agent.id).trim() || "spotify";
 }
 
 /**
@@ -1002,13 +845,11 @@ export const AGENT_ONLY_TOOL_NAMES = new Set([
   "read_chat_variable",
   "write_chat_variable",
 ]);
-const SPOTIFY_TOOL_NAMES = new Set(DEFAULT_AGENT_TOOLS.spotify);
 
 export interface BuildMainToolDefinitionsArgs {
   chat: JsonRecord;
   storage: StorageGateway;
   integrations: IntegrationGateway;
-  includeSpotify?: boolean;
 }
 
 export interface MainToolDefinitions {
@@ -1017,8 +858,8 @@ export interface MainToolDefinitions {
   /**
    * Set of tool names that survived the filter and were actually advertised to
    * the model. `executeMainToolCall` enforces this allowlist at dispatch time
-   * so a hallucinated or injected call to a filtered-out tool (Spotify,
-   * agent-only, inactive, name-collided custom) cannot reach execution.
+   * so a hallucinated or injected call to a filtered-out tool (agent-only,
+   * inactive, name-collided custom) cannot reach execution.
    */
   allowedToolNames: Set<string>;
   characterWebResearchGrant: CharacterWebResearchGrant | null;
@@ -1039,8 +880,6 @@ export interface MainToolDefinitions {
  *  - Agent-only tools (`save_lorebook_entry`, `read_chat_summary`,
  *    `append_chat_summary`, `read_chat_variable`, `write_chat_variable`) are excluded from the main
  *    path; they remain exposed to agents via `buildAgentToolContext`.
- *  - Spotify tools are excluded unless `includeSpotify: true` is requested
- *    (default `false` — see design §4).
  *  - Custom tools whose name collides with a built-in are dropped; the built-in
  *    wins. Mirrors staging `generate.routes.ts:5984-5990`.
  */
@@ -1066,7 +905,6 @@ export async function buildMainToolDefinitions(
   const filter = (name: string): boolean => {
     if (!regularToolsEnabled) return false;
     if (AGENT_ONLY_TOOL_NAMES.has(name)) return false;
-    if (!args.includeSpotify && SPOTIFY_TOOL_NAMES.has(name)) return false;
     return selection.mode === "all" || selection.activeIds.has(name);
   };
   const builtIns: LlmToolDefinition[] = [];
@@ -1114,14 +952,6 @@ export interface ExecuteMainToolCallArgs {
  * Dispatches on tool name only — built-in first (synthetic main-agent record),
  * then custom tools, then a sentinel error for unknown tools. Errors thrown by
  * the underlying executor propagate to the caller (no swallowing).
- *
- * The synthetic main-agent record matters only for Spotify tools, which are
- * filtered out of `buildMainToolDefinitions` by default. If a future change
- * lifts that exclusion, the caller MUST also supply a real Spotify-agent id
- * (or refactor `spotifyAgentId` to fall back to `""`); the synthetic `"main"`
- * literal here will NOT resolve to default credentials — the Spotify gateway
- * calls `get_required(state, "agents", "main")`, which returns 404 unless an
- * agent with that literal id exists.
  */
 export async function executeMainToolCall(args: ExecuteMainToolCallArgs): Promise<string> {
   const name = args.call.function?.name || args.call.name;

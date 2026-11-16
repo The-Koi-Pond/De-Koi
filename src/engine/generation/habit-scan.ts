@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
+import { isOpenRouterFreeModel } from "../onboarding/openrouter-starter-model";
 import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
 import { boolish, parseRecord, readString, type JsonRecord } from "./runtime-records";
 import { generateStructured } from "./structured-generation";
@@ -19,6 +20,11 @@ const HABIT_SCAN_REPLIES = 8;
 const HABIT_MIN_REPLIES = 2;
 /** Replies needed before the first scan. */
 const FIRST_SCAN_REPLIES = HABIT_MIN_REPLIES;
+/**
+ * On an OpenRouter free model every helper call spends the account's small daily allowance, so the scan runs after
+ * every fourth reply instead of every reply.
+ */
+const FREE_MODEL_SCAN_EVERY = 4;
 const MAX_HABITS = 6;
 const MAX_REPLY_CHARS = 2_400;
 const MAX_USER_CHARS = 400;
@@ -120,11 +126,14 @@ export function readHabitScan(metadata: unknown): HabitScan | null {
  * True when a reply has landed since the reply the last scan ended on (or none ran yet, or that reply is gone).
  * `messages` only needs the latest page of the chat, oldest first.
  */
-export function habitScanDue(messages: readonly JsonRecord[], scan: HabitScan | null): boolean {
+export function habitScanDue(messages: readonly JsonRecord[], scan: HabitScan | null, every = 1): boolean {
   const visible = visibleAssistantReplies(messages);
   if (visible.length < FIRST_SCAN_REPLIES) return false;
   if (!scan) return true;
-  return visible.at(-1)?.id !== scan.throughMessageId;
+  const scannedAt = visible.findIndex((reply) => reply.id === scan.throughMessageId);
+  // A scanned reply that is gone or out of the loaded page: scan again.
+  if (scannedAt < 0) return true;
+  return visible.length - 1 - scannedAt >= every;
 }
 
 const runningScans = new WeakMap<object, Set<string>>();
@@ -167,10 +176,22 @@ export async function runHabitScanIfDue(input: ScheduleHabitScanInput): Promise<
     fields: ["id", "role", "content", "extra", "hiddenFromAI", "createdAt"],
   });
   const messages = [...page].reverse();
-  if (!habitScanDue(messages, readHabitScan(chat.metadata))) return null;
+  const previous = readHabitScan(chat.metadata);
+  if (!habitScanDue(messages, previous)) return null;
   // The reply's connection is not a pick for this helper, so a habit check route wins.
   const routed = await resolveHelperRoute(input.storage, "habitCheck", { chatId: input.chatId });
   const connectionId = routed ? readString(routed.id).trim() : input.connectionId;
+  const connection =
+    routed ??
+    (connectionId
+      ? await input.storage.get<JsonRecord>("connections", readString(connectionId).trim()).catch(() => null)
+      : null);
+  if (
+    isOpenRouterFreeModel(readString(connection?.model)) &&
+    !habitScanDue(messages, previous, FREE_MODEL_SCAN_EVERY)
+  ) {
+    return null;
+  }
   await noteHelperRun(input.storage, {
     task: "habitCheck",
     rule: routed ? "route" : "chat",

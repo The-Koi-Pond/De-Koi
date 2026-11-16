@@ -1,6 +1,8 @@
 import { CheckCircle2, Package, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../../../engine/contracts/constants/core-modules";
 import { QueryErrorState } from "../../../../shared/components/ui/QueryErrorState";
+import { MusicPlayerSourceSettings } from "../../music/settings";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { cn } from "../../../../shared/lib/utils";
 import { useCoreModules, useSetCoreModuleEnabled } from "../hooks/use-core-modules";
@@ -192,6 +194,12 @@ function CoreModulesSettings() {
                   ))}
                 </div>
               </div>
+
+              {module.id === MUSIC_DJ_MINI_PLAYER_MODULE_ID && (
+                <div className="mt-3 border-t border-[var(--border)] pt-3">
+                  <MusicPlayerSourceSettings />
+                </div>
+              )}
             </article>
           ))}
 

@@ -136,9 +136,11 @@ export function DefaultChatConnectionCard({ connectionsList }: { connectionsList
           </button>
         )}
       </div>
-      <p className="mt-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-        Choose a text connection below, then enable <strong>Use as default chat connection</strong> in its editor.
-      </p>
+      {!defaultConnection && (
+        <p className="mt-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+          Open a text connection and turn on <strong>Use as default chat connection</strong>.
+        </p>
+      )}
     </div>
   );
 }
@@ -174,9 +176,11 @@ export function DefaultAgentConnectionCard({ connectionsList }: { connectionsLis
           </button>
         )}
       </div>
-      <p className="mt-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-        Choose a text connection below, then enable <strong>Use as default agent connection</strong> in its editor.
-      </p>
+      {!defaultConnection && (
+        <p className="mt-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+          Open a text connection and turn on <strong>Use as default agent connection</strong>.
+        </p>
+      )}
     </div>
   );
 }
@@ -826,27 +830,6 @@ export function ConnectionsPanel() {
             <Plus size="0.8125rem" />
             Add Connection
           </button>
-
-          {/* ── Local Model sidecar ── */}
-          <LocalSidecarCard />
-
-          {/* ── Text to Speech ── */}
-          <TTSConfigCard />
-
-          <DefaultChatConnectionCard connectionsList={connectionsList} />
-          <DefaultAgentConnectionCard connectionsList={connectionsList} />
-          <DefaultIllustratorConnectionCard connectionsList={connectionsList} />
-          <HelperModelsCard />
-
-          {/* ── New folder button ── */}
-          <button
-            onClick={handleCreateFolder}
-            disabled={createFolderMut.isPending}
-            className="flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-60"
-          >
-            <FolderPlus size="0.75rem" />
-            New Folder
-          </button>
         </>
       )}
 
@@ -940,6 +923,35 @@ export function ConnectionsPanel() {
         <p className="px-1 text-[0.625rem] text-[var(--muted-foreground)]/60">
           Click to edit · Set active connection in Chat Settings
         </p>
+      )}
+
+      {!noConnectionsYet && (
+        <>
+          {/* ── New folder button ── */}
+          <button
+            onClick={handleCreateFolder}
+            disabled={createFolderMut.isPending}
+            className="flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)] disabled:cursor-wait disabled:opacity-60"
+          >
+            <FolderPlus size="0.75rem" />
+            New Folder
+          </button>
+
+          <h3 className="mt-3 px-1 text-[0.625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+            Defaults and extras
+          </h3>
+
+          {/* ── Local Model sidecar ── */}
+          <LocalSidecarCard />
+
+          {/* ── Text to Speech ── */}
+          <TTSConfigCard />
+
+          <DefaultChatConnectionCard connectionsList={connectionsList} />
+          <DefaultAgentConnectionCard connectionsList={connectionsList} />
+          <DefaultIllustratorConnectionCard connectionsList={connectionsList} />
+          <HelperModelsCard />
+        </>
       )}
 
       {/* ── Move to Folder Modal ── */}

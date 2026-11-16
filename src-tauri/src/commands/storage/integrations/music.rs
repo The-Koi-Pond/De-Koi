@@ -176,7 +176,7 @@ fn status() -> Value {
         "powerModeAvailable": false,
         "iframeFallbackAvailable": true,
         "searchBackend": "yt-dlp-if-installed",
-        "legacyProviders": ["spotify"]
+        "legacyProviders": []
     })
 }
 

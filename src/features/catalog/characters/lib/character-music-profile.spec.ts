@@ -129,7 +129,7 @@ describe("deriveCharacterNowListening", () => {
 });
 
 describe("buildCharacterMusicPlaybackCue", () => {
-  it("prefers direct song URLs for playback", () => {
+  it("keeps the song's direct URL next to its title and artist", () => {
     expect(
       buildCharacterMusicPlaybackCue({
         kind: "song",
@@ -139,7 +139,7 @@ describe("buildCharacterMusicPlaybackCue", () => {
         query: "Promise Akira Yamaoka",
         displayText: "Promise by Akira Yamaoka",
       }),
-    ).toEqual({ query: "https://youtu.be/6qalGezr76o" });
+    ).toEqual({ query: "Promise Akira Yamaoka", url: "https://youtu.be/6qalGezr76o" });
   });
 
   it("uses the derived query when there is no direct URL", () => {
@@ -152,7 +152,7 @@ describe("buildCharacterMusicPlaybackCue", () => {
         query: "The Dresden Dolls dark cabaret music",
         displayText: "The Dresden Dolls radio",
       }),
-    ).toEqual({ query: "The Dresden Dolls dark cabaret music" });
+    ).toEqual({ query: "The Dresden Dolls dark cabaret music", url: null });
   });
 
   it("compacts long vibe notes before using them as Music Player search text", () => {

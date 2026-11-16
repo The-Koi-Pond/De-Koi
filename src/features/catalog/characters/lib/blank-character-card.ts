@@ -38,6 +38,14 @@ export function starterCharacterCreateInput(starter: StarterCharacter) {
       tags: [...starter.tags],
       creator: "De-Koi",
       creator_notes: "A De-Koi starter character. Edit anything you like.",
+      // A staged starter opens new Roleplays in its first scene with its sprites shown, and its backgrounds follow
+      // the story (see engine/modes/roleplay/scene/starter-staging.ts).
+      extensions: starter.staging
+        ? {
+            sceneBackgrounds: starter.staging.scenes.map((scene) => ({ ...scene, keywords: [...scene.keywords] })),
+            startsStaged: true,
+          }
+        : {},
     },
   };
 }

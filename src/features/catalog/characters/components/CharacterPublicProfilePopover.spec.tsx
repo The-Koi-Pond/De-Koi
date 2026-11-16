@@ -194,6 +194,7 @@ describe("CharacterPublicProfilePopover", () => {
     expect(dispatchMusicPlaybackEventMock).toHaveBeenCalledWith({
       type: "cue",
       query: "Disciple Throbbing Gristle",
+      url: null,
     });
   });
 
@@ -222,6 +223,7 @@ describe("CharacterPublicProfilePopover", () => {
     expect(dispatchMusicPlaybackEventMock).toHaveBeenCalledWith({
       type: "cue",
       query: "Disciple Throbbing Gristle",
+      url: null,
     });
     expect(toastInfoMock).toHaveBeenCalledWith(
       "Enable Music DJ Mini Player in Settings > Modules to see playback controls.",
@@ -290,6 +292,7 @@ describe("CharacterPublicProfilePopover", () => {
     expect(dispatchMusicPlaybackEventMock).toHaveBeenCalledWith({
       type: "cue",
       query: "industrial ritual music",
+      url: null,
     });
   });
 

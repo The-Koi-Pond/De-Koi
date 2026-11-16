@@ -17,6 +17,38 @@ function fanficChaptersLeft(state: FanficState, messages: readonly JsonRecord[])
 }
 
 /** The chapter a write's events end with, when it is saved and finished (not cut off, not missing); else null. */
+// A gap longer than this between two chapters means the reader stopped in between, so it says nothing about how long
+// a chapter takes.
+const WRITE_ALL_GAP_LIMIT_MS = 30 * 60_000;
+
+/**
+ * Minutes "Write all" will likely take, from this fic's own pace: the median gap between consecutive main chapters
+ * (writing plus the automatic polish), times the chapters left. Null until two chapters were written back to back.
+ */
+export function fanficWriteAllEstimateMinutes(mainChapterTimes: readonly string[], remaining: number): number | null {
+  const times = mainChapterTimes
+    .map((value) => Date.parse(value))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  const gaps = times
+    .slice(1)
+    .map((time, index) => time - times[index]!)
+    .filter((gap) => gap > 0 && gap <= WRITE_ALL_GAP_LIMIT_MS)
+    .sort((left, right) => left - right);
+  if (gaps.length === 0 || remaining < 1) return null;
+  const middle = Math.floor(gaps.length / 2);
+  const median = gaps.length % 2 === 1 ? gaps[middle]! : (gaps[middle - 1]! + gaps[middle]!) / 2;
+  return Math.max(1, Math.round((median * remaining) / 60_000));
+}
+
+/** "about 45 min", "about 1 h 20 min". */
+export function fanficDurationLabel(minutes: number): string {
+  if (minutes < 60) return `about ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = Math.round((minutes % 60) / 5) * 5;
+  return rest === 0 || rest === 60 ? `about ${hours + (rest === 60 ? 1 : 0)} h` : `about ${hours} h ${rest} min`;
+}
+
 export function fanficWriteSavedFinishedId(events: readonly { type: string; data?: unknown }[]): string | null {
   const saved = [...events].reverse().find((event) => event.type === "assistant_message");
   if (!saved) return null;

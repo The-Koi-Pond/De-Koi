@@ -35,6 +35,7 @@ import { storyConsolidationRuntimeApi } from "./story-consolidation-runtime-api"
 import { invokeTauri } from "./tauri-client";
 import { trackerSnapshotApi, type TrackerSnapshotInput } from "./tracker-snapshot-api";
 import { urlBinaryApi } from "./url-binary-api";
+import { errorMessage } from "../../engine/shared/error-text";
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (typeof value === "string") {
@@ -229,10 +230,6 @@ function textField(value: unknown): string {
 function inlineImageDataUrl(value: unknown): string {
   const text = textField(value);
   return text.toLowerCase().startsWith("data:image/") ? text : "";
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function loadImageUrlAsDataUrl(

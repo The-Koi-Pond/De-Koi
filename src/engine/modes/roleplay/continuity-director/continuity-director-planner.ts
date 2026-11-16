@@ -14,6 +14,7 @@ import {
   recordContinuityDirectorPlanningAttempt,
   recordContinuityDirectorPlanningFailure,
 } from "./continuity-director-state";
+import { errorMessage } from "../../../shared/error-text";
 
 const DIRECTOR_METADATA_KEY = "roleplayContinuityDirector";
 
@@ -32,12 +33,7 @@ const rerollCandidateSchema = z
   .strict();
 
 type ContinuityDirectorPlannerErrorCode =
-  | "disabled"
-  | "connection_unavailable"
-  | "invalid_output"
-  | "timeout"
-  | "source_unavailable"
-  | "persistence_failed";
+  "disabled" | "connection_unavailable" | "invalid_output" | "timeout" | "source_unavailable" | "persistence_failed";
 
 export type ContinuityDirectorPlannerResult =
   | { ok: true; state: RoleplayContinuityDirectorState; rejectedUnsafeBeats: number }
@@ -141,10 +137,6 @@ function planningInput(source: ContinuityDirectorSource, rerollTarget?: { id: st
     null,
     2,
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 interface PlanningClaim {

@@ -1774,8 +1774,7 @@ describe("automatic memory capture queue", () => {
 describe("automatic memory capture reasons on the reply", () => {
   function captureExtra(harness: ReturnType<typeof queueStorage>) {
     return (harness.messages.get("assistant-1")?.extra as JsonRecord | undefined)?.memoryCapture as
-      | JsonRecord
-      | undefined;
+      JsonRecord | undefined;
   }
 
   it("records enqueue_failed on the reply when the job cannot be queued", async () => {

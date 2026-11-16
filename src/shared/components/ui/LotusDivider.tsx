@@ -36,7 +36,7 @@ function Pair({ d, transform }: { d: string; transform?: string }) {
 }
 
 /** A drawing of the lotus, `width` px wide (height is half of it). */
-export function LotusMark({ width }: { width: number }) {
+function LotusMark({ width }: { width: number }) {
   const id = useId().replace(/:/g, "");
   const cut = (children: ReactNode) => (
     <g fill="black" stroke="black" strokeWidth={GAP} strokeLinejoin="round">

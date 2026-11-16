@@ -15,6 +15,7 @@ import { conversationSettingsApi, conversationSettingsKeys } from "../../../../.
 import { resolveConversationStatusDisplay } from "../status-display";
 import { useChatStore } from "../../../../../shared/stores/chat.store";
 import type { CharacterMap, MessageWithSwipes, PersonaInfo } from "../types";
+import { readString } from "../../../../../engine/shared/value-readers";
 
 type PersonaFallback = "active-persona" | "none";
 const DEFAULT_MESSAGE_PAGE_SIZE = 20;
@@ -61,10 +62,6 @@ function parseCharacterData(data: unknown): Record<string, unknown> {
 
 function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-function readString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
 }
 
 function readAvatarCrop(value: unknown): AvatarCropValue | null {

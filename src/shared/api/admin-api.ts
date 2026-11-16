@@ -1,5 +1,6 @@
 import { invokeTauri } from "./tauri-client";
 import { ApiError } from "./api-errors";
+import { isRecord } from "../../engine/shared/value-readers";
 
 type ExpungeCause = {
   code: string;
@@ -35,10 +36,6 @@ export class ExpungeError extends ApiError {
     super(message, status, details);
     this.name = "ExpungeError";
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function readStringArray(value: unknown): string[] | null {

@@ -7,6 +7,7 @@ import {
   BookOpen,
   Check,
   Compass,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -23,6 +24,7 @@ import {
   RefreshCw,
   RotateCcw,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Square,
   StepForward,
@@ -59,6 +61,7 @@ import {
   detectFanficAiIsms,
   fanficAiIsmNeedsCleanup,
 } from "../../../../engine/modes/fanfic/ai-isms";
+import { fanficDurationLabel, fanficWriteAllEstimateMinutes } from "../../../../engine/modes/fanfic/batch";
 import { fanficChapterTitle, fanficPlannedChapterCount } from "../../../../engine/modes/fanfic/chapters";
 import {
   buildFanficExport,
@@ -114,6 +117,7 @@ import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficBannedPhrasesPanel } from "./FanficBannedPhrasesPanel";
 import { FanficChapterHeading } from "./FanficChapterHeading";
 import { FanficComments, type FanficCommentUses } from "./FanficComments";
+import { MakeFromThisDialog } from "../../shared/chat-ui/index";
 import { FanficContinuePanel } from "./FanficContinuePanel";
 import { FanficLinkedChatsPanel } from "./FanficLinkedChatsPanel";
 import { FanficReaderConnectionSelect } from "./FanficConnectionSelect";
@@ -280,6 +284,7 @@ function WorkHeader({
   onToggleEditor,
   showContinue,
   onToggleContinue,
+  onMakeFrom,
 }: {
   chatId: string;
   busy: boolean;
@@ -303,12 +308,37 @@ function WorkHeader({
   onToggleEditor: () => void;
   showContinue: boolean;
   onToggleContinue: () => void;
+  /** Opens the "Make from this" picker (a trance, or a roleplay or chat that carries on). */
+  onMakeFrom: () => void;
 }) {
   const { request, outline } = state;
   const planned = fanficPlannedChapterCount(state);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [researchOpen, setResearchOpen] = useState(false);
   const [editingOutline, setEditingOutline] = useState(false);
+  // The model picker, the polish switch and the tools sit behind one toggle, so the story starts near the top.
+  // They stay shown while any tool's panel is open, and hiding them closes those panels.
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const panelToggles: Array<[boolean, () => void]> = [
+    [showOutline, onToggleOutline],
+    [researchOpen, () => setResearchOpen(false)],
+    [showQuality, onToggleQuality],
+    [showLedger, onToggleLedger],
+    [showVoices, onToggleVoices],
+    [showEditor, onToggleEditor],
+    [showContinue, onToggleContinue],
+  ];
+  const anyPanelOpen = panelToggles.some(([open]) => open);
+  const toolsShown = toolsOpen || anyPanelOpen;
+  const toggleTools = () => {
+    if (!toolsShown) {
+      setToolsOpen(true);
+      return;
+    }
+    setToolsOpen(false);
+    setEditingOutline(false);
+    for (const [open, close] of panelToggles) if (open) close();
+  };
   const extraTags = [
     ...request.warnings.map((warning) => FANFIC_WARNING_LABELS[warning]),
     ...request.relationships,
@@ -350,58 +380,79 @@ function WorkHeader({
           )}
         </div>
       )}
-      <div className="mt-3 max-w-xs">
-        <FanficReaderConnectionSelect chatId={chatId} busy={busy} />
-      </div>
-      <div className="mt-3 max-w-prose">
-        <FanficAutoPolishSwitch chatId={chatId} state={state} busy={busy} />
-      </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        <FanficButton
-          onClick={() => {
-            setEditingOutline(false);
-            onToggleOutline();
-          }}
-          aria-expanded={showOutline}
-        >
-          <ListOrdered size="0.9rem" aria-hidden="true" />
-          {showOutline ? "Hide outline" : "Outline"}
-        </FanficButton>
-        {state.research && (
-          <FanficButton onClick={() => setResearchOpen((open) => !open)} aria-expanded={researchOpen}>
-            <Search size="0.9rem" aria-hidden="true" />
-            {researchOpen ? "Hide research" : "Research"}
+        {chapterCount > 0 && (
+          <FanficButton onClick={onMakeFrom}>
+            <Sparkles size="0.9rem" aria-hidden="true" />
+            Make from this
           </FanficButton>
         )}
-        <FanficButton onClick={onToggleQuality} aria-expanded={showQuality} disabled={chapterCount === 0}>
-          <Gauge size="0.9rem" aria-hidden="true" />
-          {showQuality ? "Hide quality" : "Quality"}
-        </FanficButton>
-        <FanficButton onClick={onToggleLedger} aria-expanded={showLedger} disabled={chapterCount === 0}>
-          <BookMarked size="0.9rem" aria-hidden="true" />
-          {showLedger ? "Hide ledger" : "Ledger"}
-        </FanficButton>
-        <FanficButton onClick={onToggleVoices} aria-expanded={showVoices}>
-          <MessageSquareQuote size="0.9rem" aria-hidden="true" />
-          {showVoices ? "Hide voices" : "Voices"}
-        </FanficButton>
-        <FanficButton onClick={onToggleEditor} aria-expanded={showEditor} disabled={chapterCount === 0}>
-          <PenTool size="0.9rem" aria-hidden="true" />
-          {showEditor ? "Hide editor" : "Editor"}
-        </FanficButton>
-        <FanficButton onClick={onToggleContinue} aria-expanded={showContinue}>
-          <MessagesSquare size="0.9rem" aria-hidden="true" />
-          {showContinue ? "Hide roleplays and chats" : "Roleplays and chats"}
-        </FanficButton>
-        <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
-          <Download size="0.9rem" aria-hidden="true" />
-          Save as HTML
-        </FanficButton>
-        <FanficButton onClick={() => onExport("markdown")} disabled={chapterCount === 0}>
-          <Download size="0.9rem" aria-hidden="true" />
-          Markdown
+        <FanficButton onClick={toggleTools} aria-expanded={toolsShown} aria-controls={`fanfic-tools-${chatId}`}>
+          <SlidersHorizontal size="0.9rem" aria-hidden="true" />
+          {toolsShown ? "Hide tools" : "Tools"}
+          <ChevronDown
+            size="0.85rem"
+            aria-hidden="true"
+            className={cn("transition-transform", toolsShown && "rotate-180")}
+          />
         </FanficButton>
       </div>
+      {toolsShown && (
+        <div id={`fanfic-tools-${chatId}`}>
+          <div className="mt-3 max-w-xs">
+            <FanficReaderConnectionSelect chatId={chatId} busy={busy} />
+          </div>
+          <div className="mt-3 max-w-prose">
+            <FanficAutoPolishSwitch chatId={chatId} state={state} busy={busy} />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <FanficButton
+              onClick={() => {
+                setEditingOutline(false);
+                onToggleOutline();
+              }}
+              aria-expanded={showOutline}
+            >
+              <ListOrdered size="0.9rem" aria-hidden="true" />
+              {showOutline ? "Hide outline" : "Outline"}
+            </FanficButton>
+            {state.research && (
+              <FanficButton onClick={() => setResearchOpen((open) => !open)} aria-expanded={researchOpen}>
+                <Search size="0.9rem" aria-hidden="true" />
+                {researchOpen ? "Hide research" : "Research"}
+              </FanficButton>
+            )}
+            <FanficButton onClick={onToggleQuality} aria-expanded={showQuality} disabled={chapterCount === 0}>
+              <Gauge size="0.9rem" aria-hidden="true" />
+              {showQuality ? "Hide quality" : "Quality"}
+            </FanficButton>
+            <FanficButton onClick={onToggleLedger} aria-expanded={showLedger} disabled={chapterCount === 0}>
+              <BookMarked size="0.9rem" aria-hidden="true" />
+              {showLedger ? "Hide ledger" : "Ledger"}
+            </FanficButton>
+            <FanficButton onClick={onToggleVoices} aria-expanded={showVoices}>
+              <MessageSquareQuote size="0.9rem" aria-hidden="true" />
+              {showVoices ? "Hide voices" : "Voices"}
+            </FanficButton>
+            <FanficButton onClick={onToggleEditor} aria-expanded={showEditor} disabled={chapterCount === 0}>
+              <PenTool size="0.9rem" aria-hidden="true" />
+              {showEditor ? "Hide editor" : "Editor"}
+            </FanficButton>
+            <FanficButton onClick={onToggleContinue} aria-expanded={showContinue}>
+              <MessagesSquare size="0.9rem" aria-hidden="true" />
+              {showContinue ? "Hide roleplays and chats" : "Roleplays and chats"}
+            </FanficButton>
+            <FanficButton onClick={() => onExport("html")} disabled={chapterCount === 0}>
+              <Download size="0.9rem" aria-hidden="true" />
+              Save as HTML
+            </FanficButton>
+            <FanficButton onClick={() => onExport("markdown")} disabled={chapterCount === 0}>
+              <Download size="0.9rem" aria-hidden="true" />
+              Markdown
+            </FanficButton>
+          </div>
+        </div>
+      )}
       {showOutline && outline && (
         <div className="mt-3 border-t border-[var(--border)] pt-3">
           {editingOutline ? (
@@ -1310,11 +1361,14 @@ function NextChapterPanel({
   onCancel,
   continuesFrom,
   allowWriteAll = false,
+  mainChapterTimes = [],
 }: {
   state: FanficState;
   nextNumber: number;
   /** Offer "Write all N remaining" next to the write button (the next main chapter's box only). */
   allowWriteAll?: boolean;
+  /** When each main chapter was saved, for the "Write all" time estimate. */
+  mainChapterTimes?: readonly string[];
   /** Set for an extra chapter, by its N.x label: the outline doesn't plan it, so it has no title and no "complete". */
   extraLabel?: string;
   /** The box writes an unfinished chapter again (Reset) instead of a new one. */
@@ -1337,6 +1391,7 @@ function NextChapterPanel({
   const complete = !extraLabel && nextNumber > planned;
   const remaining = planned - nextNumber + 1;
   const writeAll = allowWriteAll && !extraLabel && !again && remaining >= 2;
+  const writeAllMinutes = writeAll ? fanficWriteAllEstimateMinutes(mainChapterTimes, remaining) : null;
   const label = extraLabel ?? String(nextNumber);
   const title = extraLabel ? "" : fanficChapterTitle(state, nextNumber);
   const newExtra = Boolean(extraLabel) && !again;
@@ -1440,6 +1495,11 @@ function NextChapterPanel({
           {complete ? "Write a bonus chapter" : `Write chapter ${label}`}
         </FanficButton>
       </div>
+      {writeAllMinutes !== null && (
+        <p className="mt-1.5 text-right text-xs text-[var(--muted-foreground)]" data-fanfic-write-all-estimate="">
+          Writing all {remaining} takes {fanficDurationLabel(writeAllMinutes)} at this fic's pace so far.
+        </p>
+      )}
     </section>
   );
 }
@@ -1503,6 +1563,10 @@ export function FanficReader({
     label: `${refHeading(state, ref, isOrphan(ref))}${isSideStory(ref) ? " (side story)" : ""}`,
   }));
   const chapterCount = layout.mains.length;
+  const mainChapterTimes = useMemo(() => {
+    const savedAt = new Map(chapters.map(({ message }) => [message.id, message.createdAt]));
+    return layout.mains.map((ref) => savedAt.get(ref.messageId) ?? "");
+  }, [chapters, layout]);
   const lastMain = layout.mains.at(-1);
   // A fic opens on its last main chapter.
   const [view, setView] = useState<ReaderView>(lastMain?.messageId ?? ENTIRE_WORK);
@@ -1549,6 +1613,7 @@ export function FanficReader({
   const [showLedger, setShowLedger] = useState(false);
   const [showVoices, setShowVoices] = useState(false);
   const [showContinue, setShowContinue] = useState(false);
+  const [makeFromOpen, setMakeFromOpen] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [nextNotes, setNextNotes] = useState("");
   const bannedPhrases = useMemo(() => fanficBannedPhrases(state), [state]);
@@ -1761,8 +1826,22 @@ export function FanficReader({
         onToggleEditor={() => setShowEditor((open) => !open)}
         showContinue={showContinue}
         onToggleContinue={() => setShowContinue((open) => !open)}
+        onMakeFrom={() => setMakeFromOpen(true)}
       />
-      {showContinue && chapterCount > 0 && <FanficContinuePanel chatId={chatId} state={state} busy={generating} />}
+      <MakeFromThisDialog
+        open={makeFromOpen}
+        onClose={() => setMakeFromOpen(false)}
+        source={{ id: chatId, mode: "fanfic", characterIds: chat?.characterIds }}
+        onContinueAsChat={() => setShowContinue(true)}
+      />
+      {showContinue && chapterCount > 0 && (
+        <FanficContinuePanel
+          chatId={chatId}
+          state={state}
+          chapters={canonLine.map((chapter) => chapter.label)}
+          busy={generating}
+        />
+      )}
       {showContinue && <FanficLinkedChatsPanel chatId={chatId} />}
       {showLedger && chapterCount > 0 && (
         <FanficLedgerPanel chatId={chatId} chapters={canonLine} ledger={ledger} busy={generating} />
@@ -2014,6 +2093,7 @@ export function FanficReader({
           state={state}
           nextNumber={chapterCount + 1}
           allowWriteAll
+          mainChapterTimes={mainChapterTimes}
           busy={generating}
           blocked={blocked}
           onWrite={onWrite}

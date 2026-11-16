@@ -55,6 +55,26 @@ describe("rankMusicCandidates", () => {
     expect(ranked[0]?.id).toBe("fresh");
   });
 
+  it("sinks recently played tracks on ordinary picks too, but still uses them when nothing else is left", () => {
+    const options = {
+      query: "dark forest ambient instrumental",
+      intent: { mood: "uneasy exploration", setting: "dark forest", intensity: "medium" },
+      recentTrackIds: ["recent"],
+    };
+
+    const ranked = rankMusicCandidates(
+      [
+        candidate("recent", "Dark forest ambient instrumental", 0.99),
+        candidate("other", "Haunted forest drone instrumental", 0.75),
+      ],
+      options,
+    );
+    expect(ranked[0]?.id).toBe("other");
+
+    const onlyRecent = rankMusicCandidates([candidate("recent", "Dark forest ambient instrumental", 0.99)], options);
+    expect(onlyRecent[0]?.id).toBe("recent");
+  });
+
   it("normalizes YouTube IDs when avoiding repeat tracks", () => {
     const ranked = rankMusicCandidates(
       [

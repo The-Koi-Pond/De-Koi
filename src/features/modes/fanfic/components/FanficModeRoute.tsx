@@ -33,6 +33,7 @@ import { FanficOutlineReview, FanficPlanning } from "./FanficOutlineView";
 import { FanficVoicesPanel } from "./FanficVoicesPanel";
 import { FanficReader } from "./FanficReader";
 import { FanficRequestForm, fanficPickedLorebookIds, type FanficRequestSubmit } from "./FanficRequestForm";
+import { useDiscardUntouchedNewChat } from "../../shared/chat-ui/new-chat-drafts";
 
 export interface FanficModeRouteProps {
   activeChatId: string;
@@ -72,10 +73,19 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     if (chat) useChatStore.getState().setActiveChat(chat);
   }, [chat]);
 
-  // New-chat setup opens the shared settings drawer and wizard in other modes; here the request form is the setup.
-  useEffect(() => {
-    useChatStore.getState().consumeNewChatSetupIntent(activeChatId);
-  }, [activeChatId]);
+  // Started with New and left on the request form with nothing saved (no request, cast, lorebooks or chapters): drop it.
+  useDiscardUntouchedNewChat(
+    activeChatId,
+    !isLoading &&
+      !!chat &&
+      messagesComplete &&
+      stage === "request" &&
+      chapters.length === 0 &&
+      !saveRequest.isPending &&
+      (chat.characterIds?.length ?? 0) === 0 &&
+      readFanficDraftRequest(chat.metadata) === null &&
+      fanficPickedLorebookIds(chat.metadata).length === 0,
+  );
 
   // The reader streams a continue after the chapter's text so far instead of as a new chapter.
   const [continuing, setContinuing] = useState<{ messageId: string; textSoFar: string } | null>(null);

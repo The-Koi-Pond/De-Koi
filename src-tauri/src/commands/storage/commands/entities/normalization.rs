@@ -1156,6 +1156,7 @@ pub(super) fn canonical_chat_mode(mode: &str) -> Option<&'static str> {
         "conversation" => Some("conversation"),
         "roleplay" | "visual_novel" => Some("roleplay"),
         "fanfic" => Some("fanfic"),
+        "trance" => Some("trance"),
         _ => None,
     }
 }

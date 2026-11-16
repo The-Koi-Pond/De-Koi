@@ -154,6 +154,8 @@ type PersonaSetupOption = PersonaDisplayInfo & {
   avatarFilePath?: string | null;
   avatarFilename?: string | null;
   avatarCrop?: unknown;
+  isActive?: unknown;
+  active?: unknown;
 };
 
 type ConnectionSetupOption = {
@@ -379,28 +381,33 @@ function PersonaPicker({
   value: string | null;
   onChange: (personaId: string | null) => void;
 }) {
-  const selectedId = value ?? "";
+  // A chat with no persona of its own speaks as the active persona (prompt-assembly loadPersona), so show that
+  // persona as the pick, and only offer "None" when there is no active persona to fall back to.
+  const activePersona = personas.find((persona) => boolish(persona.isActive ?? persona.active, false)) ?? null;
+  const selectedId = value ?? activePersona?.id ?? "";
 
   return (
     <div className="overflow-hidden rounded-lg bg-[var(--secondary)]/50 ring-1 ring-[var(--border)]">
-      <button
-        type="button"
-        onClick={() => onChange(null)}
-        aria-pressed={!selectedId}
-        className={cn(
-          "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
-          !selectedId && "bg-[var(--primary)]/10 ring-1 ring-inset ring-[var(--primary)]/25",
-        )}
-      >
-        <PersonaAvatar persona={null} />
-        <div className="min-w-0 flex-1">
-          <span className="block truncate text-xs font-medium">None</span>
-          <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">Stay anonymous</span>
-        </div>
-        {!selectedId && <Check size="0.75rem" className="shrink-0 text-[var(--primary)]" />}
-      </button>
+      {!activePersona && (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          aria-pressed={!selectedId}
+          className={cn(
+            "flex w-full items-center gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
+            !selectedId && "bg-[var(--primary)]/10 ring-1 ring-inset ring-[var(--primary)]/25",
+          )}
+        >
+          <PersonaAvatar persona={null} />
+          <div className="min-w-0 flex-1">
+            <span className="block truncate text-xs font-medium">None</span>
+            <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">Stay anonymous</span>
+          </div>
+          {!selectedId && <Check size="0.75rem" className="shrink-0 text-[var(--primary)]" />}
+        </button>
+      )}
 
-      {personas.length > 0 && <div className="border-t border-[var(--border)]" />}
+      {!activePersona && personas.length > 0 && <div className="border-t border-[var(--border)]" />}
 
       <div className="max-h-40 overflow-y-auto">
         {personas.map((persona) => {
@@ -421,8 +428,12 @@ function PersonaPicker({
               <PersonaAvatar persona={persona} />
               <div className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-medium">{persona.name}</span>
-                {title && (
-                  <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">{title}</span>
+                {(title || persona.id === activePersona?.id) && (
+                  <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
+                    {[title, persona.id === activePersona?.id ? "Your default persona" : ""]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
                 )}
               </div>
               {isSelected && <Check size="0.75rem" className="shrink-0 text-[var(--primary)]" />}
@@ -556,6 +567,8 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
     avatarFilename?: string | null;
     avatarCrop?: unknown;
     comment?: string | null;
+    isActive?: unknown;
+    active?: unknown;
   }>;
   const metadata = useMemo(() => {
     const raw = (chat as unknown as { metadata?: string | Record<string, unknown> }).metadata;
@@ -753,9 +766,21 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
     generationParameters,
   ]);
 
+  const closeSetup = onCancel ?? onFinish;
+  const libraryModalOpen = useUIStore((s) => s.modal !== null);
+  // Same as the roleplay wizard: Escape closes, unless a dialog opened from here (like Import) is on top.
+  useEffect(() => {
+    if (libraryModalOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) closeSetup();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [closeSetup, libraryModalOpen]);
+
   return (
     <>
-      <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={onCancel ?? onFinish} />
+      <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[3px]" onClick={closeSetup} />
 
       <div className="absolute inset-0 z-50 flex items-center justify-center p-3 pointer-events-none max-md:pt-[max(0.75rem,env(safe-area-inset-top))] max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
         <div
@@ -769,10 +794,13 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
               <h3 className="text-sm font-semibold text-[var(--foreground)]">New Conversation</h3>
             </div>
             <button
-              onClick={onCancel ?? onFinish}
+              type="button"
+              onClick={closeSetup}
+              aria-label="Close"
+              title="Close"
               className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
             >
-              <X size="0.875rem" />
+              <X size="0.875rem" aria-hidden />
             </button>
           </div>
 
@@ -794,6 +822,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                   }
                 }}
                 placeholder="Conversation name"
+                aria-label="Conversation name"
                 className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--border)] transition-shadow focus:ring-[var(--primary)]/40 placeholder:text-[var(--muted-foreground)]"
               />
             </div>
@@ -905,6 +934,7 @@ function ConversationQuickSetup({ chat, onFinish, onCancel }: ChatSetupWizardPro
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search characters…"
+                    aria-label="Search characters"
                     className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
                     autoFocus
                   />
@@ -1193,6 +1223,8 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
     name: string;
     avatarPath: string | null;
     comment?: string | null;
+    isActive?: unknown;
+    active?: unknown;
   }>;
   const connectionOptions = useMemo(
     () => filterLanguageGenerationConnections((connections ?? []) as ConnectionSetupOption[]),
@@ -1616,6 +1648,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
               value={charSearch}
               onChange={(e) => setCharSearch(e.target.value)}
               placeholder="Search characters…"
+              aria-label="Search characters"
               className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
             />
           </div>
@@ -1911,6 +1944,7 @@ function RoleplaySetupWizard({ chat, onFinish, onCancel }: ChatSetupWizardProps)
                       value={charSearch}
                       onChange={(e) => setCharSearch(e.target.value)}
                       placeholder="Search characters…"
+                      aria-label="Search characters"
                       className="flex-1 bg-transparent text-xs outline-none placeholder:text-[var(--muted-foreground)]"
                     />
                   </div>

@@ -5,6 +5,25 @@ import type { CustomNotificationSound, NotificationSoundId } from "../../lib/not
 import type { CustomTextBlipSound, TextBlipMode } from "../../lib/text-blip-sound";
 import type { ImageStyleProfileSettings } from "../../../engine/generation/image-style-profile-settings";
 
+export const TRANCE_BACKDROPS = ["drift", "breathe", "spiral", "plain"] as const;
+export type TranceBackdrop = (typeof TRANCE_BACKDROPS)[number];
+
+export const TRANCE_VOICE_MODES = ["off", "read-along", "eyes-closed"] as const;
+export type TranceVoiceMode = (typeof TRANCE_VOICE_MODES)[number];
+
+export const TRANCE_PACES = ["press", "auto"] as const;
+export type TrancePace = (typeof TRANCE_PACES)[number];
+
+export const TRANCE_BUTTON_WORDS = ["quiet", "affirming"] as const;
+export type TranceButtonWords = (typeof TRANCE_BUTTON_WORDS)[number];
+
+/** The sounds a trance session can play underneath, all made on the device. */
+const TRANCE_SOUNDSCAPES = ["rain", "ocean", "wind", "chimes", "pad", "binaural"] as const;
+export type TranceSoundscape = (typeof TRANCE_SOUNDSCAPES)[number];
+/** "auto" picks a soundscape from the session's own words. */
+export const TRANCE_AMBIENCES = ["auto", ...TRANCE_SOUNDSCAPES, "off"] as const;
+export type TranceAmbience = (typeof TRANCE_AMBIENCES)[number];
+
 export type { QuoteFormat, TextBlipMode };
 
 export type Panel =
@@ -351,6 +370,8 @@ export interface UIState {
   pendingSettingsDestination: string | null;
   modal: { type: string; props?: Record<string, unknown> } | null;
   theme: "dark" | "light";
+  /** Keep `theme` matched to the device's light/dark setting. On for new installs; picking Dark or Light turns it off. */
+  followSystemTheme: boolean;
   chatBackground: string | null;
   /** Blur applied to the current chat background image in px. */
   chatBackgroundBlur: number;
@@ -432,14 +453,14 @@ export interface UIState {
   trimIncompleteModelOutput: boolean;
   /** When true, chat inputs show a microphone button for browser speech-to-text dictation. */
   speechToTextEnabled: boolean;
-  /** When true, show the global Spotify mini player in the app chrome. */
-  spotifyPlayerEnabled: boolean;
+  /** Older on/off switch for the Music Player; the Music Player core module setting replaced it. */
+  musicPlayerEnabled: boolean;
   /** Optional remote Rust runtime URL. Blank uses the embedded Tauri backend. */
   remoteRuntimeUrl: string;
   /** Floating Music Player widget collapsed state. */
-  spotifyMobileWidgetCollapsed: boolean;
+  musicPlayerMobileWidgetCollapsed: boolean;
   /** Floating Music Player widget position in viewport pixels. */
-  spotifyMobileWidgetPosition: FloatingWidgetPosition;
+  musicPlayerMobileWidgetPosition: FloatingWidgetPosition;
   /** When true, Roleplay and Conversation modes support arrow-key and touch-swipe navigation between message swipes. */
   intuitiveSwipeNavigation: boolean;
   /** When true, moving past the newest swipe on the latest assistant message creates a new reroll. */
@@ -512,6 +533,18 @@ export interface UIState {
   weatherEffects: boolean;
   /** Roleplay scene sound: an ambient bed and sound effects made by ElevenLabs. Off by default (it costs credits). */
   roleplaySceneSound: boolean;
+  /** What moves behind a trance session's lines. */
+  tranceBackdrop: TranceBackdrop;
+  /** Whether a trance session is read aloud, and whether it moves on by itself (eyes closed). Off by default (it costs credits). */
+  tranceVoice: TranceVoiceMode;
+  /** Whether trance lines wait for a press or move on by themselves (always by themselves with eyes closed). */
+  trancePace: TrancePace;
+  /** The words on a trance session's button: quiet ("Go on") or affirming ("Feels nice"). */
+  tranceButtonWords: TranceButtonWords;
+  /** The sound under a trance session: picked from the session, a fixed one, or none. */
+  tranceAmbience: TranceAmbience;
+  /** How loud that sound is, 0 to 1. */
+  tranceAmbienceVolume: number;
   /** 0 to 1. */
   sceneAmbientVolume: number;
   /** 0 to 1. */
@@ -587,6 +620,7 @@ export interface UIState {
   openModal: (type: string, props?: Record<string, unknown>) => void;
   closeModal: () => void;
   setTheme: (theme: "dark" | "light") => void;
+  setFollowSystemTheme: (follow: boolean) => void;
   setChatBackground: (url: string | null) => void;
   setChatBackgroundBlur: (v: number) => void;
   openCharacterDetail: (id: string, destination?: "memories") => void;
@@ -655,10 +689,10 @@ export interface UIState {
   setQuoteFormat: (v: QuoteFormat) => void;
   setTrimIncompleteModelOutput: (v: boolean) => void;
   setSpeechToTextEnabled: (v: boolean) => void;
-  setSpotifyPlayerEnabled: (v: boolean) => void;
+  setMusicPlayerEnabled: (v: boolean) => void;
   setRemoteRuntimeUrl: (v: string) => void;
-  setSpotifyMobileWidgetCollapsed: (v: boolean) => void;
-  setSpotifyMobileWidgetPosition: (position: FloatingWidgetPosition) => void;
+  setMusicPlayerMobileWidgetCollapsed: (v: boolean) => void;
+  setMusicPlayerMobileWidgetPosition: (position: FloatingWidgetPosition) => void;
   setIntuitiveSwipeNavigation: (v: boolean) => void;
   setIntuitiveSwipeRerollLatest: (v: boolean) => void;
   setEditLastMessageOnArrowUp: (v: boolean) => void;
@@ -691,6 +725,12 @@ export interface UIState {
   setEnterToSendConvo: (v: boolean) => void;
   setWeatherEffects: (v: boolean) => void;
   setRoleplaySceneSound: (v: boolean) => void;
+  setTranceBackdrop: (v: TranceBackdrop) => void;
+  setTranceVoice: (v: TranceVoiceMode) => void;
+  setTrancePace: (v: TrancePace) => void;
+  setTranceButtonWords: (v: TranceButtonWords) => void;
+  setTranceAmbience: (v: TranceAmbience) => void;
+  setTranceAmbienceVolume: (v: number) => void;
   setSceneAmbientVolume: (v: number) => void;
   setSceneEffectsVolume: (v: number) => void;
   setHudPosition: (v: HudPosition) => void;

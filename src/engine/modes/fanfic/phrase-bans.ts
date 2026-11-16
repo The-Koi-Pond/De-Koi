@@ -9,7 +9,7 @@
 import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
 import { LOCAL_SIDECAR_CONNECTION_ID } from "../../contracts/types/sidecar";
 import { readString, type JsonRecord } from "../../generation/runtime-records";
-import { untilAborted } from "./llm-json";
+import { untilAborted } from "../../shared/until-aborted";
 
 /** Starting list: stock phrases from the AI-tell detector, as plain text the requester can edit. */
 export const FANFIC_DEFAULT_BANNED_PHRASES = [

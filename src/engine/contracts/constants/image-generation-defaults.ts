@@ -5,6 +5,7 @@ import type {
   ImageGenerationDefaultsProfile,
   NovelAiDefaults,
 } from "../types/image-generation-defaults.js";
+import { isRecord, readString } from "../../shared/value-readers";
 
 export const IMAGE_DEFAULTS_STORAGE_KEY = "imageGeneration";
 const IMAGE_GENERATION_DEFAULTS_VERSION = 1 as const;
@@ -44,6 +45,8 @@ const DEFAULT_NOVELAI_DEFAULTS: NovelAiDefaults = {
   promptGuidance: 6,
   promptGuidanceRescale: 0,
   undesiredContentPreset: 0,
+  referenceStrength: 0.6,
+  referenceFidelity: 1,
 };
 
 export const SD_WEBUI_SAMPLER_OPTIONS = [
@@ -221,15 +224,9 @@ function normalizeNovelAiDefaults(rawDefaults: unknown): NovelAiDefaults {
       0,
       4,
     ),
+    referenceStrength: readNumber(raw.referenceStrength, DEFAULT_NOVELAI_DEFAULTS.referenceStrength, 0, 1),
+    referenceFidelity: readNumber(raw.referenceFidelity, DEFAULT_NOVELAI_DEFAULTS.referenceFidelity, 0, 1),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function readString(value: unknown, fallback: string): string {
-  return typeof value === "string" ? value : fallback;
 }
 
 function readNullableString(value: unknown): string | null {

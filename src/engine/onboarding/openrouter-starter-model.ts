@@ -19,6 +19,15 @@ export const OPENROUTER_STARTER_MODEL_PREFERENCE = [
 /** OpenRouter's own router across its free models. It sends each reply to a free model that is up, so it goes first. */
 export const OPENROUTER_FREE_ROUTER_MODEL = "openrouter/free";
 
+/**
+ * A model OpenRouter serves for free. Free models share one small daily request allowance per account (50 a day
+ * below $10 of credit), so background helpers on them run less often.
+ */
+export function isOpenRouterFreeModel(model: string | null | undefined): boolean {
+  const id = (model ?? "").trim().toLowerCase();
+  return id === OPENROUTER_FREE_ROUTER_MODEL || id.endsWith(":free");
+}
+
 export interface StarterModelCandidate {
   id: string;
   name?: string | null;

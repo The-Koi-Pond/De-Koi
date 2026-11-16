@@ -16,6 +16,11 @@ import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
+  TRANCE_BACKDROPS,
+  TRANCE_VOICE_MODES,
+  TRANCE_PACES,
+  TRANCE_BUTTON_WORDS,
+  TRANCE_AMBIENCES,
   normalizeTrackerPanelSectionOrder,
   normalizeTrackerPanelSizeProfile,
   normalizeConversationMessageStyle,
@@ -27,9 +32,25 @@ import {
   normalizeTrackerThoughtBubbleDisplay,
 } from "./model";
 import type { UIState } from "./model";
+import { isRecord } from "../../../engine/shared/value-readers";
 
 export const UI_STORE_NAME = "marinara-engine-ui-tauri";
-export const UI_STORE_VERSION = 12;
+export const UI_STORE_VERSION = 14;
+
+/** Music Player settings saved under their old Spotify-era names, and their current names. */
+const RENAMED_MUSIC_PLAYER_KEYS = [
+  ["spotifyPlayerEnabled", "musicPlayerEnabled"],
+  ["spotifyMobileWidgetCollapsed", "musicPlayerMobileWidgetCollapsed"],
+  ["spotifyMobileWidgetPosition", "musicPlayerMobileWidgetPosition"],
+] as const;
+
+function renameMusicPlayerKeys(persisted: Record<string, unknown>): void {
+  for (const [oldKey, newKey] of RENAMED_MUSIC_PLAYER_KEYS) {
+    if (!(oldKey in persisted)) continue;
+    if (!(newKey in persisted)) persisted[newKey] = persisted[oldKey];
+    delete persisted[oldKey];
+  }
+}
 
 const LEGACY_SIDEBAR_WIDTH_DEFAULT = 280;
 
@@ -136,6 +157,7 @@ export function partializeUiState(state: UIState) {
     trackerPanelCollapsedSections: state.trackerPanelCollapsedSections,
     trackerPanelSectionOrder: state.trackerPanelSectionOrder,
     theme: state.theme,
+    followSystemTheme: state.followSystemTheme,
     chatBackground: state.chatBackground,
     chatBackgroundBlur: state.chatBackgroundBlur,
     fontSize: state.fontSize,
@@ -173,10 +195,10 @@ export function partializeUiState(state: UIState) {
     quoteFormat: state.quoteFormat,
     trimIncompleteModelOutput: state.trimIncompleteModelOutput,
     speechToTextEnabled: state.speechToTextEnabled,
-    spotifyPlayerEnabled: state.spotifyPlayerEnabled,
+    musicPlayerEnabled: state.musicPlayerEnabled,
     remoteRuntimeUrl: state.remoteRuntimeUrl,
-    spotifyMobileWidgetCollapsed: state.spotifyMobileWidgetCollapsed,
-    spotifyMobileWidgetPosition: state.spotifyMobileWidgetPosition,
+    musicPlayerMobileWidgetCollapsed: state.musicPlayerMobileWidgetCollapsed,
+    musicPlayerMobileWidgetPosition: state.musicPlayerMobileWidgetPosition,
     intuitiveSwipeNavigation: state.intuitiveSwipeNavigation,
     intuitiveSwipeRerollLatest: state.intuitiveSwipeRerollLatest,
     editLastMessageOnArrowUp: state.editLastMessageOnArrowUp,
@@ -197,6 +219,12 @@ export function partializeUiState(state: UIState) {
     enterToSendConvo: state.enterToSendConvo,
     weatherEffects: state.weatherEffects,
     roleplaySceneSound: state.roleplaySceneSound,
+    tranceBackdrop: state.tranceBackdrop,
+    tranceVoice: state.tranceVoice,
+    trancePace: state.trancePace,
+    tranceButtonWords: state.tranceButtonWords,
+    tranceAmbience: state.tranceAmbience,
+    tranceAmbienceVolume: state.tranceAmbienceVolume,
     sceneAmbientVolume: state.sceneAmbientVolume,
     sceneEffectsVolume: state.sceneEffectsVolume,
     hudPosition: state.hudPosition,
@@ -252,6 +280,7 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   const legacyWidth = persisted.trackerPanelWidth;
   delete (persisted as Record<string, unknown>)["chibiDekiEnabled"];
   delete (persisted as Record<string, unknown>)["chibiProfessorMariEnabled"];
+  renameMusicPlayerKeys(persisted as Record<string, unknown>);
   persisted.sidebarWidth = normalizePersistedWidth(
     persisted.sidebarWidth === LEGACY_SIDEBAR_WIDTH_DEFAULT ? SIDEBAR_WIDTH_DEFAULT : persisted.sidebarWidth,
     SIDEBAR_WIDTH_DEFAULT,
@@ -296,6 +325,28 @@ export function migrateUiState(persistedState: unknown): Partial<UIState> {
   persisted.textBlipMode = normalizeTextBlipMode(persisted.textBlipMode);
   persisted.customTextBlipSound = normalizeCustomTextBlipSound(persisted.customTextBlipSound);
   persisted.mobileChatToolsOpen = false;
+  // Saved before "Match system" existed: keep the scheme people already had. Only new installs follow the device.
+  persisted.followSystemTheme = persisted.followSystemTheme === true;
+  persisted.tranceBackdrop = (TRANCE_BACKDROPS as readonly unknown[]).includes(persisted.tranceBackdrop)
+    ? persisted.tranceBackdrop
+    : "drift";
+  persisted.tranceVoice = (TRANCE_VOICE_MODES as readonly unknown[]).includes(persisted.tranceVoice)
+    ? persisted.tranceVoice
+    : "off";
+  persisted.trancePace = (TRANCE_PACES as readonly unknown[]).includes(persisted.trancePace)
+    ? persisted.trancePace
+    : "press";
+  // Missing for people who used Trance before the choice existed: they get the quiet words too.
+  persisted.tranceButtonWords = (TRANCE_BUTTON_WORDS as readonly unknown[]).includes(persisted.tranceButtonWords)
+    ? persisted.tranceButtonWords
+    : "quiet";
+  persisted.tranceAmbience = (TRANCE_AMBIENCES as readonly unknown[]).includes(persisted.tranceAmbience)
+    ? persisted.tranceAmbience
+    : "auto";
+  persisted.tranceAmbienceVolume =
+    typeof persisted.tranceAmbienceVolume === "number" && Number.isFinite(persisted.tranceAmbienceVolume)
+      ? Math.min(1, Math.max(0, persisted.tranceAmbienceVolume))
+      : 0.5;
   delete persisted.trackerPanelWidth;
 
   return persisted;
@@ -313,8 +364,4 @@ function normalizeLegacyImageStyleProfiles(raw: unknown, format: unknown): Image
 function hasPersistedImageStyleProfiles(raw: unknown): boolean {
   if (!isRecord(raw) || typeof raw.defaultProfileId !== "string" || !Array.isArray(raw.profiles)) return false;
   return raw.profiles.some((profile) => isRecord(profile) && typeof profile.id === "string" && !!profile.id.trim());
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }

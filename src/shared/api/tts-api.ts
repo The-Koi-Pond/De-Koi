@@ -1,5 +1,6 @@
 import { ttsConfigSchema, type TTSConfig, type TTSVoicesResponse } from "../../engine/contracts/types/tts";
 import { invokeTauri } from "./tauri-client";
+import { isRecord } from "../../engine/shared/value-readers";
 
 export interface TtsSpeakInput {
   text: string;
@@ -13,6 +14,20 @@ export interface TtsSpeakInput {
 }
 
 export type TtsAudioKind = "speech" | "sound_effect";
+
+export interface TtsVoiceNoteInput {
+  chatId: string;
+  text: string;
+  voice?: string;
+  speaker?: string;
+}
+
+/** The saved voice note: a managed audio file of the chat. */
+export interface TtsVoiceNoteFile {
+  url: string;
+  filename: string;
+  contentType: string;
+}
 
 interface TtsSpeakResponse {
   audioBase64?: string;
@@ -56,10 +71,6 @@ function base64ToBlob(base64: string, contentType: string): Blob {
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function normalizeTTSConfigResponse(value: unknown): TTSConfig {
@@ -107,6 +118,14 @@ export const ttsApi = {
       audio,
       optionalString(response.contentType) ?? optionalString(response.mimeType) ?? "audio/mpeg",
     );
+  },
+  /** Speak a character's voice note and keep the audio as a managed file of the chat (replays without a new request). */
+  voiceNote: async (input: TtsVoiceNoteInput): Promise<TtsVoiceNoteFile> => {
+    const response = await invokeTauri<Record<string, unknown>>("tts_voice_note", { input });
+    const url = optionalString(response?.url);
+    const filename = optionalString(response?.filename);
+    if (!url || !filename) throw new Error(ttsFailureMessage(response));
+    return { url, filename, contentType: optionalString(response?.contentType) ?? "audio/mpeg" };
   },
   /** Speech to text with the Text to Speech provider (OpenAI-compatible or ElevenLabs). */
   transcribe: async (audio: Blob, signal?: AbortSignal): Promise<string> => {

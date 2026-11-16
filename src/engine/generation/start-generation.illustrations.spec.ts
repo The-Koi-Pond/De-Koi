@@ -176,6 +176,46 @@ describe("generateIllustrationAttachments", () => {
     expect(result).toEqual({ attachments: [], events: [] });
   });
 
+  it("points the illustration attachment at the filename the gallery actually stored", async () => {
+    const connections = [{ id: "illustrator-default", provider: "image_generation", defaultForAgents: true }];
+    const base = testStorage({ agents: [{ id: "illustrator", type: "illustrator", settings: {} }], connections });
+    const storage = {
+      ...base,
+      async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+        if (entity === "connections") return (connections.find((item) => item.id === id) ?? null) as T | null;
+        return base.get<T>(entity, id);
+      },
+      async create<T = unknown>(_entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
+        return {
+          id: "gallery-1",
+          ...value,
+          filename: "illustration_1-2.png",
+          url: "asset://localhost/data/gallery/illustration_1-2.png",
+        } as T;
+      },
+    } as StorageGateway;
+
+    const result = await generateIllustrationAttachments({
+      deps: {
+        storage,
+        integrations: {
+          image: { generate: async () => ({ image: "data:image/png;base64,abc", mimeType: "image/png" }) },
+        },
+      } as never,
+      chat: { id: "chat-1", mode: "roleplay", characterIds: [], metadata: {} },
+      results: [illustrationResult],
+      reportUnavailable: true,
+    });
+
+    expect(result.attachments).toEqual([
+      expect.objectContaining({
+        galleryId: "gallery-1",
+        url: "asset://localhost/data/gallery/illustration_1-2.png",
+        filename: "illustration_1-2.png",
+      }),
+    ]);
+  });
+
   it("still reports a missing image connection for an explicit illustration request", async () => {
     const result = await generateIllustrationAttachments({
       deps: {

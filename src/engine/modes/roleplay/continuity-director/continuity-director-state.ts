@@ -11,6 +11,7 @@ import type {
   RoleplayContinuityDirectorState,
 } from "../../../contracts/types/roleplay-continuity-director";
 import { createId } from "../../../core/ids";
+import { isRecord } from "../../../shared/value-readers";
 
 export const CONTINUITY_DIRECTOR_LIMITS = {
   arcCharacters: 600,
@@ -48,10 +49,6 @@ const BEAT_STATUSES = new Set<ContinuityDirectorBeatStatus>([
 const THREAD_STATUSES = new Set<ContinuityDirectorThreadStatus>(["open", "deferred", "resolved"]);
 const ITEM_SOURCES = new Set<ContinuityDirectorItemSource>(["director", "user"]);
 const REFRESH_MODES = new Set<ContinuityDirectorRefreshMode>(["manual", "scene_events", "cadence"]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 function boundedText(value: unknown, max: number): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";

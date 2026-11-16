@@ -15,6 +15,7 @@ use tokio::sync::watch;
 use crate::performance_diagnostics::log_span;
 use crate::seed_defaults::seed_bundled_defaults;
 use crate::storage_commands::{
+    canonical_memory::{QueryEmbeddingCache, SemanticVectorCache},
     character_version_media::cleanup_orphaned_character_version_media,
     character_version_retention::prune_character_versions,
     contracts,
@@ -43,6 +44,11 @@ pub struct AppState {
     background_workers: Arc<Mutex<HashMap<String, BackgroundWorkerLease>>>,
     /// Serializes enqueue/claim/finish so a trigger landing mid-run is never lost to the finish.
     background_jobs_lock: Arc<Mutex<()>>,
+    /// Parsed memory vectors kept between semantic memory searches (see `canonical_memory/vector_cache.rs`).
+    semantic_vectors: Arc<Mutex<SemanticVectorCache>>,
+    /// The user's message embedded for this reply, reused by the memory search
+    /// (see `canonical_memory/query_embedding_cache.rs`).
+    query_embeddings: Arc<Mutex<QueryEmbeddingCache>>,
 }
 
 struct BackgroundWorkerLease {
@@ -85,6 +91,7 @@ const INLINE_IMAGE_REFERENCES_MIGRATION_KEY: &str = "inlineImageReferencesV1";
 const CHARACTER_VERSION_INLINE_MEDIA_MIGRATION_KEY: &str = "characterVersionInlineMediaV3";
 const CHARACTER_VERSION_RETENTION_MIGRATION_KEY: &str = "characterVersionRetentionV1";
 const ORPHANED_MEMORY_JOBS_MIGRATION_KEY: &str = "orphanedMemoryJobsV1";
+const ORPHANED_KNOWLEDGE_EDGES_MIGRATION_KEY: &str = "orphanedKnowledgeEdgesV1";
 const REMOVE_GAME_MODE_MIGRATION_KEY: &str = "removeGameModeV1";
 const LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY: &str = "lorebookSelectiveLogicV1";
 const CARD_REGEX_APPLY_MODE_MIGRATION_KEY: &str = "cardRegexApplyModeV1";
@@ -135,6 +142,8 @@ impl AppState {
             memory_capture_worker: Arc::new(Mutex::new(None)),
             background_workers: Arc::new(Mutex::new(HashMap::new())),
             background_jobs_lock: Arc::new(Mutex::new(())),
+            semantic_vectors: Arc::new(Mutex::new(SemanticVectorCache::default())),
+            query_embeddings: Arc::new(Mutex::new(QueryEmbeddingCache::default())),
         };
         let character_version_media_ready = match run_startup_migration_once(
             &state.storage,
@@ -237,6 +246,13 @@ impl AppState {
         )?;
         run_startup_migration_once(
             &state.storage,
+            ORPHANED_KNOWLEDGE_EDGES_MIGRATION_KEY,
+            |storage| {
+                crate::storage_commands::knowledge_edges::prune_orphaned_edges(storage).map(|_| ())
+            },
+        )?;
+        run_startup_migration_once(
+            &state.storage,
             LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY,
             crate::storage_commands::startup_migrations::keep_all_secondary_keys_for_authored_lorebook_entries,
         )?;
@@ -335,6 +351,33 @@ impl AppState {
             seed_bundled_defaults(storage, Path::new(""))?;
         }
         Ok(())
+    }
+
+    pub(crate) fn semantic_vectors(
+        &self,
+    ) -> AppResult<std::sync::MutexGuard<'_, SemanticVectorCache>> {
+        self.semantic_vectors
+            .lock()
+            .map_err(|_| AppError::new("lock_error", "Semantic vector cache lock poisoned"))
+    }
+
+    pub(crate) fn query_embeddings(
+        &self,
+    ) -> AppResult<std::sync::MutexGuard<'_, QueryEmbeddingCache>> {
+        self.query_embeddings
+            .lock()
+            .map_err(|_| AppError::new("lock_error", "Query embedding cache lock poisoned"))
+    }
+
+    /// Registers a query embedding call so a memory search for the same text waits for it.
+    pub(crate) fn begin_query_embedding(
+        &self,
+        key: crate::storage_commands::canonical_memory::QueryEmbeddingKey,
+    ) -> Option<crate::storage_commands::canonical_memory::QueryEmbeddingTicket> {
+        crate::storage_commands::canonical_memory::QueryEmbeddingTicket::begin(
+            &self.query_embeddings,
+            key,
+        )
     }
 
     pub fn background_path(&self, path: &str) -> AppResult<PathBuf> {

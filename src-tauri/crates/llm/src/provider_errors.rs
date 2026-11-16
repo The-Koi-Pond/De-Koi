@@ -20,6 +20,9 @@ pub fn provider_http_next_step(status: u16, detail: Option<&str>) -> Option<&'st
         400 if detail.is_some_and(mentions_context_limit) => Some(
             "The prompt is longer than this model accepts. Lower Max Context Window for this connection in Connections, then retry.",
         ),
+        402 | 429 if detail.is_some_and(mentions_free_daily_limit) => Some(
+            "That's OpenRouter's daily limit for free models: 50 requests a day, and one reply can use several. It resets at midnight UTC. Adding $10 of credit once raises it to 1,000 a day.",
+        ),
         401 => Some("Check this connection's API key in Connections."),
         402 => Some("Add credit or check billing on the provider's site, then retry."),
         403 => Some(
@@ -38,6 +41,11 @@ pub fn provider_http_next_step(status: u16, detail: Option<&str>) -> Option<&'st
         ),
         _ => None,
     }
+}
+
+/// OpenRouter's free-model daily cap ("Rate limit exceeded: free-models-per-day"). Waiting a minute doesn't help.
+fn mentions_free_daily_limit(detail: &str) -> bool {
+    detail.to_ascii_lowercase().contains("free-models-per-day")
 }
 
 fn mentions_context_limit(detail: &str) -> bool {
@@ -168,6 +176,31 @@ mod tests {
             provider_http_error_message("Provider", reqwest::StatusCode::TOO_MANY_REQUESTS, None);
         assert!(rate_limited.starts_with("Provider returned HTTP 429 Too Many Requests. "));
         assert!(rate_limited.contains("Wait a minute"));
+    }
+
+    #[test]
+    fn openrouter_free_daily_limit_says_when_it_resets() {
+        let message = provider_http_error_message(
+            "Provider",
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            Some("Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day"),
+        );
+        assert!(message.contains("resets at midnight UTC"));
+        assert!(!message.contains("Wait a minute"));
+
+        let per_minute = provider_http_error_message(
+            "Provider",
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            Some("Rate limit exceeded: free-models-per-min."),
+        );
+        assert!(per_minute.contains("Wait a minute"));
+
+        let payment_required = provider_http_error_message(
+            "Provider",
+            reqwest::StatusCode::PAYMENT_REQUIRED,
+            Some("Rate limit exceeded: free-models-per-day"),
+        );
+        assert!(payment_required.contains("resets at midnight UTC"));
     }
 
     #[test]

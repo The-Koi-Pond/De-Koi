@@ -13,7 +13,7 @@ import type { FanficNarrationPart } from "../lib/narration";
 export type FanficNarrationStatus = "idle" | "loading" | "playing" | "paused";
 
 /** What to tell the reader when sound effects can't be made; the reading itself goes on. */
-export function fanficSoundEffectsFailureMessage(error: unknown): string {
+function fanficSoundEffectsFailureMessage(error: unknown): string {
   if (isMissingSoundEffectsPermission(error)) {
     return "Sound effects are off for this read: your ElevenLabs API key is missing the Sound Effects permission. Turn it on for the key at elevenlabs.io, then press play again.";
   }

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { DEMO_BACKGROUND, DEMO_CHARACTERS, DEMO_CONNECTION, DEMO_PERSONA } from "./cast.mjs";
 
-export const DEMO_ART_DIR = "docs/screenshots/demo";
+const DEMO_ART_DIR = "docs/screenshots/demo";
 
 export function runtimeClient(baseUrl) {
   return async function invoke(command, args = {}) {

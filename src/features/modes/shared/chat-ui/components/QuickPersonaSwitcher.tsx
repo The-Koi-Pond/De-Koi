@@ -211,6 +211,7 @@ export function QuickPersonaSwitcher({ className }: { className?: string }) {
             ? `${activePersona.name}${activePersona.comment ? " — " + activePersona.comment : ""}`
             : "Quick Persona Switcher"
         }
+        aria-label={activePersona ? `Persona: ${activePersona.name}` : "Choose persona"}
         className={cn(
           CHAT_INPUT_ICON_BUTTON_CLASS,
           "relative overflow-hidden border-2 p-0",

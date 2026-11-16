@@ -11,6 +11,7 @@ import {
 } from "../executor/agent-executor.js";
 import { executeKnowledgeRetrieval } from "../knowledge/knowledge-retrieval.js";
 import { executeKnowledgeRouter, type KnowledgeRouterCandidateOptions } from "../knowledge/knowledge-router.js";
+import { isRecord } from "../../shared/value-readers";
 
 /** A fully resolved agent ready for execution. */
 export interface ResolvedAgent extends AgentExecConfig {
@@ -18,7 +19,7 @@ export interface ResolvedAgent extends AgentExecConfig {
   model: string;
   /** Maximum number of concurrent agent LLM jobs allowed for this connection. */
   maxParallelJobs: number;
-  /** Optional tool context for agents that need function calling (e.g., Spotify). */
+  /** Optional tool context for agents that need function calling. */
   toolContext?: AgentToolContext;
   /** Source material selected for Knowledge Retrieval. */
   knowledgeSourceMaterial?: string;
@@ -165,21 +166,12 @@ function buildAgentContext(agentOrAgents: ResolvedAgent | ResolvedAgent[], conte
 }
 
 function shouldExecuteIndividually(agent: ResolvedAgent): boolean {
-  // Spotify agents in post_processing batch with others and return JSON intent;
-  // tool execution happens later via applySpotifyPlaybackFallback.
-  if (agent.type === "spotify" && agent.phase === "post_processing") {
-    return shouldRunAgentIndividually(agent);
-  }
   return (
     shouldRunAgentIndividually(agent) ||
     agent.type === "knowledge-retrieval" ||
     agent.type === "knowledge-router" ||
     Boolean(agent.toolContext?.tools.length)
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function getAgentResultText(data: unknown): string {

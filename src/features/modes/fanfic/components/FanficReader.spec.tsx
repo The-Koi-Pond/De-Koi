@@ -305,6 +305,7 @@ describe("FanficReader", () => {
 
     it("turns the polish off from the reader, saving it on the request", async () => {
       await render([chapterMessage("m1", POLISHED)]);
+      await click(button("Tools"));
       const toggle = Array.from(container.querySelectorAll("label")).find((label) =>
         label.textContent?.startsWith("Polish each chapter automatically"),
       )!;
@@ -609,6 +610,19 @@ describe("FanficReader", () => {
       expect(button("Delete")).toBeDefined();
     });
 
+    it("keeps the model, polish and tools behind Tools until asked for", async () => {
+      await render([chapterMessage("m1", "One.")]);
+      expect(button("Ledger")).toBeUndefined();
+      expect(button("Save as HTML")).toBeUndefined();
+
+      await click(button("Tools"));
+      expect(button("Ledger")).toBeDefined();
+      expect(button("Save as HTML")).toBeDefined();
+
+      await click(button("Hide tools"));
+      expect(button("Ledger")).toBeUndefined();
+    });
+
     it("names ledger entries by the label of the chapter at their place on the canon line", async () => {
       const entry = (chapter: number, messageId: string, content: string) => ({
         chapter,
@@ -630,6 +644,7 @@ describe("FanficReader", () => {
         extraMessage("x2", "Side.", 1),
         chapterMessage("m2", "Two."),
       ]);
+      await click(button("Tools"));
       await click(button("Ledger"));
 
       const panel = container.querySelector("[aria-label='Story ledger']")!;
@@ -679,6 +694,7 @@ describe("FanficReader", () => {
         ],
         { editor },
       );
+      await click(button("Tools"));
       await click(button("Editor"));
 
       const panel = container.querySelector("[aria-label='Editor pass']")!;
@@ -862,6 +878,7 @@ describe("FanficReader", () => {
       expect(button("Rewrite with notes")?.disabled).toBe(true);
       expect(button("Write chapter 3")?.disabled).toBe(true);
       expect(container.querySelector<HTMLButtonElement>("[aria-label='Previous version']")?.disabled).toBe(false);
+      await click(button("Tools"));
       expect(button("Save as HTML")?.disabled).toBe(false);
     });
 

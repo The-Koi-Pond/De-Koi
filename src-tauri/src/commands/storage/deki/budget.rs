@@ -1,15 +1,17 @@
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
-const DEFAULT_MAX_ROUNDS: usize = 8;
+const DEFAULT_MAX_ROUNDS: usize = 12;
 const DEFAULT_MAX_COMMANDS_PER_ROUND: usize = 4;
 const DEFAULT_MAX_WEB_PAGES_PER_TURN: usize = 2;
 const DEFAULT_MAX_DATA_MUTATIONS_PER_TURN: usize = 6;
 const DEFAULT_MAX_TRACE_CHARS: usize = 64 * 1024;
-const DEFAULT_WALL_CLOCK_SECS: u64 = 180;
+/// Long requests (reading and patching many cards, wide code questions) need
+/// several slow rounds; a run can always be stopped from the Deki panel.
+const DEFAULT_WALL_CLOCK_SECS: u64 = 600;
 /// Time kept back for the final answer round, so a run that investigates up
 /// to its limit still has room to answer from what it found.
-const FINAL_ANSWER_RESERVE_SECS: u64 = 45;
+const FINAL_ANSWER_RESERVE_SECS: u64 = 90;
 
 /// Context window assumed when the connection does not say (tokens).
 const DEFAULT_CONTEXT_TOKENS: u64 = 128_000;

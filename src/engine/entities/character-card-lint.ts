@@ -4,7 +4,7 @@
 // Every rule is a line-by-line rewrite. A finding exists only when its rewrite
 // changes something, so the preview the user sees is exactly what "Fix it" saves.
 
-export type CardLintRule = "mojibake" | "speaker_prefix" | "legacy_scaffolding" | "ai_lines";
+type CardLintRule = "mojibake" | "speaker_prefix" | "legacy_scaffolding" | "ai_lines";
 
 export type CardLintField =
   | "name"
@@ -18,7 +18,7 @@ export type CardLintField =
   | "post_history_instructions"
   | "creator_notes";
 
-export interface CardLintEdit {
+interface CardLintEdit {
   before: string;
   after: string;
 }

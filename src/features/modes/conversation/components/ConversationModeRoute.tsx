@@ -24,9 +24,8 @@ import {
   useEditAndResend,
   useSpriteMetadataState,
   isAbandonedChatDraft,
-  isEmptyNewChatSetup,
+  useNewChatDraft,
 } from "../../shared/chat-ui/index";
-import { useDeleteChat } from "../../../catalog/chats/index";
 import { ChatConversationSurface } from "./ChatConversationSurface";
 import { CreatorNotesCssInjector } from "../../shared/chat-ui/index";
 import { useConversationAvatarOverrides } from "../hooks/use-conversation-avatar-overrides";
@@ -40,7 +39,6 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
   const messagesPerPage = useUIStore((state) => state.messagesPerPage);
   const setActiveChatId = useChatStore((state) => state.setActiveChatId);
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
-  const deleteChat = useDeleteChat();
   const data = useChatSurfaceData({
     activeChatId,
     messagePageSize: messagesPerPage,
@@ -195,42 +193,13 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
           sceneChatName: getChatDisplayName(activeSceneChat),
         }
       : undefined;
-  const handleCancelNewConversationSetup = useCallback(() => {
-    const cancellingChatId = activeChatId;
-    overlays.setWizardOpen(false);
-    void deleteChat
-      .mutateAsync(cancellingChatId)
-      .then(() => {
-        overlays.clearNewChatSetup();
-        if (useChatStore.getState().activeChatId === cancellingChatId) setActiveChatId(null);
-      })
-      .catch(() => {
-        if (useChatStore.getState().activeChatId === cancellingChatId) overlays.setWizardOpen(true);
-      });
-  }, [activeChatId, deleteChat, overlays, setActiveChatId]);
-
-  const handleFinishNewConversationSetup = useCallback(() => {
-    if (
-      isEmptyNewChatSetup({
-        activeChatId,
-        setupChatId: overlays.newChatSetupChatId,
-        chatCharIds: data.chatCharIds,
-        totalMessageCount: data.totalMessageCount,
-        messagesLoaded: data.messages !== undefined,
-      })
-    ) {
-      handleCancelNewConversationSetup();
-      return;
-    }
-    overlays.finishWizard();
-  }, [
+  const newChatDraft = useNewChatDraft({
     activeChatId,
-    data.chatCharIds,
-    data.messages,
-    data.totalMessageCount,
-    handleCancelNewConversationSetup,
     overlays,
-  ]);
+    chatCharIds: data.chatCharIds,
+    totalMessageCount: data.totalMessageCount,
+    messagesLoaded: data.messages !== undefined,
+  });
 
   const cardCssMode = (() => {
     const mode = data.chatMeta.cardCssMode;
@@ -323,7 +292,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
         onCloseFiles={overlays.closeFiles}
         onCloseGallery={overlays.closeGallery}
         onIllustrate={timeline.handleIllustrate}
-        onWizardFinish={handleFinishNewConversationSetup}
+        onWizardFinish={newChatDraft.finish}
         onResumeSetup={
           isAbandonedChatDraft({
             activeChatId,
@@ -336,7 +305,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
             ? overlays.resumeSetup
             : undefined
         }
-        onWizardCancel={handleCancelNewConversationSetup}
+        onWizardCancel={newChatDraft.cancel}
         onClosePeekPrompt={timeline.closePeekPrompt}
         onResetSpritePlacements={spriteState.handleResetSpritePlacements}
         onSpriteSideChange={spriteState.handleSetSpritePosition}

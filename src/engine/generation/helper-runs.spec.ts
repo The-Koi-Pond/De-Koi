@@ -241,7 +241,7 @@ describe("resolveHelperRoute", () => {
     const [run] = (await readHelperRuns(storage)).fanficChecks ?? [];
     expect(run).toMatchObject({ job: "story ledger", chatId: "fic-1", connectionId: "deleted", rule: "route" });
     expect(describeHelperRun(run!)).toBe(
-      'Stopped (story ledger): The Fanfic checks helper is set to a connection that no longer exists. Pick another connection, or "Same as today", in Connections → Helper Models.',
+      'Last story ledger stopped: The Fanfic checks helper is set to a connection that no longer exists. Pick another connection, or "Same as today", in Connections → Helper Models.',
     );
   });
 
@@ -271,19 +271,19 @@ describe("describeHelperRun", () => {
 
   it("says where it ran and why", () => {
     expect(describeHelperRun(run({}))).toBe(
-      "Ran (outline) on Cheap • small-model: your Helper Models pick for Fanfic planning.",
+      "Last outline used Cheap • small-model, your Helper Models pick for Fanfic planning.",
     );
     expect(describeHelperRun(run({ rule: "chat" }))).toBe(
-      "Ran (outline) on Cheap • small-model: this fic's connection (Fanfic planning has no Helper Models pick).",
+      "Last outline used Cheap • small-model, this fic's connection, because Fanfic planning has no Helper Models pick.",
     );
     expect(describeHelperRun(run({ task: "status", job: "", rule: "chat", model: "" }))).toBe(
-      "Ran on Cheap: the chat's connection (Status blurbs has no Helper Models pick).",
+      "Last run used Cheap, the chat's connection, because Status blurbs has no Helper Models pick.",
     );
     expect(describeHelperRun(run({ task: "judge", job: "", rule: "lastJudge" }))).toBe(
-      "Ran on Cheap • small-model: this fic's last judge, so scores stay comparable.",
+      "Last run used Cheap • small-model, this fic's last judge, so scores stay comparable.",
     );
     expect(describeHelperRun(run({ task: "memory", job: "", rule: "agentDefault" }))).toBe(
-      "Ran on Cheap • small-model: Default for Agents (Memory has no Helper Models pick).",
+      "Last run used Cheap • small-model, Default for Agents, because Memory has no Helper Models pick.",
     );
   });
 

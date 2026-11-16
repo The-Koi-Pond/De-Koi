@@ -1,12 +1,7 @@
 const BEHAVIORAL_EXAMPLE_POOL_VERSION = 1 as const;
 
 type BehavioralExampleSourceField =
-  | "mes_example"
-  | "first_mes"
-  | "alternate_greeting"
-  | "description_quote"
-  | "backstory_quote"
-  | "scenario_quote";
+  "mes_example" | "first_mes" | "alternate_greeting" | "description_quote" | "backstory_quote" | "scenario_quote";
 
 export interface BehavioralExampleCharacter {
   id: string;

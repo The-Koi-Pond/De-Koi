@@ -16,6 +16,11 @@ export interface VoiceListenOptions {
   onLevel: (level: number) => void;
   /** Fires as soon as speech starts, before the utterance is over. */
   onSpeechStart: () => void;
+  /**
+   * Fires once the pause that ends the utterance has been detected, with how long the user had been quiet by then,
+   * so the session can time the turn from when they actually stopped talking.
+   */
+  onSpeechEnd: (quietForMs: number) => void;
 }
 
 /** An open microphone. `Utterance` is opaque to the engine: only the transcriber reads it. */
@@ -91,9 +96,24 @@ export interface VoiceReplySpeaker {
   isAudible(): boolean;
 }
 
+/** A short sound in the character's voice ("Hmm…") that fills the silence while a reply is being thought up. */
+export interface VoiceThinkingSound {
+  /** What it says, so the microphone picking it up isn't taken for the user. */
+  readonly text: string;
+  /** Plays it; resolves when it has finished or been stopped. */
+  play(): Promise<void>;
+  /** Cuts it off at once. */
+  stop(): void;
+}
+
 interface VoiceSpeechPort {
-  /** A speaker for one reply, or null when replies are text only (no voice set up). */
-  begin(turnKey: string): VoiceReplySpeaker | null;
+  /**
+   * A speaker for one reply, or null when replies are text only (no voice set up). `onFirstSound` is called when
+   * the reply's audio actually starts playing.
+   */
+  begin(turnKey: string, onFirstSound: () => void): VoiceReplySpeaker | null;
+  /** A thinking sound that can play right away, or null (turned off, or none is ready yet). */
+  thinkingSound?(): VoiceThinkingSound | null;
 }
 
 export interface VoiceSessionPorts<Utterance> {

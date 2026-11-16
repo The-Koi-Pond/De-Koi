@@ -20,7 +20,7 @@ const COLLECTION_QUERY_PREFIXES: Record<string, ReadonlyArray<readonly string[]>
 /** Message collections: refreshing them mid-reply would fight this tab's own streaming text. */
 const TRANSCRIPT_COLLECTIONS = new Set(["messages", "message-swipes"]);
 
-export const ALL_COLLECTIONS = "*";
+const ALL_COLLECTIONS = "*";
 
 /**
  * Query-key prefixes for a set of changed collections; `null` means refresh everything (the server reported

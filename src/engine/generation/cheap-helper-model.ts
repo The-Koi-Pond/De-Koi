@@ -2,7 +2,8 @@ import type { ModelRouteTask } from "./model-routing";
 
 /**
  * "Use a cheaper model for background work": the helper jobs that move to a small model on a copy of the chosen
- * connection. Replies, fanfic chapters and the fanfic judge stay on the chat's own model. A measured long game ran
+ * connection. Replies, fanfic chapters, combat encounters (player-facing narration) and the fanfic judge stay on the
+ * chat's own model. A measured long game ran
  * memory, recaps and the habit check on Haiku and still saved every planted fact.
  */
 export const CHEAP_HELPER_TASKS: readonly ModelRouteTask[] = [

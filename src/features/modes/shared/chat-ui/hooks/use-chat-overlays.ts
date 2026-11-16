@@ -175,6 +175,9 @@ export function useChatOverlays(activeChatId: string) {
   useEffect(() => {
     setSpriteArrangeMode(false);
     setNewChatSetupChatId(null);
+    // The wizard belongs to the chat it opened on. Left open, it would edit (and its close would act on)
+    // whichever chat was opened next.
+    setWizardOpen(false);
   }, [activeChatId]);
 
   useEffect(

@@ -41,6 +41,8 @@ type CustomFontFace = {
 
 export function AppExperience() {
   const theme = useUIStore((s) => s.theme);
+  const followSystemTheme = useUIStore((s) => s.followSystemTheme);
+  const setTheme = useUIStore((s) => s.setTheme);
   const fontSize = useUIStore((s) => s.fontSize);
   const language = useUIStore((s) => s.language);
   const visualTheme = useUIStore((s) => s.visualTheme);
@@ -50,6 +52,16 @@ export function AppExperience() {
   useRemoteRuntimeStartupHealthCheck();
 
   useEffect(() => installRangeSliderSync(), []);
+
+  // "Match system": follow the device's light/dark setting, including when it changes while De-Koi is open.
+  useEffect(() => {
+    if (!followSystemTheme || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(prefers-color-scheme: light)");
+    const sync = () => setTheme(query.matches ? "light" : "dark");
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, [followSystemTheme, setTheme]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

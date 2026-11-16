@@ -41,6 +41,7 @@ import {
   Music2,
   Code2,
   Paintbrush,
+  Mic,
 } from "lucide-react";
 import { toast } from "sonner";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
@@ -58,6 +59,7 @@ import { SummariesEditorModal } from "./SummariesEditorModal";
 import { AdvancedParametersSection } from "./settings/AdvancedParametersSection";
 import { ChatBasicSettingsSections } from "./settings/ChatBasicSettingsSections";
 import { ConversationNotesSection } from "./settings/ConversationNotesSection";
+import { ChatSpotifySourceSection } from "./settings/ChatSpotifySourceSection";
 import { LinkedFicSection } from "./settings/LinkedFicSection";
 import { ConversationPromptSection } from "./settings/ConversationPromptSection";
 import { MemoryRecallMemoriesModal } from "./settings/MemoryRecallMemoriesModal";
@@ -66,6 +68,10 @@ import { ChatPresetBar } from "./settings/ChatPresetBar";
 import { ContinuityOverviewPanel } from "./settings/ContinuityOverviewPanel";
 import { StoryContinuityModal, storyContinuityQueryKey } from "./settings/StoryContinuityModal";
 import { ScheduleEditor, SelfiePromptControls } from "./settings/ScheduleEditor";
+import { MediaFrequencyControls } from "./settings/MediaFrequencyControls";
+import { unpromptedPhotoFrequency } from "../../../../../engine/modes/chat/autonomous/unprompted-photos";
+import { voiceNoteFrequency } from "../../../../../engine/modes/chat/voice-notes/voice-notes";
+import { useTTSConfig } from "../../../../../shared/hooks/use-tts";
 import {
   ScopedRegexCharacterGroups,
   ScopedRegexModeSelector,
@@ -134,7 +140,6 @@ import { coreModulesApi } from "../../../../../shared/api/core-modules-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
 import { storageApi } from "../../../../../shared/api/storage-api";
 import { storyContinuityApi } from "../../../../../shared/api/story-continuity-api";
-import { spotifyApi } from "../../../../../shared/api/integration-utility-api";
 import { spriteApi } from "../../../../../shared/api/image-generation-api";
 import { toastExportError, triggerDownloadWithToast } from "../../../../shared/lib/export-feedback";
 import { filterLanguageGenerationConnections } from "../../../../../shared/lib/connection-filters";
@@ -171,7 +176,13 @@ import {
 import { getEffectiveStoryConsolidationEnabled } from "../../../../../engine/generation/story-projections";
 import type { StoryProjectionPayload } from "../../../../../engine/contracts/types/memory";
 import type { ChatPreset, ChatPresetSettings } from "../../../../../engine/contracts/types/chat-preset";
-import { useAgentConfigs, useCreateAgent, useUpdateAgent, type AgentConfigRow } from "../../../../catalog/agents/index";
+import {
+  isCustomAgentConfig,
+  useAgentConfigs,
+  useCreateAgent,
+  useUpdateAgent,
+  type AgentConfigRow,
+} from "../../../../catalog/agents/index";
 import { isRegexScriptScoped, useRegexScripts, useUpdateRegexScript } from "../../../../catalog/regex-scripts/index";
 import { useAgentStore } from "../../../../../shared/stores/agent.store";
 import { DEFAULT_AGENT_PROMPTS } from "../../../../../engine/contracts/constants/agent-prompts";
@@ -235,27 +246,14 @@ interface ChatSettingsDrawerProps {
   settingsDestination?: string | null;
 }
 
-type SpotifySourceType = "liked" | "playlist" | "artist" | "any";
-
-const SPOTIFY_SOURCE_OPTIONS: Array<{ id: SpotifySourceType; label: string; description: string }> = [
-  { id: "liked", label: "Liked Songs", description: "Pick from the user's saved tracks first." },
-  { id: "playlist", label: "Playlist", description: "Keep choices inside one Spotify playlist." },
-  { id: "artist", label: "Artist", description: "Search only around a named artist, like HOYO-MiX." },
-  { id: "any", label: "Any Spotify", description: "Legacy Spotify DJ can search Spotify when it fits." },
-];
-
 const GENERIC_CHAT_TOOL_PICKER_HIDDEN_NAMES = new Set(["save_lorebook_entry"]);
 
-function normalizeSpotifySourceType(value: unknown): SpotifySourceType {
-  return value === "playlist" || value === "artist" || value === "any" ? value : "liked";
-}
-
 const MODE_INTROS: Record<ChatMode, string> = {
-  conversation: "Plain chat — no roleplay systems built in; autonomous messaging and other tools are optional below.",
-  roleplay:
-    "Plain roleplay surface — no built-in dice, combat, or GM pipeline; sprites, world-state tracking, and other helpers are available as optional agents below.",
-  fanfic:
-    "Fanfic request — the model writes your fic chapter by chapter from the request and outline; no agents, trackers, or persona turns.",
+  conversation:
+    "Texting with your characters. Autonomous messages, voice notes and other extras can be turned on below.",
+  roleplay: "Story roleplay with a narrator. Sprites, world tracking and other helpers can be added as agents below.",
+  fanfic: "Your fic, written chapter by chapter from the request and outline.",
+  trance: "One hypnosis script in the character's voice, written from your request.",
 };
 
 type AvailableAgent = {
@@ -363,6 +361,7 @@ function ChatSettingsDrawerLoadingShell({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close chat settings"
             className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)]"
           >
             <X size="1rem" />
@@ -451,6 +450,7 @@ function ChatSettingsDrawerInner({
   const qc = useQueryClient();
   const updateChat = useUpdateChat();
   const updateMeta = useUpdateChatMetadata();
+  const ttsConfig = useTTSConfig();
   const updateAgentConfig = useUpdateAgent();
   const createAgent = useCreateAgent();
   const createMessage = useCreateMessage(chat.id);
@@ -683,10 +683,6 @@ function ChatSettingsDrawerInner({
   const scopedRegexScripts = useMemo(() => (allRegexScripts ?? []).filter(isRegexScriptScoped), [allRegexScripts]);
   const scopedRegexCount = scopedRegexScripts.length;
   const musicDjActive = activeAgentIds.includes("music-dj");
-  const spotifyActive = activeAgentIds.includes("spotify");
-  const spotifySourceType = normalizeSpotifySourceType(metadata.spotifySourceType);
-  const spotifyPlaylistId = typeof metadata.spotifyPlaylistId === "string" ? metadata.spotifyPlaylistId : "";
-  const spotifyArtist = typeof metadata.spotifyArtist === "string" ? metadata.spotifyArtist : "";
   const spriteCharacterIds = useMemo<string[]>(
     () => (Array.isArray(metadata.spriteCharacterIds) ? metadata.spriteCharacterIds : []),
     [metadata.spriteCharacterIds],
@@ -699,22 +695,6 @@ function ChatSettingsDrawerInner({
   const [spriteScalePercent, setSpriteScalePercent] = useState(() => Math.round(spriteScale * 100));
   const [spriteOpacityPercent, setSpriteOpacityPercent] = useState(() => Math.round(spriteOpacity * 100));
   const hasCustomSpritePlacements = Object.keys(normalizeSpritePlacements(metadata.spritePlacements)).length > 0;
-  const spotifyPlaylistsQuery = useQuery({
-    queryKey: ["spotify", "playlists", 50],
-    queryFn: () =>
-      spotifyApi.playlists<{
-        playlists: Array<{
-          id: string;
-          name: string;
-          uri: string;
-          trackCount: number | null;
-          owned: boolean | null;
-        }>;
-      }>({ limit: 50 }),
-    enabled: open && isRoleplayMode && agentsEnabled && spotifyActive && spotifySourceType === "playlist",
-    staleTime: 60_000,
-    retry: false,
-  });
 
   useEffect(() => {
     setSpriteScalePercent(Math.round(spriteScale * 100));
@@ -749,10 +729,10 @@ function ChatSettingsDrawerInner({
         builtIn: true,
       });
     }
-    // Custom agents from DB
+    // Custom agents from DB. Records of retired built-in types (such as the legacy `spotify` agent) stay hidden.
     if (agentConfigs) {
       for (const c of agentConfigs as AgentConfigRow[]) {
-        if (!BUILT_IN_AGENTS.some((b) => b.id === c.type)) {
+        if (isCustomAgentConfig(c)) {
           agents.push({
             id: c.type,
             name: c.name,
@@ -996,9 +976,7 @@ function ChatSettingsDrawerInner({
   const charAvatarCrop = useCallback((c: { data?: unknown }) => {
     return (
       ((c.data as { extensions?: { avatarCrop?: AvatarCrop | null } } | null)?.extensions?.avatarCrop as
-        | AvatarCrop
-        | null
-        | undefined) ?? null
+        AvatarCrop | null | undefined) ?? null
     );
   }, []);
   const musicProfileForCharacter = useCallback((c: { data?: unknown }) => {
@@ -1046,7 +1024,7 @@ function ChatSettingsDrawerInner({
     (c: { id: string; data?: unknown; comment?: string | null }) => {
       const cue = buildCharacterMusicPlaybackCue(characterPublicProfile(c).nowListening);
       if (!cue) return;
-      dispatchMusicPlaybackEvent({ type: "cue", query: cue.query });
+      dispatchMusicPlaybackEvent({ type: "cue", query: cue.query, url: cue.url });
       toast.success("Music Player cued character music.", { duration: 1800 });
     },
     [characterPublicProfile],
@@ -1431,7 +1409,6 @@ function ChatSettingsDrawerInner({
   const [narratorStyleExpanded, setNarratorStyleExpanded] = useState(false);
   const [groupScenarioDraft, setGroupScenarioDraft] = useState(groupScenarioText);
   const [groupScenarioExpanded, setGroupScenarioExpanded] = useState(false);
-  const [spotifyArtistDraft, setSpotifyArtistDraft] = useState(spotifyArtist);
 
   // ── Chat Settings Presets ──
   const presetMode = chatMode;
@@ -1474,10 +1451,6 @@ function ChatSettingsDrawerInner({
     setNarratorStyleDraft(narratorStyleInstructions);
     setGroupScenarioDraft(groupScenarioText);
   }, [chat.id, sceneSystemPrompt, narratorStyleInstructions, groupScenarioText]);
-
-  useEffect(() => {
-    setSpotifyArtistDraft(spotifyArtist);
-  }, [chat.id, spotifyArtist]);
 
   const openAgentConfigModal = (agent: AvailableAgent, mode: AgentAddPreview["mode"]) => {
     setAgentAddCadenceInputFocused(false);
@@ -1531,10 +1504,7 @@ function ChatSettingsDrawerInner({
     if (intervalMeta && runInterval != null) {
       nextSettings.runInterval = runInterval;
     }
-    if (
-      builtInMeta &&
-      (!Array.isArray(nextSettings.enabledTools) || (agent.id === "spotify" && nextSettings.enabledTools.length === 0))
-    ) {
+    if (builtInMeta && !Array.isArray(nextSettings.enabledTools)) {
       nextSettings.enabledTools = DEFAULT_AGENT_TOOLS[agent.id] ?? [];
     }
 
@@ -1878,6 +1848,7 @@ function ChatSettingsDrawerInner({
           <h3 className="text-sm font-bold">Chat Settings</h3>
           <button
             onClick={onClose}
+            aria-label="Close chat settings"
             className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)]"
           >
             <X size="1rem" />
@@ -1929,22 +1900,6 @@ function ChatSettingsDrawerInner({
             </div>
           )}
 
-          <Section
-            id="chat-settings-continuity"
-            label="Continuity"
-            icon={<Brain size="0.875rem" />}
-            count={continuityOverviewActiveCount}
-            help="Overview of the memory, summary, world-info, and tracker context this chat can carry forward."
-          >
-            <ContinuityOverviewPanel
-              model={continuityOverviewModel}
-              onOpenMemories={() => setShowMemoriesModal(true)}
-              onOpenDirector={onOpenContinuityDirector}
-              onOpenSummaries={() => setShowSummariesModal(true)}
-              onOpenStory={() => setShowStoryModal(true)}
-            />
-          </Section>
-
           <ChatBasicSettingsSections
             chat={chat}
             isConversation={isConversation}
@@ -1969,216 +1924,6 @@ function ChatSettingsDrawerInner({
               if (chat.promptPresetId) setChoiceModalPresetId(chat.promptPresetId);
             }}
           />
-
-          <ModePromptSettingsSections
-            isRoleplayMode={isRoleplayMode}
-            sceneSystemPrompt={sceneSystemPrompt}
-            narratorStyleDraft={narratorStyleDraft}
-            narratorStyleInstructions={narratorStyleInstructions}
-            narratorStyleExpanded={narratorStyleExpanded}
-            scenePromptDraft={scenePromptDraft}
-            scenePromptExpanded={scenePromptExpanded}
-            onNarratorStyleDraftChange={setNarratorStyleDraft}
-            onNarratorStyleExpandedChange={setNarratorStyleExpanded}
-            onScenePromptDraftChange={setScenePromptDraft}
-            onScenePromptExpandedChange={setScenePromptExpanded}
-            onMetadataPatch={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
-          />
-
-          {(isRoleplayMode || isConversation) && (
-            <Section
-              label={isConversation ? "Texting Quality" : "Roleplay Quality"}
-              icon={<Sparkles size="0.875rem" />}
-              help={
-                isConversation
-                  ? "Keeps the character from falling into the same sign-offs, jokes and nags."
-                  : "Quiet protection against repeated habits and high-confidence prose and strict-agency problems."
-              }
-            >
-              <button
-                type="button"
-                role="switch"
-                aria-checked={automaticRoleplayQualityCorrection}
-                onClick={() =>
-                  updateMeta.mutate({
-                    id: chat.id,
-                    automaticRoleplayQualityCorrection: !automaticRoleplayQualityCorrection,
-                  })
-                }
-                className={cn(
-                  "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
-                  automaticRoleplayQualityCorrection
-                    ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-                    : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  <span className="text-xs font-medium">
-                    {isConversation ? "Habit check" : "Automatic high-confidence correction"}
-                  </span>
-                  <p className="mt-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
-                    {isConversation
-                      ? "After each text, one small background model call looks for habits the character keeps repeating, so the next text drops them."
-                      : "After each reply, one small background model call looks for habits the replies keep repeating, so the next reply drops them. De-Koi corrects a reply only on strong local evidence and keeps the original whenever a correction is uncertain or fails."}
-                  </p>
-                </div>
-                <div
-                  className={cn(
-                    "ml-3 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
-                    automaticRoleplayQualityCorrection ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
-                      automaticRoleplayQualityCorrection && "translate-x-3.5",
-                    )}
-                  />
-                </div>
-              </button>
-            </Section>
-          )}
-
-          {/* Persona */}
-          <Section
-            label="Persona"
-            icon={<User size="0.875rem" />}
-            help="Your persona defines who you are in this chat. The AI will address you by this persona's name and use its details for context."
-          >
-            {/* Currently selected persona */}
-            {chat.personaId ? (
-              <div className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-2.5 py-2">
-                {(() => {
-                  const p = personas.find((p) => p.id === chat.personaId);
-                  return p ? (
-                    <>
-                      {p.avatarPath ? (
-                        <PersonaAvatarImage
-                          persona={p}
-                          alt={p.name}
-                          className="h-7 w-7 shrink-0 rounded-full object-cover"
-                          thumbnailSize={64}
-                        />
-                      ) : (
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
-                          <User size="0.75rem" />
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <span className="block truncate text-xs">{p.name}</span>
-                        {p.comment && (
-                          <span className="block truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
-                            {p.comment}
-                          </span>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <span className="flex-1 truncate text-xs text-[var(--muted-foreground)]">Unknown persona</span>
-                  );
-                })()}
-                <button
-                  onClick={() => updateChat.mutate({ id: chat.id, personaId: null })}
-                  className="ml-auto shrink-0 rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                  title="Remove persona"
-                >
-                  <X size="0.75rem" />
-                </button>
-              </div>
-            ) : (
-              <p className="text-[0.6875rem] text-[var(--muted-foreground)]">No persona selected.</p>
-            )}
-
-            {/* Persona picker */}
-            {!showPersonaPicker ? (
-              <button
-                onClick={() => {
-                  setShowPersonaPicker(true);
-                  setPersonaSearch("");
-                }}
-                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
-              >
-                <Plus size="0.75rem" /> {chat.personaId ? "Change" : "Choose"} Persona
-              </button>
-            ) : (
-              <PickerDropdown
-                search={personaSearch}
-                onSearchChange={setPersonaSearch}
-                onClose={() => setShowPersonaPicker(false)}
-                placeholder="Search personas..."
-              >
-                {/* None option */}
-                <button
-                  onClick={() => {
-                    updateChat.mutate({ id: chat.id, personaId: null });
-                    setShowPersonaPicker(false);
-                  }}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
-                    !chat.personaId && "bg-[var(--primary)]/10",
-                  )}
-                >
-                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--muted-foreground)]">
-                    <X size="0.625rem" />
-                  </div>
-                  <span className="flex-1 truncate text-xs">None</span>
-                  {!chat.personaId && <Check size="0.625rem" className="ml-auto shrink-0 text-[var(--primary)]" />}
-                </button>
-                {personas
-                  .filter(
-                    (p) =>
-                      p.name.toLowerCase().includes(personaSearch.toLowerCase()) ||
-                      (p.comment && p.comment.toLowerCase().includes(personaSearch.toLowerCase())),
-                  )
-                  .map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        updateChat.mutate({ id: chat.id, personaId: p.id });
-                        setShowPersonaPicker(false);
-                      }}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
-                        chat.personaId === p.id && "bg-[var(--primary)]/10",
-                      )}
-                    >
-                      {p.avatarPath ? (
-                        <PersonaAvatarImage
-                          persona={p}
-                          alt={p.name}
-                          className="h-6 w-6 shrink-0 rounded-full object-cover"
-                          thumbnailSize={64}
-                        />
-                      ) : (
-                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
-                          <User size="0.625rem" />
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <span className="block truncate text-xs">{p.name}</span>
-                        {p.comment && (
-                          <span className="block truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
-                            {p.comment}
-                          </span>
-                        )}
-                      </div>
-                      {chat.personaId === p.id && (
-                        <Check size="0.625rem" className="ml-auto shrink-0 text-[var(--primary)]" />
-                      )}
-                    </button>
-                  ))}
-                {personas.filter(
-                  (p) =>
-                    p.name.toLowerCase().includes(personaSearch.toLowerCase()) ||
-                    (p.comment && p.comment.toLowerCase().includes(personaSearch.toLowerCase())),
-                ).length === 0 && (
-                  <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-                    {personas.length === 0 ? "No personas created yet." : "No matches."}
-                  </p>
-                )}
-              </PickerDropdown>
-            )}
-          </Section>
 
           {/* Characters — only show added ones + add button */}
           <Section
@@ -2350,6 +2095,7 @@ function ChatSettingsDrawerInner({
                 onSearchChange={setCharSearch}
                 onClose={() => setShowCharPicker(false)}
                 placeholder="Search characters…"
+                aria-label="Search characters"
               >
                 {filteredAvailableCharacters.map((c) => {
                   const name = charName(c);
@@ -2458,6 +2204,232 @@ function ChatSettingsDrawerInner({
                   })}
                 </PickerDropdown>
               ))}
+          </Section>
+
+          {/* Persona */}
+          <Section
+            label="Persona"
+            icon={<User size="0.875rem" />}
+            help="Your persona defines who you are in this chat. The AI will address you by this persona's name and use its details for context."
+          >
+            {/* Currently selected persona */}
+            {chat.personaId ? (
+              <div className="flex items-center gap-2.5 rounded-lg bg-[var(--primary)]/10 px-2.5 py-2">
+                {(() => {
+                  const p = personas.find((p) => p.id === chat.personaId);
+                  return p ? (
+                    <>
+                      {p.avatarPath ? (
+                        <PersonaAvatarImage
+                          persona={p}
+                          alt={p.name}
+                          className="h-7 w-7 shrink-0 rounded-full object-cover"
+                          thumbnailSize={64}
+                        />
+                      ) : (
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
+                          <User size="0.75rem" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-xs">{p.name}</span>
+                        {p.comment && (
+                          <span className="block truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
+                            {p.comment}
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="flex-1 truncate text-xs text-[var(--muted-foreground)]">Unknown persona</span>
+                  );
+                })()}
+                <button
+                  onClick={() => updateChat.mutate({ id: chat.id, personaId: null })}
+                  className="ml-auto shrink-0 rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  title="Remove persona"
+                >
+                  <X size="0.75rem" />
+                </button>
+              </div>
+            ) : (
+              <p className="text-[0.6875rem] text-[var(--muted-foreground)]">No persona selected.</p>
+            )}
+
+            {/* Persona picker */}
+            {!showPersonaPicker ? (
+              <button
+                onClick={() => {
+                  setShowPersonaPicker(true);
+                  setPersonaSearch("");
+                }}
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs text-[var(--muted-foreground)] transition-colors hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+              >
+                <Plus size="0.75rem" /> {chat.personaId ? "Change" : "Choose"} Persona
+              </button>
+            ) : (
+              <PickerDropdown
+                search={personaSearch}
+                onSearchChange={setPersonaSearch}
+                onClose={() => setShowPersonaPicker(false)}
+                placeholder="Search personas..."
+              >
+                {/* None option */}
+                <button
+                  onClick={() => {
+                    updateChat.mutate({ id: chat.id, personaId: null });
+                    setShowPersonaPicker(false);
+                  }}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
+                    !chat.personaId && "bg-[var(--primary)]/10",
+                  )}
+                >
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[var(--muted-foreground)]">
+                    <X size="0.625rem" />
+                  </div>
+                  <span className="flex-1 truncate text-xs">None</span>
+                  {!chat.personaId && <Check size="0.625rem" className="ml-auto shrink-0 text-[var(--primary)]" />}
+                </button>
+                {personas
+                  .filter(
+                    (p) =>
+                      p.name.toLowerCase().includes(personaSearch.toLowerCase()) ||
+                      (p.comment && p.comment.toLowerCase().includes(personaSearch.toLowerCase())),
+                  )
+                  .map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        updateChat.mutate({ id: chat.id, personaId: p.id });
+                        setShowPersonaPicker(false);
+                      }}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
+                        chat.personaId === p.id && "bg-[var(--primary)]/10",
+                      )}
+                    >
+                      {p.avatarPath ? (
+                        <PersonaAvatarImage
+                          persona={p}
+                          alt={p.name}
+                          className="h-6 w-6 shrink-0 rounded-full object-cover"
+                          thumbnailSize={64}
+                        />
+                      ) : (
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
+                          <User size="0.625rem" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-xs">{p.name}</span>
+                        {p.comment && (
+                          <span className="block truncate text-[0.625rem] italic text-[var(--muted-foreground)]">
+                            {p.comment}
+                          </span>
+                        )}
+                      </div>
+                      {chat.personaId === p.id && (
+                        <Check size="0.625rem" className="ml-auto shrink-0 text-[var(--primary)]" />
+                      )}
+                    </button>
+                  ))}
+                {personas.filter(
+                  (p) =>
+                    p.name.toLowerCase().includes(personaSearch.toLowerCase()) ||
+                    (p.comment && p.comment.toLowerCase().includes(personaSearch.toLowerCase())),
+                ).length === 0 && (
+                  <p className="px-3 py-2 text-[0.6875rem] text-[var(--muted-foreground)]">
+                    {personas.length === 0 ? "No personas created yet." : "No matches."}
+                  </p>
+                )}
+              </PickerDropdown>
+            )}
+          </Section>
+
+          <ModePromptSettingsSections
+            isRoleplayMode={isRoleplayMode}
+            sceneSystemPrompt={sceneSystemPrompt}
+            narratorStyleDraft={narratorStyleDraft}
+            narratorStyleInstructions={narratorStyleInstructions}
+            narratorStyleExpanded={narratorStyleExpanded}
+            scenePromptDraft={scenePromptDraft}
+            scenePromptExpanded={scenePromptExpanded}
+            onNarratorStyleDraftChange={setNarratorStyleDraft}
+            onNarratorStyleExpandedChange={setNarratorStyleExpanded}
+            onScenePromptDraftChange={setScenePromptDraft}
+            onScenePromptExpandedChange={setScenePromptExpanded}
+            onMetadataPatch={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
+          />
+
+          {(isRoleplayMode || isConversation) && (
+            <Section
+              label={isConversation ? "Texting Quality" : "Roleplay Quality"}
+              icon={<Sparkles size="0.875rem" />}
+              help={
+                isConversation
+                  ? "Keeps the character from falling into the same sign-offs, jokes and nags."
+                  : "Quiet protection against repeated habits and high-confidence prose and strict-agency problems."
+              }
+            >
+              <button
+                type="button"
+                role="switch"
+                aria-checked={automaticRoleplayQualityCorrection}
+                onClick={() =>
+                  updateMeta.mutate({
+                    id: chat.id,
+                    automaticRoleplayQualityCorrection: !automaticRoleplayQualityCorrection,
+                  })
+                }
+                className={cn(
+                  "flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                  automaticRoleplayQualityCorrection
+                    ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                    : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <span className="text-xs font-medium">
+                    {isConversation ? "Habit check" : "Automatic high-confidence correction"}
+                  </span>
+                  <p className="mt-0.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+                    {isConversation
+                      ? "After each text, one small background model call looks for habits the character keeps repeating, so the next text drops them."
+                      : "After each reply, one small background model call looks for habits the replies keep repeating, so the next reply drops them. De-Koi corrects a reply only on strong local evidence and keeps the original whenever a correction is uncertain or fails."}
+                  </p>
+                </div>
+                <div
+                  className={cn(
+                    "ml-3 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                    automaticRoleplayQualityCorrection ? "bg-[var(--primary)]" : "bg-[var(--muted-foreground)]/50",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                      automaticRoleplayQualityCorrection && "translate-x-3.5",
+                    )}
+                  />
+                </div>
+              </button>
+            </Section>
+          )}
+
+          <Section
+            id="chat-settings-continuity"
+            label="Continuity"
+            icon={<Brain size="0.875rem" />}
+            count={continuityOverviewActiveCount}
+            help="Overview of the memory, summary, world-info, and tracker context this chat can carry forward."
+          >
+            <ContinuityOverviewPanel
+              model={continuityOverviewModel}
+              onOpenMemories={() => setShowMemoriesModal(true)}
+              onOpenDirector={onOpenContinuityDirector}
+              onOpenSummaries={() => setShowSummariesModal(true)}
+              onOpenStory={() => setShowStoryModal(true)}
+            />
           </Section>
 
           {isConversation && <ConversationPromptSection chat={chat} metadata={metadata} updateMeta={updateMeta} />}
@@ -2760,6 +2732,23 @@ function ChatSettingsDrawerInner({
                   </div>
                 </button>
 
+                {autonomousMessagesEnabled && (
+                  <MediaFrequencyControls
+                    title="Photos when texting first"
+                    description="How often a text a character sends first comes with a selfie. At most one photo or voice note until you reply."
+                    unavailable={
+                      metadata.imageGenConnectionId
+                        ? null
+                        : "Needs a Selfie Connection (under Commands) before characters can send photos."
+                    }
+                    frequencyFor={(characterId) => unpromptedPhotoFrequency(metadata, characterId)}
+                    stored={metadata.unpromptedPhotoFrequency}
+                    chatCharIds={chatCharIds}
+                    charNameMap={charNameMap}
+                    onChange={(next) => updateMeta.mutate({ id: chat.id, unpromptedPhotoFrequency: next })}
+                  />
+                )}
+
                 {/* Character exchanges toggle (group chats only) */}
                 {chatCharIds.length > 1 && (
                   <button
@@ -3025,6 +3014,51 @@ function ChatSettingsDrawerInner({
                     </div>
                   )}
 
+                  {/* Selfie likeness: send the character's own pictures with each selfie */}
+                  {(metadata.imageGenConnectionId as string) && (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={metadata.selfieUseAvatarReferences === true}
+                      onClick={() =>
+                        updateMeta.mutate({
+                          id: chat.id,
+                          selfieUseAvatarReferences: metadata.selfieUseAvatarReferences !== true,
+                        })
+                      }
+                      className={cn(
+                        "mt-2 flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left transition-all",
+                        metadata.selfieUseAvatarReferences === true
+                          ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                          : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                      )}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="text-xs font-medium">Make selfies look like the character</span>
+                        <p className="text-[0.625rem] text-[var(--muted-foreground)]">
+                          Sends their full-body sprite with each selfie, or their avatar if they have no sprite. Works
+                          best with services that read reference images, like Gemini, GPT Image and NovelAI. Some Stable
+                          Diffusion setups start from the picture instead, so those selfies stay close to that picture.
+                        </p>
+                      </div>
+                      <div
+                        className={cn(
+                          "h-5 w-9 shrink-0 overflow-hidden rounded-full p-0.5 transition-colors",
+                          metadata.selfieUseAvatarReferences === true
+                            ? "bg-[var(--primary)]"
+                            : "bg-[var(--muted-foreground)]/50",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                            metadata.selfieUseAvatarReferences === true && "translate-x-3.5",
+                          )}
+                        />
+                      </div>
+                    </button>
+                  )}
+
                   {/* Selfie prompt controls */}
                   {(metadata.imageGenConnectionId as string) && (
                     <SelfiePromptControls
@@ -3042,6 +3076,30 @@ function ChatSettingsDrawerInner({
                   )}
                 </div>
               </div>
+            </Section>
+          )}
+
+          {/* Voice notes — conversation mode only */}
+          {isConversation && (
+            <Section
+              label="Voice Notes"
+              icon={<Mic size="0.875rem" />}
+              help="Now and then a character sends a reply, or a text they send first, as a short voice message in their Text to Speech voice. It is made once and kept with the chat."
+            >
+              <MediaFrequencyControls
+                title="Voice notes"
+                description="How often a character's reply comes as a voice message. Each one is a Text to Speech request."
+                unavailable={
+                  ttsConfig.data?.enabled
+                    ? null
+                    : "Turn on Text to Speech in Settings before characters can send voice notes."
+                }
+                frequencyFor={(characterId) => voiceNoteFrequency(metadata, characterId)}
+                stored={metadata.voiceNoteFrequency}
+                chatCharIds={chatCharIds}
+                charNameMap={charNameMap}
+                onChange={(next) => updateMeta.mutate({ id: chat.id, voiceNoteFrequency: next })}
+              />
             </Section>
           )}
 
@@ -3797,130 +3855,6 @@ function ChatSettingsDrawerInner({
                   </div>
                 )}
 
-                {agentsEnabled && isRoleplayMode && spotifyActive && (
-                  <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/70 p-3">
-                    <div className="flex items-start gap-2">
-                      <Music2 size="0.75rem" className="mt-0.5 text-[var(--primary)]" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[0.6875rem] font-medium">Spotify DJ (Legacy)</div>
-                        <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Choose where the DJ should look for roleplay music when it reacts to the scene.
-                        </p>
-                      </div>
-                    </div>
-
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Music source</span>
-                      <select
-                        value={spotifySourceType}
-                        onChange={(event) => {
-                          const next = normalizeSpotifySourceType(event.target.value);
-                          updateMeta.mutate({
-                            id: chat.id,
-                            spotifySourceType: next,
-                            spotifyPlaylistId: next === "playlist" ? spotifyPlaylistId || null : null,
-                            spotifyPlaylistName:
-                              next === "playlist" ? (metadata.spotifyPlaylistName as string) || null : null,
-                            spotifyArtist: next === "artist" ? spotifyArtistDraft.trim() || null : null,
-                          });
-                        }}
-                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)]"
-                      >
-                        {SPOTIFY_SOURCE_OPTIONS.map((option) => (
-                          <option key={option.id} value={option.id}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="text-[0.5625rem] text-[var(--muted-foreground)]">
-                        {SPOTIFY_SOURCE_OPTIONS.find((option) => option.id === spotifySourceType)?.description ?? ""}
-                      </span>
-                    </label>
-
-                    {spotifySourceType === "playlist" && (
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Playlist</span>
-                        {spotifyPlaylistsQuery.data?.playlists.length ? (
-                          <select
-                            value={spotifyPlaylistId}
-                            onChange={(event) => {
-                              const playlist = spotifyPlaylistsQuery.data?.playlists.find(
-                                (entry) => entry.id === event.target.value,
-                              );
-                              updateMeta.mutate({
-                                id: chat.id,
-                                spotifyPlaylistId: event.target.value || null,
-                                spotifyPlaylistName: playlist?.name ?? null,
-                              });
-                            }}
-                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)]"
-                          >
-                            <option value="">Choose playlist...</option>
-                            {spotifyPlaylistsQuery.data.playlists.map((playlist) => {
-                              const suffix =
-                                typeof playlist.trackCount === "number"
-                                  ? ` (${playlist.trackCount})`
-                                  : playlist.owned === false
-                                    ? " (followed, unavailable)"
-                                    : "";
-                              return (
-                                <option key={playlist.id} value={playlist.id}>
-                                  {playlist.name}
-                                  {suffix}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        ) : (
-                          <input
-                            key={`${chat.id}-${spotifyPlaylistId}`}
-                            defaultValue={spotifyPlaylistId}
-                            onBlur={(event) =>
-                              updateMeta.mutate({
-                                id: chat.id,
-                                spotifyPlaylistId: event.target.value.trim() || null,
-                                spotifyPlaylistName: null,
-                              })
-                            }
-                            placeholder={
-                              spotifyPlaylistsQuery.isFetching ? "Loading playlists..." : "Paste playlist ID"
-                            }
-                            className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50"
-                          />
-                        )}
-                        {spotifyPlaylistsQuery.isError && (
-                          <span className="text-[0.5625rem] text-amber-400/90">
-                            Connect Spotify in the Spotify DJ agent to load playlist names.
-                          </span>
-                        )}
-                      </label>
-                    )}
-
-                    {spotifySourceType === "artist" && (
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Artist</span>
-                        <input
-                          value={spotifyArtistDraft}
-                          onChange={(event) => setSpotifyArtistDraft(event.target.value)}
-                          onBlur={() =>
-                            updateMeta.mutate({
-                              id: chat.id,
-                              spotifyArtist: spotifyArtistDraft.trim() || null,
-                            })
-                          }
-                          placeholder="HOYO-MiX"
-                          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50"
-                        />
-                      </label>
-                    )}
-
-                    <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Roleplay DJ queues several fitting tracks when it changes music. Spotify Premium, a connected
-                      account, and an active Spotify device are still required.
-                    </p>
-                  </div>
-                )}
-
                 {/* Manual trackers toggle - roleplay only */}
                 {agentsEnabled && isRoleplayMode && (
                   <button
@@ -4371,6 +4305,11 @@ function ChatSettingsDrawerInner({
               </div>
             </Section>
           )}
+
+          <ChatSpotifySourceSection
+            metadata={metadata}
+            onMetadataPatch={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
+          />
 
           {/* Discord Webhook */}
           <Section

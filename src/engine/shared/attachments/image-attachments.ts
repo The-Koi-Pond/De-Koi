@@ -229,8 +229,7 @@ export async function deletePreparedManagedImageAttachments(
 }
 
 type ImageAttachmentResolution =
-  | { status: "fulfilled"; value: string | null }
-  | { status: "rejected"; reason: unknown };
+  { status: "fulfilled"; value: string | null } | { status: "rejected"; reason: unknown };
 
 export async function resolveImageAttachmentDeliveries(
   storage: StorageGateway,

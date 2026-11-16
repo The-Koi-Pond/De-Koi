@@ -6,6 +6,7 @@ import type {
   KnowledgeEdgeInput,
   MemoryStatus,
 } from "../../../../engine/contracts/types/memory";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 export type CharacterMemoryExportV1 = {
   type: "de_koi_character_memories";
@@ -158,10 +159,6 @@ function stableHash(value: string): string {
     hash = Math.imul(hash, 16777619) >>> 0;
   }
   return hash.toString(16).padStart(8, "0");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function validEnvelope(value: unknown): value is CharacterMemoryExportV1 | CharacterMemoryExportV2 {

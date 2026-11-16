@@ -1,0 +1,804 @@
+import { describe, expect, it, vi } from "vitest";
+
+import type { LlmGateway } from "../../capabilities/llm";
+import type { StorageEntity, StorageGateway } from "../../capabilities/storage";
+import { filterAgentIdsForChatMode } from "../../contracts/types/agent";
+import { getEffectiveMemoryRecallEnabled } from "../../contracts/types/chat";
+import type { TranceRequest, TranceState } from "../../contracts/types/trance";
+import {
+  buildTranceRequestPrompt,
+  buildTranceSystemPrompt,
+  pickTranceShape,
+  TRANCE_DEEPENERS,
+  TRANCE_THREADS,
+  TRANCE_WAYS_IN,
+  tranceSessionExcerpt,
+} from "./prompts";
+import {
+  createTranceState,
+  defaultTranceRequest,
+  normalizeTranceRequest,
+  readTranceState,
+  tranceEstimatedMinutes,
+  tranceStage,
+  tranceReadingPace,
+  tranceTargetLines,
+  TRANCE_MAX_LINES,
+  quickTranceRequest,
+  withTranceRun,
+  TRANCE_RUN_LIMIT,
+} from "./request";
+import { generateTranceScript, parseTranceReply, splitTranceLine, TranceScriptParseError } from "./script";
+import { parseTrancePitchReply, suggestTrancePitches, TrancePitchParseError } from "./pitches";
+import { recordTranceRun, saveTranceRequest, tranceButtonLabel } from "./session";
+import { buildTranceShare, openSharedTrance, parseTranceShare, tranceShareFilename } from "./share";
+
+function lines(prefix: string, count: number): string {
+  return Array.from({ length: count }, (_, index) => `${prefix} ${index + 1}.`).join("\n");
+}
+
+function reply(options: { ending?: "wake" | "sleep"; main?: number; skip?: string[] } = {}): string {
+  const ending = options.ending ?? "wake";
+  const main = options.main ?? 20;
+  const skip = new Set(options.skip ?? []);
+  const sections: Array<[string, string]> = [
+    ["## pretalk", lines("Hello there", 3)],
+    ["## induction", lines("Breathe and read", main)],
+    ["## deepener", lines("Deeper now", main)],
+    ["## suggestions", lines("So good", main)],
+    [`## ${ending}`, lines(ending === "wake" ? "Waking" : "Sleeping", 10)],
+    ["## exit: gentle", lines("Coming up", 5)],
+    ["## exit: calm", lines("You are safe", 6)],
+  ];
+  return sections
+    .filter(([heading]) => !skip.has(heading))
+    .map(([heading, body]) => `${heading}\n${body}`)
+    .join("\n\n");
+}
+
+describe("trance request", () => {
+  it("normalizes unknown values to defaults and keeps sexual features out of gentle sessions", () => {
+    const request = normalizeTranceRequest({
+      type: "gentle",
+      category: "nope",
+      features: ["fractionation", "arousal", "orgasm", "made-up"],
+      mood: "anxious",
+      minutes: 7,
+      ending: "sleep",
+      idea: "x".repeat(2000),
+    });
+    expect(request.category).toBe("relax");
+    expect(request.features).toEqual(["fractionation"]);
+    // Sessions saved before moods were a list stored a single `mood`.
+    expect(request.moods).toEqual(["anxious"]);
+    expect(request.minutes).toBe(10);
+    expect(request.ending).toBe("sleep");
+    expect(request.idea.length).toBe(600);
+  });
+
+  it("keeps sexual features for erotic and kinky sessions", () => {
+    expect(normalizeTranceRequest({ type: "kinky", features: ["orgasm", "obedience"] }).features).toEqual([
+      "obedience",
+      "orgasm",
+    ]);
+  });
+
+  it("reads stored state and reports the stage", () => {
+    expect(readTranceState({})).toBeNull();
+    expect(tranceStage(null)).toBe("request");
+    const state = createTranceState(defaultTranceRequest());
+    expect(tranceStage(readTranceState({ trance: state }))).toBe("script");
+    const withScript = {
+      ...state,
+      script: {
+        lines: [{ phase: "induction", text: "Hi" }],
+        exits: { gentle: [], calm: [] },
+        connectionId: "c",
+        createdAt: "t",
+      },
+    };
+    expect(tranceStage(readTranceState({ trance: withScript }))).toBe("ready");
+  });
+
+  it("maps minutes to lines and back", () => {
+    expect(tranceTargetLines(10)).toBe(100);
+    expect(tranceEstimatedMinutes(100)).toBe(10);
+    expect(tranceEstimatedMinutes(3)).toBe(1);
+  });
+
+  it("writes for a reader's own pace, capped so one call can write it", () => {
+    expect(tranceTargetLines(5, 30)).toBe(150);
+    expect(tranceTargetLines(20, 30)).toBe(TRANCE_MAX_LINES);
+    expect(tranceEstimatedMinutes(150, 30)).toBe(5);
+    expect(tranceEstimatedMinutes(300, 30)).toBe(10);
+  });
+
+  it("learns the reading pace from real runs and ignores runs that weren't reading", () => {
+    // Real pressed-through runs from the Pi: 52 lines in 88 s and 207 s, 79 lines in 153 s, and a run left open.
+    const runs = [
+      { lines: 52, seconds: 88 },
+      { lines: 52, seconds: 207 },
+      { lines: 79, seconds: 153 },
+      { lines: 79, seconds: 1182 },
+    ];
+    expect(tranceReadingPace(runs)).toBe(30);
+    expect(tranceReadingPace([{ lines: 60, seconds: 180 }])).toBe(20);
+    expect(tranceReadingPace([{ lines: 50, seconds: 600 }])).toBe(10);
+    expect(tranceReadingPace([])).toBe(10);
+  });
+
+  it("keeps a run's pace and line count, and drops bad ones", () => {
+    const base = { finishedBy: "completed" as const, rating: null, fullyAwake: null, note: "", seconds: 90, at: "x" };
+    let state = withTranceRun(createTranceState(defaultTranceRequest()), { ...base, pace: "press", lines: 52 });
+    expect(state.runs[0]).toMatchObject({ pace: "press", lines: 52 });
+    state = withTranceRun(state, { ...base, pace: "sideways" as never, lines: -3 });
+    expect(state.runs[0]).not.toHaveProperty("pace");
+    expect(state.runs[0]).not.toHaveProperty("lines");
+  });
+
+  it("keeps runs newest first and capped", () => {
+    let state = createTranceState(defaultTranceRequest());
+    for (let index = 0; index < TRANCE_RUN_LIMIT + 3; index += 1) {
+      state = withTranceRun(state, {
+        finishedBy: "completed",
+        rating: 7,
+        fullyAwake: true,
+        note: `${index}`,
+        seconds: 600,
+        at: `${index}`,
+      });
+    }
+    expect(state.runs).toHaveLength(TRANCE_RUN_LIMIT);
+    expect(state.runs[0]!.note).toBe(`${TRANCE_RUN_LIMIT + 2}`);
+  });
+
+  it("drops out-of-range ratings", () => {
+    const state = withTranceRun(createTranceState(defaultTranceRequest()), {
+      finishedBy: "stop",
+      rating: 11,
+      fullyAwake: null,
+      note: "",
+      seconds: null,
+      at: "t",
+    });
+    expect(state.runs[0]!.rating).toBeNull();
+  });
+});
+
+describe("trance mode gates", () => {
+  it("runs no agents and no memory recall", () => {
+    expect([...filterAgentIdsForChatMode(["world-state", "expression"], "trance")]).toEqual([]);
+    expect(getEffectiveMemoryRecallEnabled("trance", { enableMemoryRecall: true })).toBe(false);
+  });
+});
+
+describe("trance prompt", () => {
+  const request: TranceRequest = {
+    ...defaultTranceRequest(),
+    type: "kinky",
+    features: ["obedience"],
+    moods: ["anxious", "lonely"],
+    moodNote: "long day",
+    idea: "a puppet in a box",
+  };
+
+  it("carries the hypnotist rules and the exits", () => {
+    const system = buildTranceSystemPrompt();
+    expect(system).toMatch(/any of it is right/);
+    expect(system).toMatch(/wandering mind/);
+    expect(system).toMatch(/Never mention buttons, exits/);
+    expect(system).toMatch(/both outcomes/);
+    expect(system).toMatch(/## exit: gentle/);
+    expect(system).toMatch(/## exit: calm/);
+    expect(system).not.toMatch(/<[a-z]+>/);
+  });
+
+  it("asks for the character's voice, keeps their description from being recited, and bans the stock opening", () => {
+    const system = buildTranceSystemPrompt();
+    expect(system).toMatch(/## Make it theirs/);
+    expect(system).toMatch(/not like any hypnotist/);
+    expect(system).toMatch(/seasoning, not a checklist/);
+    expect(system).toMatch(/Don't name other people from their life/);
+    expect(system).not.toMatch(/keep coming back to it in every section/);
+    expect(system).toMatch(/no dropping or lowering the shoulders, no loosening or slackening the jaw/);
+    expect(system).toMatch(/Count down at most once/);
+    expect(system).toMatch(/## Keep it fresh/);
+  });
+
+  it("picks a way in, deepener and thread at random, and puts them in the request", () => {
+    expect(pickTranceShape(() => 0)).toEqual({
+      wayIn: TRANCE_WAYS_IN[0],
+      deepener: TRANCE_DEEPENERS[0],
+      thread: TRANCE_THREADS[0],
+    });
+    const last = pickTranceShape(() => 0.999999);
+    expect(last.wayIn).toBe(TRANCE_WAYS_IN.at(-1));
+    expect(last.deepener).toBe(TRANCE_DEEPENERS.at(-1));
+    expect(last.thread).toBe(TRANCE_THREADS.at(-1));
+    const draws = [0.4, 0.1, 0.7];
+    const mixed = pickTranceShape(() => draws.shift()!);
+    expect(mixed.wayIn).toBe(TRANCE_WAYS_IN[3]);
+    expect(mixed.deepener).toBe(TRANCE_DEEPENERS[0]);
+    expect(mixed.thread).toBe(TRANCE_THREADS[4]);
+    const prompt = buildTranceRequestPrompt(request, { name: "Jester" }, mixed);
+    expect(prompt).toContain(`Way in (the induction's main technique, told in your own style): ${TRANCE_WAYS_IN[3]}`);
+    expect(prompt).toContain(`Deepener (how the deepener takes them down, in your own style): ${TRANCE_DEEPENERS[0]}`);
+    expect(prompt).toContain(TRANCE_THREADS[4]);
+    expect(prompt).not.toMatch(/## Earlier sessions/);
+  });
+
+  it("no deepener is a plain count down: that's what models fall back to on their own", () => {
+    for (const deepener of TRANCE_DEEPENERS) expect(deepener).not.toMatch(/count(?:ing)? down from/i);
+  });
+
+  it("lists earlier sessions with the guide so the new one goes somewhere else", () => {
+    const prompt = buildTranceRequestPrompt(
+      request,
+      { name: "Jester" },
+      pickTranceShape(() => 0),
+      [["The boat is moving.", "Ten."], ["The tent is quiet."]],
+    );
+    expect(prompt).toMatch(/## Earlier sessions with this guide/);
+    expect(prompt).toMatch(/Session 1:\n> The boat is moving\.\n> Ten\.\nSession 2:\n> The tent is quiet\./);
+  });
+
+  it("excerpts the first lines of each section of an earlier script", () => {
+    const lines = (["pretalk", "induction", "deepener", "suggestions", "wake"] as const).flatMap((phase) =>
+      [1, 2, 3, 4].map((n) => ({ phase, text: `${phase} ${n}` })),
+    );
+    expect(tranceSessionExcerpt(lines)).toEqual([
+      "pretalk 1",
+      "pretalk 2",
+      "induction 1",
+      "induction 2",
+      "deepener 1",
+      "deepener 2",
+      "deepener 3",
+      "suggestions 1",
+      "suggestions 2",
+      "suggestions 3",
+    ]);
+  });
+
+  it("puts the character, mood, idea and length in the request", () => {
+    const prompt = buildTranceRequestPrompt(
+      request,
+      { name: "Jester", description: "{{char}} teases {{user}}." },
+      pickTranceShape(() => 0),
+    );
+    expect(prompt).toMatch(/### Jester/);
+    expect(prompt).toMatch(/Jester teases the listener\./);
+    expect(prompt).toMatch(/anxious/);
+    expect(prompt).toMatch(/In their words: long day/);
+    expect(prompt).toMatch(/several things at once/);
+    expect(prompt).toMatch(/lonely/);
+    expect(prompt).toMatch(/a puppet in a box/);
+    expect(prompt).toMatch(/about 100 lines/);
+    expect(prompt).toMatch(/Obedience/);
+  });
+});
+
+describe("parseTranceReply", () => {
+  it("reads sections in order and keeps exits apart", () => {
+    const parsed = parseTranceReply(reply(), "wake");
+    expect(parsed.lines[0]).toEqual({ phase: "pretalk", text: "Hello there 1." });
+    expect(parsed.lines.at(-1)).toEqual({ phase: "wake", text: "Waking 10." });
+    expect(parsed.lines).toHaveLength(3 + 60 + 10);
+    expect(parsed.exits.gentle).toHaveLength(5);
+    expect(parsed.exits.calm).toHaveLength(6);
+  });
+
+  it("cleans bullets, numbers and quotes and tolerates heading variants", () => {
+    const raw = reply().replace("## induction\n", "### Induction:\n- “Look at the words.”\n2) Breathe.\n");
+    const parsed = parseTranceReply(raw, "wake");
+    const induction = parsed.lines.filter((line) => line.phase === "induction").map((line) => line.text);
+    expect(induction.slice(0, 2)).toEqual(["Look at the words.", "Breathe."]);
+  });
+
+  it("fails on a missing section, the wrong ending, or missing exits", () => {
+    expect(() => parseTranceReply(reply({ skip: ["## deepener"] }), "wake")).toThrow(TranceScriptParseError);
+    expect(() => parseTranceReply(reply({ ending: "sleep" }), "wake")).toThrow(/ended with sleep instead of wake/);
+    expect(() => parseTranceReply(reply({ skip: ["## exit: calm"] }), "wake")).toThrow(/no calm exit/);
+  });
+
+  it("splits long lines at sentence ends only", () => {
+    const long = `${"Breathe in slowly and feel it. ".repeat(6)}And out.`;
+    const parts = splitTranceLine(long.trim());
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every((part) => part.length <= 140)).toBe(true);
+    const oneSentence = "word ".repeat(40).trim();
+    expect(splitTranceLine(oneSentence)).toEqual([oneSentence]);
+  });
+});
+
+describe("tranceButtonLabel", () => {
+  it("affirming words follow the phase and never repeat the previous word", () => {
+    expect(["Slowly waking", "More aware", "Almost awake", "Feeling brighter"]).toContain(
+      tranceButtonLabel("wake", "3...", null, "affirming"),
+    );
+    let previous: string | null = null;
+    for (const text of ["a", "b", "c", "d", "e", "f", "g"]) {
+      const label = tranceButtonLabel("deepener", text, previous, "affirming");
+      expect(label).not.toBe(previous);
+      previous = label;
+    }
+    expect(tranceButtonLabel("induction", "same", null, "affirming")).toBe(
+      tranceButtonLabel("induction", "same", null, "affirming"),
+    );
+  });
+
+  it("quiet words never name a feeling, in any phase", () => {
+    const seen = new Set<string>();
+    for (const phase of ["pretalk", "induction", "deepener", "suggestions", "wake", "sleep", "exit"] as const) {
+      let previous: string | null = null;
+      for (const text of ["a", "b", "c", "d", "e", "f", "g", "h"]) {
+        const label = tranceButtonLabel(phase, text, previous, "quiet");
+        expect(label).not.toBe(previous);
+        seen.add(label);
+        previous = label;
+      }
+    }
+    expect([...seen].sort()).toEqual(["Go on", "Next", "Okay"]);
+  });
+});
+
+function storageFor(state: TranceState | null, chat: Record<string, unknown> = {}) {
+  const chats = new Map<string, Record<string, unknown>>([
+    [
+      "s1",
+      {
+        id: "s1",
+        mode: "trance",
+        connectionId: "conn",
+        characterIds: ["jester"],
+        metadata: state ? { trance: state } : {},
+        ...chat,
+      },
+    ],
+  ]);
+  const patches: Array<Record<string, unknown>> = [];
+  const updates: Array<Record<string, unknown>> = [];
+  const storage = {
+    async get<T = unknown>(entity: StorageEntity, id: string): Promise<T | null> {
+      if (entity === "chats") return (chats.get(id) ?? null) as T | null;
+      if (entity === "characters" && id === "jester")
+        return { id, data: { name: "Jester", description: "A clown." } } as T;
+      return null;
+    },
+    async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
+      return (entity === "chats" ? [...chats.values()] : []) as T[];
+    },
+    async update(entity: StorageEntity, id: string, value: Record<string, unknown>) {
+      updates.push(value);
+      if (entity === "chats") chats.set(id, { ...chats.get(id), ...value });
+      return chats.get(id);
+    },
+    async patchChatMetadata(id: string, patch: Record<string, unknown>) {
+      patches.push(patch);
+      const row = chats.get(id)!;
+      chats.set(id, { ...row, metadata: { ...(row.metadata as object), ...patch } });
+    },
+  } as unknown as StorageGateway;
+  return { storage, chats, patches, updates };
+}
+
+function llmReplying(...replies: string[]) {
+  const complete = vi.fn(async () => replies.shift() ?? "");
+  return { llm: { complete } as unknown as LlmGateway, complete };
+}
+
+describe("generateTranceScript", () => {
+  const state = createTranceState(defaultTranceRequest());
+
+  it("writes a pressed-through session for the reader's past pace, and remembers the pace", async () => {
+    const { storage, chats } = storageFor(state);
+    const finished = (seconds: number, extra: Record<string, unknown> = {}) => ({
+      finishedBy: "completed",
+      rating: null,
+      fullyAwake: null,
+      note: "",
+      seconds,
+      at: "2026-11-12T00:00:00Z",
+      lines: 60,
+      ...extra,
+    });
+    chats.set("past", {
+      id: "past",
+      mode: "trance",
+      characterIds: ["pierrot"],
+      metadata: {
+        trance: { ...state, runs: [finished(180), finished(150), finished(600, { pace: "auto" })] },
+      },
+    });
+    const pressed = llmReplying(reply({ main: 30 }));
+    const next = await generateTranceScript({ storage, llm: pressed.llm }, "s1", { pace: "press" });
+    const prompt = (pressed.complete.mock.calls[0] as unknown as [{ messages: Array<{ content: string }> }])[0]
+      .messages[1]!.content;
+    // 60 lines in 180 s and 150 s: 20 and 24 a minute, median 22; the run that moved on by itself is left out.
+    expect(prompt).toContain("about 10 minutes, so about 220 lines");
+    expect(next.script?.linesPerMinute).toBe(22);
+
+    const spoken = llmReplying(reply({ main: 30 }));
+    const aloud = await generateTranceScript({ storage, llm: spoken.llm }, "s1", { pace: "auto" });
+    expect(aloud.script?.linesPerMinute).toBe(10);
+  });
+
+  it("writes and stores the script in the character's voice", async () => {
+    const { storage, patches } = storageFor(state);
+    const { llm, complete } = llmReplying(reply({ main: 30 }));
+    const next = await generateTranceScript({ storage, llm }, "s1", { now: () => new Date("2026-11-12T00:00:00Z") });
+    expect(complete).toHaveBeenCalledOnce();
+    const sent = (
+      complete.mock.calls[0] as unknown as [{ messages: Array<{ content: string }>; connectionId: string }]
+    )[0];
+    expect(sent.connectionId).toBe("conn");
+    expect(sent.messages[1]!.content).toMatch(/### Jester/);
+    expect(next.script?.lines.length).toBe(3 + 90 + 10);
+    expect(next.script?.createdAt).toBe("2026-11-12T00:00:00.000Z");
+    expect(patches).toHaveLength(1);
+  });
+
+  it("retries once on a broken reply, then fails with what was wrong", async () => {
+    const { storage } = storageFor(state);
+    const ok = llmReplying("no headings at all", reply({ main: 30 }));
+    await expect(generateTranceScript({ storage, llm: ok.llm }, "s1")).resolves.toBeTruthy();
+    expect(ok.complete).toHaveBeenCalledTimes(2);
+
+    const bad = llmReplying("nope", "still nope");
+    await expect(generateTranceScript({ storage, llm: bad.llm }, "s1")).rejects.toThrow(/no induction section/);
+  });
+
+  it("asks again when far too short and keeps the longer script", async () => {
+    const { storage } = storageFor(state);
+    const { llm, complete } = llmReplying(reply({ main: 5 }), reply({ main: 30 }));
+    const next = await generateTranceScript({ storage, llm }, "s1", { random: () => 0.5 });
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(next.script?.lines.length).toBe(3 + 90 + 10);
+    // The retry keeps the same way in, deepener and thread as the first try.
+    const shapes = complete.mock.calls.map(
+      (call) =>
+        (call as unknown as [{ messages: Array<{ content: string }> }])[0].messages[1]!.content.match(
+          /Way in [^\n]*\n[^\n]*\n[^\n]*/,
+        )?.[0],
+    );
+    expect(shapes[0]).toContain(TRANCE_WAYS_IN[4]);
+    expect(shapes[0]).toContain(TRANCE_DEEPENERS[3]);
+    expect(shapes[0]).toContain(TRANCE_THREADS[3]);
+    expect(shapes[1]).toBe(shapes[0]);
+  });
+
+  it("shows the writer this guide's latest earlier scripts, so a new one doesn't repeat them", async () => {
+    const script = (first: string, createdAt: string) => ({
+      lines: [{ phase: "pretalk" as const, text: first }],
+      exits: { gentle: [], calm: [] },
+      connectionId: "conn",
+      createdAt,
+    });
+    const own = { ...state, script: script("This session, first try.", "2026-11-12T05:00:00Z") };
+    const { storage, chats } = storageFor(own);
+    const trance = (id: string, characterIds: string[], first: string | null, createdAt = "2026-11-10T00:00:00Z") =>
+      chats.set(id, {
+        id,
+        mode: "trance",
+        characterIds,
+        metadata: { trance: { ...state, script: first ? script(first, createdAt) : null } },
+      });
+    trance("old", ["jester"], "Oldest.", "2026-11-01T00:00:00Z");
+    trance("new", ["jester"], "Newest other.", "2026-11-11T00:00:00Z");
+    trance("mid", ["jester"], "Middle.", "2026-11-05T00:00:00Z");
+    trance("someone-else", ["pierrot"], "Not this guide.");
+    trance("unwritten", ["jester"], null);
+    chats.set("chat", { id: "chat", mode: "conversation", characterIds: ["jester"], metadata: {} });
+
+    const { llm, complete } = llmReplying(reply({ main: 30 }));
+    await generateTranceScript({ storage, llm }, "s1");
+    const sent = (complete.mock.calls[0] as unknown as [{ messages: Array<{ content: string }> }])[0];
+    const earlier = sent.messages[1]!.content.split("## Earlier sessions with this guide")[1] ?? "";
+    expect(earlier).toMatch(
+      /Session 1:\n> This session, first try\.\nSession 2:\n> Newest other\.\nSession 3:\n> Middle\./,
+    );
+    expect(earlier).not.toMatch(/Oldest|Not this guide/);
+  });
+
+  it("leaves the earlier-sessions part out for a first session with this guide", async () => {
+    const { storage } = storageFor(state);
+    const { llm, complete } = llmReplying(reply({ main: 30 }));
+    await generateTranceScript({ storage, llm }, "s1");
+    const sent = (complete.mock.calls[0] as unknown as [{ messages: Array<{ content: string }> }])[0];
+    expect(sent.messages[1]!.content).not.toMatch(/Earlier sessions/);
+  });
+
+  it("keeps a short script when the retry is no better, showing its real length", async () => {
+    const { storage } = storageFor(state);
+    const { llm } = llmReplying(reply({ main: 5 }), "broken");
+    const next = await generateTranceScript({ storage, llm }, "s1");
+    expect(next.script?.lines.length).toBe(3 + 15 + 10);
+  });
+
+  it("says what's missing before calling the model", async () => {
+    const noConnection = storageFor(state, { connectionId: null });
+    const noCharacter = storageFor(state, { characterIds: [] });
+    const { llm, complete } = llmReplying();
+    await expect(generateTranceScript({ storage: noConnection.storage, llm }, "s1")).rejects.toThrow(
+      /model connection/,
+    );
+    await expect(generateTranceScript({ storage: noCharacter.storage, llm }, "s1")).rejects.toThrow(/character/);
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("drops the reply when stopped", async () => {
+    const { storage, patches } = storageFor(state);
+    const controller = new AbortController();
+    const llm = {
+      complete: vi.fn(
+        () =>
+          new Promise<string>((resolve) => {
+            setTimeout(() => resolve(reply()), 10);
+          }),
+      ),
+    } as unknown as LlmGateway;
+    const run = generateTranceScript({ storage, llm }, "s1", { signal: controller.signal });
+    controller.abort();
+    await expect(run).rejects.toThrow(/aborted/);
+    expect(patches).toHaveLength(0);
+  });
+});
+
+describe("saving requests and runs", () => {
+  it("saves the connection, character and a fresh request, keeping past runs", async () => {
+    const old = withTranceRun(createTranceState(defaultTranceRequest()), {
+      finishedBy: "completed",
+      rating: 8,
+      fullyAwake: true,
+      note: "",
+      seconds: null,
+      at: "t",
+    });
+    const { storage, chats } = storageFor(old);
+    const saved = await saveTranceRequest(storage, {
+      chatId: "s1",
+      request: { ...defaultTranceRequest(), minutes: 20 },
+      connectionId: "other",
+      characterId: "jester",
+    });
+    expect(saved.script).toBeNull();
+    expect(saved.runs).toHaveLength(1);
+    expect(chats.get("s1")!.connectionId).toBe("other");
+    expect(chats.get("s1")!.characterIds).toEqual(["jester"]);
+    expect(chats.get("s1")!.name).toBe("Jester - Trance");
+  });
+
+  it("leaves a name the person chose", async () => {
+    const { storage, chats } = storageFor(null, { name: "Bedtime" });
+    await saveTranceRequest(storage, {
+      chatId: "s1",
+      request: defaultTranceRequest(),
+      connectionId: "c",
+      characterId: "jester",
+    });
+    expect(chats.get("s1")!.name).toBe("Bedtime");
+  });
+
+  it("puts the connection and character back when the request write fails", async () => {
+    const { storage, chats } = storageFor(null);
+    (storage as unknown as { patchChatMetadata: () => Promise<void> }).patchChatMetadata = async () => {
+      throw new Error("disk full");
+    };
+    await expect(
+      saveTranceRequest(storage, {
+        chatId: "s1",
+        request: defaultTranceRequest(),
+        connectionId: "other",
+        characterId: "x",
+      }),
+    ).rejects.toThrow("disk full");
+    expect(chats.get("s1")!.connectionId).toBe("conn");
+    expect(chats.get("s1")!.characterIds).toEqual(["jester"]);
+  });
+
+  it("records a run on the stored state", async () => {
+    const { storage } = storageFor(createTranceState(defaultTranceRequest()));
+    const next = await recordTranceRun(storage, "s1", {
+      finishedBy: "calm",
+      rating: 4,
+      fullyAwake: false,
+      note: "felt odd",
+      seconds: 540,
+      at: "t",
+    });
+    expect(next.runs[0]).toMatchObject({
+      finishedBy: "calm",
+      rating: 4,
+      fullyAwake: false,
+      note: "felt odd",
+      seconds: 540,
+    });
+  });
+});
+
+describe("quickTranceRequest", () => {
+  const at = (hour: number) => new Date(2026, 10, 12, hour, 0, 0);
+
+  it("is gentle, 10 minutes and waking by day, 20 minutes drifting to sleep at night", () => {
+    expect(quickTranceRequest({ moods: [], moodNote: "", now: at(14) })).toMatchObject({
+      type: "gentle",
+      category: "relax",
+      minutes: 10,
+      ending: "wake",
+      features: [],
+    });
+    expect(quickTranceRequest({ moods: [], moodNote: "", now: at(23) })).toMatchObject({
+      category: "sleep",
+      minutes: 20,
+      ending: "sleep",
+    });
+    expect(quickTranceRequest({ moods: [], moodNote: "", now: at(4) }).ending).toBe("sleep");
+  });
+
+  it("adds fractionation for a restless mind and keeps how they feel", () => {
+    const request = quickTranceRequest({ moods: ["wired", "tired"], moodNote: "brain won't stop", now: at(14) });
+    expect(request.features).toEqual(["fractionation"]);
+    expect(request.moods).toEqual(["wired", "tired"]);
+    expect(request.moodNote).toBe("brain won't stop");
+  });
+});
+
+describe("session ideas", () => {
+  const input = {
+    connectionId: "conn",
+    characterId: "jester",
+    moods: ["tired" as const],
+    moodNote: "long week",
+    idea: "",
+  };
+  const pitch = (overrides: Record<string, unknown> = {}) => ({
+    title: "The Quiet Box",
+    summary: "You're tucked away somewhere soft and safe.",
+    sample: ["Well, hello there.", "You're reading this.", "And breathing."],
+    type: "gentle",
+    category: "relax",
+    features: ["fractionation"],
+    minutes: 10,
+    ending: "wake",
+    idea: "a velvet box",
+    ...overrides,
+  });
+
+  it("reads ideas into ready-to-save requests that remember the pitch", () => {
+    const [first] = parseTrancePitchReply(JSON.stringify({ pitches: [pitch()] }), input);
+    expect(first!.title).toBe("The Quiet Box");
+    expect(first!.request).toMatchObject({
+      category: "relax",
+      features: ["fractionation"],
+      idea: "a velvet box",
+      moods: ["tired"],
+      moodNote: "long week",
+      pitch: { title: "The Quiet Box", sample: ["Well, hello there.", "You're reading this.", "And breathing."] },
+    });
+  });
+
+  it("keeps sexual features off gentle ideas and drops ideas without a real taste", () => {
+    const pitches = parseTrancePitchReply(
+      JSON.stringify({
+        pitches: [pitch({ features: ["arousal"] }), pitch({ title: "Too short", sample: ["Hi."] })],
+      }),
+      input,
+    );
+    expect(pitches).toHaveLength(1);
+    expect(pitches[0]!.request.features).toEqual([]);
+  });
+
+  it("previews exactly the chosen settings whatever the model wrote", () => {
+    const exact = {
+      ...defaultTranceRequest(),
+      type: "kinky" as const,
+      features: ["obedience" as const],
+      minutes: 30 as const,
+    };
+    const [preview] = parseTrancePitchReply(JSON.stringify({ pitches: [pitch(), pitch({ title: "Second" })] }), {
+      ...input,
+      exact,
+    });
+    expect(preview!.request).toMatchObject({ type: "kinky", features: ["obedience"], minutes: 30 });
+    expect(preview!.request.pitch?.title).toBe("The Quiet Box");
+  });
+
+  it("fails clearly when nothing usable came back", () => {
+    expect(() => parseTrancePitchReply("not json", input)).toThrow(TrancePitchParseError);
+  });
+
+  it("asks the character's voice once more after an unreadable reply", async () => {
+    const { storage } = storageFor(null);
+    const { llm, complete } = llmReplying("nonsense", JSON.stringify({ pitches: [pitch(), pitch({ title: "B" })] }));
+    const pitches = await suggestTrancePitches({ storage, llm }, input);
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(pitches.map((item) => item.title)).toEqual(["The Quiet Box", "B"]);
+    const sent = (complete.mock.calls[0] as unknown as [{ messages: Array<{ content: string }> }])[0];
+    expect(sent.messages[1]!.content).toMatch(/### Jester/);
+    expect(sent.messages[1]!.content).toMatch(/Tired; in their words: long week/);
+  });
+
+  it("tells the script writer to open with the lines that were previewed", () => {
+    const [chosen] = parseTrancePitchReply(JSON.stringify({ pitches: [pitch()] }), input);
+    const prompt = buildTranceRequestPrompt(
+      chosen!.request,
+      { name: "Jester" },
+      pickTranceShape(() => 0),
+    );
+    expect(prompt).toMatch(/## The session they picked/);
+    expect(prompt).toMatch(/Title: The Quiet Box/);
+    expect(prompt).toMatch(/word for word/);
+    expect(prompt).toMatch(/You're reading this\./);
+  });
+});
+
+describe("sharing a session", () => {
+  const written: TranceState = {
+    ...createTranceState({
+      ...defaultTranceRequest(),
+      moods: ["lonely", "anxious"],
+      moodNote: "rough day at work",
+      pitch: { title: "Stage Fright", summary: "Strings go slack.", sample: ["Sit down."] },
+    }),
+    script: {
+      lines: [
+        { phase: "pretalk", text: "Sit down." },
+        { phase: "induction", text: "Breathe." },
+      ],
+      exits: { gentle: ["Up."], calm: ["Safe."] },
+      connectionId: "private-connection",
+      createdAt: "2026-11-12T20:00:00.000Z",
+    },
+    runs: [{ finishedBy: "completed", rating: 9, fullyAwake: true, note: "slept", seconds: 600, at: "t" }],
+  };
+
+  function withCharacters(storage: StorageGateway, names: Record<string, string>) {
+    (storage as unknown as { list: () => Promise<unknown[]> }).list = async () =>
+      Object.entries(names).map(([id, name]) => ({ id, data: { name } }));
+    return storage;
+  }
+
+  it("leaves out how the sharer felt, their runs and their connection", () => {
+    const share = buildTranceShare(written, "Jester", new Date("2026-11-12T21:00:00.000Z"));
+    const text = JSON.stringify(share);
+    for (const secret of ["lonely", "rough day", "private-connection", "slept"]) expect(text).not.toContain(secret);
+    expect(share.script.lines).toHaveLength(2);
+    expect(share.request.pitch?.title).toBe("Stage Fright");
+    expect(tranceShareFilename(share)).toBe("Jester - Stage Fright.trance.json");
+  });
+
+  it("opens a shared file ready to play, with the matching card as guide", async () => {
+    const { storage, chats } = storageFor(null, { name: "New Trance", characterIds: [] });
+    withCharacters(storage, { "my-jester": "jester", other: "Pierrot" });
+    const file = JSON.parse(JSON.stringify(buildTranceShare(written, "Jester", new Date())));
+
+    const state = await openSharedTrance(storage, "s1", parseTranceShare(file));
+
+    expect(tranceStage(state)).toBe("ready");
+    expect(state.runs).toEqual([]);
+    expect(state.script?.connectionId).toBeNull();
+    expect(chats.get("s1")!.characterIds).toEqual(["my-jester"]);
+    expect(chats.get("s1")!.name).toBe("Jester - Trance");
+    expect(readTranceState(chats.get("s1")!.metadata)?.guideName).toBe("Jester");
+  });
+
+  it("keeps the guide's name when no card matches, and refuses a chat that already has a session", async () => {
+    const empty = storageFor(null, { characterIds: [] });
+    withCharacters(empty.storage, { other: "Pierrot" });
+    await openSharedTrance(empty.storage, "s1", parseTranceShare(buildTranceShare(written, "Jester", new Date())));
+    expect(empty.chats.get("s1")!.characterIds).toEqual([]);
+    expect(readTranceState(empty.chats.get("s1")!.metadata)?.guideName).toBe("Jester");
+
+    const busy = storageFor(createTranceState(defaultTranceRequest()));
+    withCharacters(busy.storage, {});
+    await expect(
+      openSharedTrance(busy.storage, "s1", parseTranceShare(buildTranceShare(written, "Jester", new Date()))),
+    ).rejects.toThrow("already has settings");
+  });
+
+  it("explains files that aren't shared trances", () => {
+    expect(() => parseTranceShare({ type: "marinara_character" })).toThrow("isn't a shared trance");
+    expect(() => parseTranceShare({ type: "de-koi-trance", version: 2 })).toThrow("newer De-Koi");
+    expect(() => parseTranceShare({ type: "de-koi-trance", version: 1, script: { lines: [] } })).toThrow("no lines");
+  });
+});

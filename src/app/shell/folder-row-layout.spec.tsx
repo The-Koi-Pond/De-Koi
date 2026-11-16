@@ -1,7 +1,7 @@
 import { act } from "react";
 import type { ComponentType, ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FolderHeaderRow } from "./ChatSidebar";
 
@@ -14,6 +14,37 @@ function render(element: ReactElement) {
     root.render(element);
   });
   return { container, root };
+}
+
+function folderRowProps(): Parameters<typeof FolderHeaderRow>[0] {
+  return {
+    folder: {
+      id: "folder-1",
+      name: "Deki Circus With A Very Long Name",
+      mode: "conversation",
+      color: "#ef4444",
+      sortOrder: 0,
+      collapsed: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    entriesCount: 6,
+    style: {},
+    isDropTarget: false,
+    isFolderDropTarget: false,
+    draggedChatId: null,
+    draggedFolderId: null,
+    onToggleCollapse: () => undefined,
+    onRename: () => undefined,
+    onDelete: () => undefined,
+    onChatDragOver: () => undefined,
+    onChatDragLeave: () => undefined,
+    onChatDrop: () => undefined,
+    onFolderDragStart: () => undefined,
+    onFolderDragOver: () => undefined,
+    onFolderDrop: () => undefined,
+    onFolderDragEnd: () => undefined,
+  };
 }
 
 function expectCompactFolderHeader(container: HTMLElement, folderName: string, count: string) {
@@ -42,39 +73,21 @@ describe("chat folder row layout", () => {
   it("keeps conversation folder affordances from shrinking into the label", () => {
     expect(FolderHeaderRow satisfies ComponentType<Parameters<typeof FolderHeaderRow>[0]>).toBeTypeOf("function");
 
-    const rendered = render(
-      <FolderHeaderRow
-        folder={{
-          id: "folder-1",
-          name: "Deki Circus With A Very Long Name",
-          mode: "conversation",
-          color: "#ef4444",
-          sortOrder: 0,
-          collapsed: false,
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-        }}
-        entriesCount={6}
-        style={{}}
-        isDropTarget={false}
-        isFolderDropTarget={false}
-        draggedChatId={null}
-        draggedFolderId={null}
-        onToggleCollapse={() => undefined}
-        onRename={() => undefined}
-        onDelete={() => undefined}
-        onChatDragOver={() => undefined}
-        onChatDragLeave={() => undefined}
-        onChatDrop={() => undefined}
-        onFolderDragStart={() => undefined}
-        onFolderDragOver={() => undefined}
-        onFolderDrop={() => undefined}
-        onFolderDragEnd={() => undefined}
-      />,
-    );
+    const rendered = render(<FolderHeaderRow {...folderRowProps()} />);
     root = rendered.root;
     container = rendered.container;
 
     expectCompactFolderHeader(container, "Deki Circus With A Very Long Name", "6");
+  });
+
+  it("hands its root element to the list so the row's real height is measured", () => {
+    const measureRef = vi.fn();
+    const rendered = render(<FolderHeaderRow {...folderRowProps()} measure={{ ref: measureRef, "data-index": 3 }} />);
+    root = rendered.root;
+    container = rendered.container;
+
+    const rowRoot = container.firstElementChild;
+    expect(rowRoot?.getAttribute("data-index")).toBe("3");
+    expect(measureRef).toHaveBeenCalledWith(rowRoot);
   });
 });

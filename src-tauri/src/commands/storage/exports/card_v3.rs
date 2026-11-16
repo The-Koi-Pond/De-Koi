@@ -1,8 +1,8 @@
 //! Character Card V3 JSON and CHARX package writers.
 //!
 //! Both formats start from one portable V3 card built from the stored
-//! character. The card carries the current character fields, the linked
-//! lorebook as `character_book`, and standards-mapped assets. Runtime-only
+//! character. The card carries the current character fields, its linked
+//! lorebooks as one `character_book`, and standards-mapped assets. Runtime-only
 //! data (record ids, import pointers, local file paths) never enters the card.
 //! Anything that cannot be represented is listed in the export report instead
 //! of being dropped silently.
@@ -268,7 +268,7 @@ pub(super) fn build_portable_card(
         );
     }
 
-    if let Some(book) = character_book(state, id, &source)? {
+    if let Some(book) = character_book(state, id, &source, DepthPlacement::Decorators)? {
         data.insert("character_book".to_string(), book);
     }
     data.insert("extensions".to_string(), Value::Object(extensions));
@@ -433,48 +433,83 @@ fn default_icon() -> Value {
     json!({ "type": "icon", "uri": "ccdefault:", "name": "main", "ext": "png" })
 }
 
-/// Writes the linked lorebook (or the card's original book) as `character_book`.
-fn character_book(
+/// How a lorebook entry's at-depth placement is written into the card.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum DepthPlacement {
+    /// V3: `@@depth`/`@@role` decorators in `content`, plus `extensions`.
+    Decorators,
+    /// V2: `extensions` only, so V2 readers never show decorator lines.
+    ExtensionsOnly,
+}
+
+/// Writes the character's lorebooks as `character_book`: its own embedded
+/// book plus shared books linked to it, keeping only the entries this
+/// character can see. Falls back to the card's original book when no
+/// lorebook is linked.
+pub(super) fn character_book(
     state: &AppState,
     character_id: &str,
     source: &Value,
+    placement: DepthPlacement,
 ) -> AppResult<Option<Value>> {
-    let Some(lorebook_id) = linked_embedded_lorebook_id(state, character_id, source)? else {
+    let lorebooks = linked_character_lorebooks(state, character_id, source)?;
+    if lorebooks.is_empty() {
         return Ok(source
             .get("character_book")
             .filter(|book| book.is_object())
             .cloned());
-    };
-    let Some(lorebook) = state.storage.get("lorebooks", &lorebook_id)? else {
-        return Ok(source
-            .get("character_book")
-            .filter(|book| book.is_object())
-            .cloned());
-    };
-    let mut entries = list_collection(
-        state,
-        "lorebook-entries",
-        Some(("lorebookId", lorebook_id.as_str())),
-    )?
-    .as_array()
-    .cloned()
-    .unwrap_or_default();
-    entries.sort_by_key(|entry| entry.get("order").and_then(Value::as_i64).unwrap_or(0));
+    }
+    let tags = character_filter_tags(source);
+    let mut entries = Vec::new();
+    for lorebook in &lorebooks {
+        let Some(lorebook_id) = lorebook.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let mut rows =
+            list_collection(state, "lorebook-entries", Some(("lorebookId", lorebook_id)))?
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+        rows.sort_by_key(|entry| entry.get("order").and_then(Value::as_i64).unwrap_or(0));
+        entries.extend(
+            rows.into_iter()
+                .filter(|entry| entry_visible_to_character(entry, character_id, &tags)),
+        );
+    }
     let entries = entries
         .iter()
         .enumerate()
-        .map(|(index, entry)| character_book_entry(entry, index))
+        .map(|(index, entry)| character_book_entry(entry, index, placement))
         .collect::<Vec<_>>();
+    let joined = |field: &str, separator: &str| {
+        lorebooks
+            .iter()
+            .filter_map(|book| book.get(field).and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join(separator)
+    };
     let mut book = json!({
-        "name": lorebook.get("name").and_then(Value::as_str).unwrap_or(""),
-        "description": lorebook.get("description").and_then(Value::as_str).unwrap_or(""),
+        "name": joined("name", " + "),
+        "description": joined("description", "\n\n"),
         "extensions": {},
         "entries": entries,
     });
-    for (field, card_field) in [("scanDepth", "scan_depth"), ("tokenBudget", "token_budget")] {
-        if let Some(value) = lorebook.get(field).filter(|value| value.is_number()) {
-            book[card_field] = value.clone();
-        }
+    // One book keeps its own settings; several books scan as deep as the
+    // deepest and share their combined budget.
+    let numbers = |field: &str| {
+        lorebooks
+            .iter()
+            .filter_map(|book| book.get(field).and_then(Value::as_i64))
+            .collect::<Vec<_>>()
+    };
+    if let Some(depth) = numbers("scanDepth").into_iter().max() {
+        book["scan_depth"] = json!(depth);
+    }
+    let budgets = numbers("tokenBudget");
+    if !budgets.is_empty() {
+        book["token_budget"] = json!(budgets.iter().sum::<i64>());
     }
     Ok(Some(book))
 }
@@ -504,7 +539,7 @@ fn decorated_content(entry: &Value, position: i64) -> String {
     decorated
 }
 
-fn character_book_entry(entry: &Value, index: usize) -> Value {
+fn character_book_entry(entry: &Value, index: usize, placement: DepthPlacement) -> Value {
     let name = entry.get("name").and_then(Value::as_str).unwrap_or("");
     let order = entry
         .get("order")
@@ -516,7 +551,14 @@ fn character_book_entry(entry: &Value, index: usize) -> Value {
         "id": index,
         "keys": string_array_for_export(entry.get("keys")),
         "secondary_keys": string_array_for_export(entry.get("secondaryKeys")),
-        "content": decorated_content(entry, position),
+        "content": match placement {
+            DepthPlacement::Decorators => decorated_content(entry, position),
+            DepthPlacement::ExtensionsOnly => entry
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        },
         "name": name,
         "comment": name,
         "enabled": entry.get("enabled").and_then(Value::as_bool).unwrap_or(true),

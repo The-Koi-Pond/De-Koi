@@ -199,6 +199,37 @@ describe("startGeneration savedExtra", () => {
     expect(reply.swipes[0]!.extra.fanficVersion).toBeUndefined();
   });
 
+  it("keeps the selfie a regenerated reply sends, on its own version and the displayed message", async () => {
+    const { storage, messages, swipeExtras, extraPatches } = conversationStorage();
+    await storage.update("chats", "chat-1", { metadata: { imageGenConnectionId: "image-1" } });
+    const imageRequests: Array<Record<string, unknown>> = [];
+    const integrations = {
+      image: {
+        async generate<T>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return { image: "data:image/png;base64,abc", mimeType: "image/png" } as T;
+        },
+      },
+    } as unknown as IntegrationGateway;
+    await drain(
+      startGeneration(deps(storage, replyLlm(tokens("No photo yet."))), { chatId: "chat-1", userMessage: "Selfie?" }),
+    );
+    const reply = messages.find((message) => message.role === "assistant")!;
+
+    await drain(
+      startGeneration(
+        { storage, llm: replyLlm(tokens("Fine, here. [selfie]")), integrations },
+        { chatId: "chat-1", regenerateMessageId: reply.id },
+      ),
+    );
+
+    expect(imageRequests).toHaveLength(1);
+    const sent = [expect.objectContaining({ type: "image", url: "data:image/png;base64,abc" })];
+    expect(swipeExtras.at(-1)?.attachments).toEqual(sent);
+    expect(extraPatches.at(-1)?.attachments).toEqual(sent);
+    expect(reply.swipes[0]!.extra.attachments).toBeUndefined();
+  });
+
   it("keeps the caller's extra on the partial reply saved when the stream breaks", async () => {
     const { storage, messages } = conversationStorage();
     const broken = Object.assign(new Error("LLM provider stream ended before a terminal event."), {

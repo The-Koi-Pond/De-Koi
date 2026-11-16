@@ -31,6 +31,12 @@ import {
   preserveRecentMessageContentEdit,
   rememberRecentMessageContentEdit,
 } from "../lib/recent-message-content-edits";
+import {
+  finishMessagesDeleting,
+  hasPendingMessageDeletes,
+  markMessagesDeleting,
+  withoutPendingMessageDeletes,
+} from "../lib/pending-message-deletes";
 import { sanitizeTimelineMessage } from "../lib/timeline-message";
 import { lorebookKeys } from "../../lorebooks/query-keys";
 import {
@@ -57,15 +63,10 @@ import type {
 import type { CanonicalMemoryRecord } from "../../../../engine/contracts/types/memory";
 import { activeCharacterIds } from "../../../../engine/generation/active-characters";
 import { effectiveCharacterMemoryPersistence } from "../../../../engine/generation/character-memory-scope";
+import { isRecord, readString } from "../../../../engine/shared/value-readers";
 
 export { chatKeys } from "../query-keys";
-export {
-  useCreateChat,
-  useDeleteChat,
-  useDeleteChatGroup,
-  useDeleteChats,
-  useUpdateChatMetadata,
-} from "./use-chat-lifecycle";
+export { useCreateChat, useDeleteChat, useDeleteChatGroup, useUpdateChatMetadata } from "./use-chat-lifecycle";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 export { useChatSummaries, useRecentChatSummaries } from "./use-chat-summaries";
 export type { ChatListItem } from "./use-chat-summaries";
@@ -79,6 +80,9 @@ type CreateMessageMutationInput = Omit<CreateMessageInput, "chatId">;
 type MessageCountResult = { count: number };
 
 function scheduleDeleteRefresh(qc: QueryClient, chatId: string) {
+  // Refetching while other deletes in this chat are still queued on the server
+  // would only bring back rows that are about to go; the last delete refreshes.
+  if (hasPendingMessageDeletes(chatId)) return;
   const previous = scheduledDeleteRefreshTimers.get(chatId);
   if (previous) window.clearTimeout(previous);
   const timer = window.setTimeout(() => {
@@ -90,6 +94,28 @@ function scheduleDeleteRefresh(qc: QueryClient, chatId: string) {
     ]).catch((error) => console.warn("[chats] message delete refresh failed", error));
   }, 75);
   scheduledDeleteRefreshTimers.set(chatId, timer);
+}
+
+type MessageDeleteContext = {
+  previousMessages?: InfiniteData<Message[]>;
+  previousCount?: MessageCountResult;
+};
+
+function restoreMessagesAfterFailedDelete(
+  qc: QueryClient,
+  chatId: string,
+  messageIds: string[],
+  context: MessageDeleteContext | undefined,
+) {
+  finishMessagesDeleting(chatId, messageIds);
+  if (context?.previousMessages) {
+    const previous = context.previousMessages;
+    qc.setQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId), {
+      ...previous,
+      pages: previous.pages.map((page) => withoutPendingMessageDeletes(chatId, page)),
+    });
+  }
+  if (context?.previousCount) qc.setQueryData(chatKeys.messageCount(chatId), context.previousCount);
 }
 
 function findCachedMessage(data: InfiniteData<Message[]> | undefined, messageId: string): Message | null {
@@ -183,10 +209,6 @@ function assertDeletedMessages(result: unknown, expectedCount: number) {
   if (deletedCount !== null && deletedCount < expectedCount) {
     throw new Error(expectedCount === 1 ? "Message was not found." : "Some selected messages were not found.");
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function isMemoryRecallExportEnvelope(value: unknown): value is ExportEnvelope<ChatMemoryRecallExportPayload> {
@@ -638,8 +660,9 @@ export function useDeleteMessage(chatId: string | null) {
       assertDeletedMessages(result, 1);
       return result;
     },
-    onMutate: async (messageId: string) => {
+    onMutate: async (messageId: string): Promise<MessageDeleteContext | undefined> => {
       if (!chatId) return;
+      markMessagesDeleting(chatId, [messageId]);
       await qc.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true }).catch(() => undefined);
       const previousMessages = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId));
       const previousCount = qc.getQueryData<MessageCountResult>(chatKeys.messageCount(chatId));
@@ -650,10 +673,12 @@ export function useDeleteMessage(chatId: string | null) {
       updateCachedMessageCount(qc, chatId, -1);
       return { previousMessages, previousCount };
     },
-    onError: (_err, _messageId, context) => {
+    onSuccess: (_result, messageId) => {
+      if (chatId) finishMessagesDeleting(chatId, [messageId]);
+    },
+    onError: (_err, messageId, context) => {
       if (!chatId) return;
-      if (context?.previousMessages) qc.setQueryData(chatKeys.messages(chatId), context.previousMessages);
-      if (context?.previousCount) qc.setQueryData(chatKeys.messageCount(chatId), context.previousCount);
+      restoreMessagesAfterFailedDelete(qc, chatId, [messageId], context);
     },
     onSettled: () => {
       if (chatId) {
@@ -683,11 +708,12 @@ export function useDeleteMessages(chatId: string | null) {
       assertDeletedMessages(result, uniqueIds.length);
       return result;
     },
-    onMutate: async (messageIds: string[]) => {
+    onMutate: async (messageIds: string[]): Promise<MessageDeleteContext | undefined> => {
       if (!chatId) return;
       const uniqueIds = compactMessageIdList(messageIds);
       if (uniqueIds.length === 0) return;
       const idSet = new Set(uniqueIds);
+      markMessagesDeleting(chatId, uniqueIds);
       await qc.cancelQueries({ queryKey: chatKeys.messages(chatId), exact: true }).catch(() => undefined);
       const previousMessages = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(chatId));
       const previousCount = qc.getQueryData<MessageCountResult>(chatKeys.messageCount(chatId));
@@ -696,10 +722,12 @@ export function useDeleteMessages(chatId: string | null) {
       updateCachedMessageCount(qc, chatId, -uniqueIds.length);
       return { previousMessages, previousCount };
     },
-    onError: (_err, _messageIds, context) => {
+    onSuccess: (_result, messageIds) => {
+      if (chatId) finishMessagesDeleting(chatId, compactMessageIdList(messageIds));
+    },
+    onError: (_err, messageIds, context) => {
       if (!chatId) return;
-      if (context?.previousMessages) qc.setQueryData(chatKeys.messages(chatId), context.previousMessages);
-      if (context?.previousCount) qc.setQueryData(chatKeys.messageCount(chatId), context.previousCount);
+      restoreMessagesAfterFailedDelete(qc, chatId, compactMessageIdList(messageIds), context);
     },
     onSettled: () => {
       if (chatId) {
@@ -1083,10 +1111,6 @@ async function generateLlmChatSummary(input: GenerateSummaryInput): Promise<Gene
     summaryContextSize: limit,
   });
   return { summary: appended.summary ?? content, messageIds: selected.map((message) => message.id) };
-}
-
-function readString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
 }
 
 function summaryPromptTemplates(value: unknown): ChatSummaryPromptTemplate[] {

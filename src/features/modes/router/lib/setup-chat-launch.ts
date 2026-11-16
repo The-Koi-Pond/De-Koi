@@ -39,13 +39,13 @@ interface CreatedChat {
   id: string;
 }
 
-export interface CharacterLaunchContext {
+interface CharacterLaunchContext {
   characterName: string;
   firstMessage?: string;
   alternateGreetings?: string[];
 }
 
-export interface CharacterInitializationResult {
+interface CharacterInitializationResult {
   cleanup?: () => Promise<void>;
 }
 
@@ -78,6 +78,7 @@ interface SetupChatLaunchDependencies<TChat extends CreatedChat> {
 function modeLabel(mode: SetupJourneyMode): string {
   if (mode === "conversation") return "Conversation";
   if (mode === "roleplay") return "Roleplay";
+  if (mode === "trance") return "Trance";
   return "Fanfic";
 }
 

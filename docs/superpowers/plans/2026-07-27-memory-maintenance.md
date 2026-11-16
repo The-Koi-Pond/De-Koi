@@ -302,9 +302,7 @@ Define the cross-layer contract:
 
 ```ts
 export type MemoryCleanupScope =
-  | { kind: "chat"; id: string }
-  | { kind: "scene"; id: string }
-  | { kind: "character"; id: string };
+  { kind: "chat"; id: string } | { kind: "scene"; id: string } | { kind: "character"; id: string };
 
 export type MemoryCleanupStatus = "active" | "pinned" | "deleted" | "wrong" | "stale" | "superseded";
 

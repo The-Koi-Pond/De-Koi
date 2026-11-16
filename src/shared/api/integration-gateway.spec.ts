@@ -26,13 +26,6 @@ describe("integrationGateway Discord mirror", () => {
     invokeTauri.mockReset();
   });
 
-  it("resolves Spotify playback availability through the focused local capability", async () => {
-    invokeTauri.mockResolvedValue({ available: true });
-
-    await expect(integrationGateway.spotify.playbackAvailable()).resolves.toBe(true);
-    expect(invokeTauri).toHaveBeenCalledWith("spotify_playback_available");
-  });
-
   it("does not send Discord webhooks while the Discord Mirror module is disabled", async () => {
     coreModulesGet.mockResolvedValue({ enabled: {} });
 
@@ -60,5 +53,42 @@ describe("integrationGateway Discord mirror", () => {
         username: "Narrator",
       },
     });
+  });
+});
+
+describe("integrationGateway Spotify source", () => {
+  beforeEach(() => {
+    invokeTauri.mockReset();
+  });
+
+  function answer(settings: { source: string }, status: { connected: boolean }) {
+    invokeTauri.mockImplementation(async (command: string) => (command === "music_settings" ? settings : status));
+  }
+
+  it("is ready only when Spotify is the source and an account is connected", async () => {
+    const spotify = integrationGateway.music?.spotify;
+    answer({ source: "spotify" }, { connected: true });
+    await expect(spotify?.isReady()).resolves.toBe(true);
+    expect(invokeTauri).toHaveBeenCalledWith("music_status", { body: { provider: "spotify" } });
+
+    answer({ source: "youtube" }, { connected: true });
+    await expect(spotify?.isReady()).resolves.toBe(false);
+    answer({ source: "spotify" }, { connected: false });
+    await expect(spotify?.isReady()).resolves.toBe(false);
+  });
+
+  it("finds a track by title and artist and plays it through the Spotify provider", async () => {
+    const track = { provider: "spotify", id: "spotify:track:abc", title: "Song" };
+    invokeTauri.mockResolvedValueOnce({ candidates: [track], track });
+    await expect(integrationGateway.music?.spotify?.findTrack({ title: "Song", artist: "Band" })).resolves.toEqual(
+      track,
+    );
+    expect(invokeTauri).toHaveBeenCalledWith("music_search_candidates", {
+      input: { provider: "spotify", match: { title: "Song", artist: "Band" } },
+    });
+
+    invokeTauri.mockResolvedValueOnce({ state: "playing" });
+    await integrationGateway.music?.spotify?.playOnRepeat({ track, volume: 40 });
+    expect(invokeTauri).toHaveBeenLastCalledWith("music_play", { body: { provider: "spotify", track, volume: 40 } });
   });
 });

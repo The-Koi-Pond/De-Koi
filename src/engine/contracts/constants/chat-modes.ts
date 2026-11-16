@@ -39,4 +39,12 @@ export const CHAT_MODES: Record<ChatMode, ChatModeDefinition> = {
     icon: "📖",
     defaultAgents: [],
   },
+  trance: {
+    id: "trance",
+    name: "Trance",
+    description:
+      "A hypnosis session in a character's voice: pick the feel and length, then read it one line at a time.",
+    icon: "🌀",
+    defaultAgents: [],
+  },
 };

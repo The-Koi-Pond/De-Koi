@@ -1,5 +1,5 @@
 import { Download, FilePlus2, Pencil, Save, Star, Trash2, Upload } from "lucide-react";
-import type { ChangeEvent, KeyboardEvent, RefObject } from "react";
+import type { ChangeEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 
 import { HelpTooltip } from "../../../../../../shared/components/ui/HelpTooltip";
 import { cn } from "../../../../../../shared/lib/utils";
@@ -64,6 +64,9 @@ export function ChatPresetBar({
         className="hidden"
         onChange={onImportFile}
       />
+      <span className="text-[0.625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+        Settings preset
+      </span>
       <div className="flex items-center gap-2">
         {renamingPreset ? (
           <input
@@ -80,6 +83,7 @@ export function ChatPresetBar({
             value={selectedChatPreset?.id ?? ""}
             onChange={(event) => onSelectPreset(event.target.value)}
             title="Apply a chat-settings preset to this chat"
+            aria-label="Settings preset"
             className="flex-1 min-w-0 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
           >
             {presetList.length === 0 && <option value="">Loading…</option>}
@@ -124,8 +128,9 @@ export function ChatPresetBar({
           }
         />
       </div>
-      <div className="flex items-center gap-1">
-        <button
+      <div className="flex items-stretch gap-1">
+        <PresetAction
+          label="Save"
           onClick={onSaveIntoPreset}
           disabled={!selectedChatPreset || selectedChatPresetIsDefault}
           title={
@@ -133,51 +138,77 @@ export function ChatPresetBar({
               ? "Cannot save into the Default preset"
               : "Save current chat settings into this preset"
           }
-          className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Save size="0.875rem" />
-        </button>
-        <button
+        </PresetAction>
+        <PresetAction
+          label="Rename"
           onClick={onStartRenamePreset}
           disabled={!selectedChatPreset || selectedChatPresetIsDefault}
           title={selectedChatPresetIsDefault ? "Cannot rename the Default preset" : "Rename preset"}
-          className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Pencil size="0.875rem" />
-        </button>
-        <button
-          onClick={onSaveAsPreset}
-          title="Save current chat settings as a new preset"
-          className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
-        >
+        </PresetAction>
+        <PresetAction label="Save as" onClick={onSaveAsPreset} title="Save current chat settings as a new preset">
           <FilePlus2 size="0.875rem" />
-        </button>
-        <span className="mx-1 h-4 w-px shrink-0 bg-[var(--border)]" aria-hidden />
-        <button
-          onClick={onImportClick}
-          title="Import preset (.json)"
-          className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-        >
+        </PresetAction>
+        <span className="mx-1 w-px shrink-0 self-center h-6 bg-[var(--border)]" aria-hidden />
+        <PresetAction label="Import" onClick={onImportClick} title="Import preset (.json)">
           <Download size="0.875rem" />
-        </button>
-        <button
+        </PresetAction>
+        <PresetAction
+          label="Export"
           onClick={onExportPreset}
           disabled={!selectedChatPreset}
           title="Export preset (.json)"
-          className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Upload size="0.875rem" />
-        </button>
-        <button
+        </PresetAction>
+        <PresetAction
+          label="Delete"
+          destructive
           onClick={onDeletePreset}
           disabled={!selectedChatPreset || selectedChatPresetIsDefault}
           title={selectedChatPresetIsDefault ? "Cannot delete the Default preset" : "Delete preset"}
-          className="flex-1 flex items-center justify-center rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Trash2 size="0.875rem" />
-        </button>
+        </PresetAction>
       </div>
     </div>
+  );
+}
+
+function PresetAction({
+  label,
+  title,
+  onClick,
+  disabled = false,
+  destructive = false,
+  children,
+}: {
+  label: string;
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  destructive?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={cn(
+        "flex flex-1 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-[var(--muted-foreground)] transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+        destructive
+          ? "hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)]"
+          : "hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+      )}
+    >
+      {children}
+      <span className="text-[0.625rem] leading-none">{label}</span>
+    </button>
   );
 }
 

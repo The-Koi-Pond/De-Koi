@@ -1,5 +1,12 @@
 # Dependabot configuration for De-Koi
 # Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# One weekly "routine" pull request with minor and patch updates only. Major
+# versions (TypeScript, Vite, Vitest, Node images, Actions...) are skipped here
+# and upgraded on purpose as their own work: one breaking major in the shared
+# group used to fail the whole bundle, so the safe updates never landed.
+# Skipping Docker majors also keeps the images on Node 22, the version De-Koi
+# targets.
 version: 2
 multi-ecosystem-groups:
   routine-dependencies:
@@ -17,6 +24,9 @@ updates:
     multi-ecosystem-group: "routine-dependencies"
     patterns:
       - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     cooldown:
       default-days: 7
 
@@ -26,6 +36,9 @@ updates:
     multi-ecosystem-group: "routine-dependencies"
     patterns:
       - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     cooldown:
       default-days: 7
 
@@ -35,6 +48,12 @@ updates:
     multi-ecosystem-group: "routine-dependencies"
     patterns:
       - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Its refs name Rust versions (some not released yet), not action releases; the
+      # Pi build's pin follows rust-toolchain.toml instead.
+      - dependency-name: "dtolnay/rust-toolchain"
     cooldown:
       default-days: 7
 
@@ -44,5 +63,8 @@ updates:
     multi-ecosystem-group: "routine-dependencies"
     patterns:
       - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     cooldown:
       default-days: 7

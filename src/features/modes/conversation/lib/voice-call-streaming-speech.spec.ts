@@ -115,6 +115,15 @@ describe("StreamingSpeaker", () => {
     expect(played).toEqual([["[react: 😂] haha kid."], ["and then some"]]);
   });
 
+  it("doesn't repeat what was said when the saved reply dropped its delivery tags", async () => {
+    const { speaker, played, finishPlaying } = harness();
+    speaker.push("[sighs] long night.\nkid");
+    const done = speaker.finish("long night.\nkidding, it was fine.");
+    await finishPlaying();
+    await done;
+    expect(played).toEqual([["[sighs] long night."], ["kidding, it was fine."]]);
+  });
+
   it("stops queued pieces when the turn is cut off", async () => {
     const { speaker, played, controller, finishPlaying } = harness();
     speaker.push("one.\ntwo.\n");

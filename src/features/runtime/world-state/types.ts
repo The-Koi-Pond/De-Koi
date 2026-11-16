@@ -10,14 +10,7 @@ import type {
 import type { TemperatureUnit } from "../../../shared/lib/temperature-units";
 
 export type TrackerStatePatchField =
-  | "date"
-  | "time"
-  | "location"
-  | "weather"
-  | "temperature"
-  | "presentCharacters"
-  | "playerStats"
-  | "personaStats";
+  "date" | "time" | "location" | "weather" | "temperature" | "presentCharacters" | "playerStats" | "personaStats";
 
 export type WorldStatePatchField = Extract<
   TrackerStatePatchField,

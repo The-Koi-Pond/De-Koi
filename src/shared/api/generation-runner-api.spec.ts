@@ -38,3 +38,28 @@ describe("generationRunnerApi.follow", () => {
     expect(events).toEqual([{ type: "token", data: "Hi" }]);
   });
 });
+
+describe("generationRunnerAvailable", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+    useUIStore.setState({ remoteRuntimeUrl: "" });
+  });
+
+  it("checks the runner again after it refuses a reply instead of trusting the cached health", async () => {
+    useUIStore.setState({ remoteRuntimeUrl: "http://runtime.test" });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ ok: true }))
+      .mockResolvedValueOnce(new Response("Bad Gateway", { status: 502 }))
+      .mockResolvedValueOnce(new Response("Bad Gateway", { status: 502 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = await import("./generation-runner-api");
+
+    await expect(api.generationRunnerAvailable()).resolves.toBe(true);
+    await expect(api.generationRunnerApi.start({ chatId: "chat-1" })).rejects.toThrow();
+
+    // The runner went away: the next reply should see that and run in the tab.
+    await expect(api.generationRunnerAvailable()).resolves.toBe(false);
+  });
+});

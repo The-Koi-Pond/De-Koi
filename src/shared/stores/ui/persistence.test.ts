@@ -10,8 +10,35 @@ import {
 } from "./persistence";
 
 describe("ui persistence migration", () => {
-  it("bumps the store version for the Game asset background retirement", () => {
-    expect(UI_STORE_VERSION).toBe(12);
+  it("bumps the store version for the Match system color scheme", () => {
+    expect(UI_STORE_VERSION).toBe(14);
+  });
+
+  it("keeps the color scheme of installs saved before Match system existed", () => {
+    expect(migrateUiState({ theme: "light" })).toMatchObject({ theme: "light", followSystemTheme: false });
+    expect(migrateUiState({ theme: "dark" }).followSystemTheme).toBe(false);
+    expect(migrateUiState({ theme: "dark", followSystemTheme: true }).followSystemTheme).toBe(true);
+  });
+
+  it("moves the Spotify-era Music Player settings to their new names once", () => {
+    const migrated = migrateUiState({
+      spotifyPlayerEnabled: true,
+      spotifyMobileWidgetCollapsed: true,
+      spotifyMobileWidgetPosition: { x: 40, y: 120 },
+    }) as Record<string, unknown>;
+
+    expect(migrated).toMatchObject({
+      musicPlayerEnabled: true,
+      musicPlayerMobileWidgetCollapsed: true,
+      musicPlayerMobileWidgetPosition: { x: 40, y: 120 },
+    });
+    expect(migrated).not.toHaveProperty("spotifyPlayerEnabled");
+    expect(migrated).not.toHaveProperty("spotifyMobileWidgetCollapsed");
+    expect(migrated).not.toHaveProperty("spotifyMobileWidgetPosition");
+    expect(
+      migrateUiState({ spotifyMobileWidgetCollapsed: true, musicPlayerMobileWidgetCollapsed: false })
+        .musicPlayerMobileWidgetCollapsed,
+    ).toBe(false);
   });
 
   it("moves a saved Game asset background onto the background library", () => {

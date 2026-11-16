@@ -30,7 +30,7 @@ const MAX_ISSUES = 8;
 /** The end of the chapter before, so a line reacting to it reads in context. */
 const PREVIOUS_TAIL_CHARS = 3000;
 
-export class FanficVoiceCheckParseError extends FanficReplyParseError {
+class FanficVoiceCheckParseError extends FanficReplyParseError {
   constructor(detail: string) {
     super(`The voice check reply could not be read (${detail}).`);
     this.name = "FanficVoiceCheckParseError";
@@ -38,7 +38,7 @@ export class FanficVoiceCheckParseError extends FanficReplyParseError {
 }
 
 /** What part of the sheet a line breaks. */
-export const FANFIC_VOICE_BREAKS = ["wording", "register", "motive"] as const;
+const FANFIC_VOICE_BREAKS = ["wording", "register", "motive"] as const;
 export type FanficVoiceBreak = (typeof FANFIC_VOICE_BREAKS)[number];
 
 export const FANFIC_VOICE_BREAK_LABELS: Record<FanficVoiceBreak, string> = {
@@ -91,7 +91,7 @@ function storyBlock(target: FanficChapterRef, previous: FanficChapterRef | null)
   return parts.join("\n\n");
 }
 
-export function buildFanficVoiceCheckMessages(args: {
+function buildFanficVoiceCheckMessages(args: {
   request: FanficRequest;
   voices: readonly FanficVoiceSheet[];
   target: FanficChapterRef;
@@ -197,7 +197,7 @@ export function parseFanficVoiceCheckReply(raw: string, names: readonly string[]
 }
 
 /** One boolean verdict per note, plus repeats folded into the note they repeat. */
-export function parseFanficVoiceVerdicts(
+function parseFanficVoiceVerdicts(
   raw: string,
   noteCount: number,
 ): { confirmed: Set<number>; sameAs: Map<number, number> } {

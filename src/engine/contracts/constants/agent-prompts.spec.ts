@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_AGENT_PROMPTS, ROLEPLAY_QUALITY_EDITOR_PROMPT } from "./agent-prompts";
+import { DEFAULT_AGENT_PROMPTS, musicDjPromptForSpotify, ROLEPLAY_QUALITY_EDITOR_PROMPT } from "./agent-prompts";
 
 describe("default agent prompts", () => {
   it("constrains focused Roleplay quality corrections to exact bounded edits", () => {
@@ -56,6 +56,17 @@ describe("default agent prompts", () => {
     expect(prompt).toContain('"setting"');
     expect(prompt).toContain('"constraints"');
     expect(prompt).not.toContain("spotify_play");
+  });
+
+  it("words the Music Player prompt for music in general when Spotify is the source", () => {
+    const prompt = DEFAULT_AGENT_PROMPTS["music-dj"];
+    const spotifyPrompt = musicDjPromptForSpotify(prompt);
+
+    expect(spotifyPrompt).not.toContain("YouTube");
+    expect(spotifyPrompt).toContain("You are the Music Player for the current roleplay turn.");
+    expect(spotifyPrompt.slice(spotifyPrompt.indexOf("Schema:"))).toBe(
+      prompt.slice(prompt.indexOf("Schema:")).replace("a YouTube music search query", "a music search query"),
+    );
   });
 
   it("keeps the Background agent generation-only", () => {

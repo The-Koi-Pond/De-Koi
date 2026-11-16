@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { MessageSquare, BookOpen, Feather } from "lucide-react";
+import { MessageSquare, BookOpen, Feather, Orbit } from "lucide-react";
 import { useRecentChatSummaries, type ChatListItem } from "../../../catalog/chats/index";
 import {
   CharacterAvatarImage,
   characterAvatarUrl,
   useCharacterSummariesByIds,
 } from "../../../catalog/characters/index";
+import { ModeIcon, useIsPondTheme } from "../../../../shared/components/ModeIcon";
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { normalizeChatCharacterIds } from "../../../../shared/lib/chat-display";
 import { normalizeAvatarCropValue, type AvatarCropValue } from "../../../../shared/lib/utils";
@@ -18,6 +19,7 @@ const MODE_BADGE: Record<string, { icon: React.ReactNode; bg: string; label: str
   },
   roleplay: { icon: <BookOpen size="0.75rem" />, bg: "linear-gradient(135deg, #eb8951, #d97530)", label: "Roleplay" },
   fanfic: { icon: <Feather size="0.75rem" />, bg: "linear-gradient(135deg, #e0607e, #7a2a40)", label: "Fanfic" },
+  trance: { icon: <Orbit size="0.75rem" />, bg: "linear-gradient(135deg, #8065f0, #33246e)", label: "Trance" },
 };
 
 function readAvatarCrop(value: unknown): AvatarCropValue | null {
@@ -68,29 +70,19 @@ export function RecentChats() {
     return map;
   }, [recentCharacters]);
 
-  if (!recentChats) return null;
+  // A first-run Home has nothing to resume, so it shows no Recent row at all.
+  if (!recentChats || recentChats.length === 0) return null;
 
   return (
     <div className="flex w-full flex-col gap-1.5 px-3 pt-3">
       <p className="text-center text-[0.625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]/50">
         Recent
       </p>
-      {recentChats.length === 0 ? (
-        <p className="rounded-lg border border-[var(--border)]/45 bg-[var(--card)]/45 px-3 py-1.5 text-center text-xs text-[var(--muted-foreground)]/70">
-          No chats yet
-        </p>
-      ) : (
-        <div className="flex w-full flex-col gap-1.5 sm:flex-row">
-          {recentChats.map((chat) => (
-            <RecentChatCard
-              key={chat.id}
-              chat={chat}
-              charLookup={charLookup}
-              onClick={() => setActiveChatId(chat.id)}
-            />
-          ))}
-        </div>
-      )}
+      <div className="flex w-full flex-col gap-1.5 sm:flex-row">
+        {recentChats.map((chat) => (
+          <RecentChatCard key={chat.id} chat={chat} charLookup={charLookup} onClick={() => setActiveChatId(chat.id)} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -114,6 +106,7 @@ function RecentChatCard({
   onClick: () => void;
 }) {
   const mode = MODE_BADGE[chat.mode] ?? MODE_BADGE.conversation;
+  const isPond = useIsPondTheme();
 
   const characterIds = normalizeChatCharacterIds(chat.characterIds);
   const firstAvatar = characterIds.map((id) => charLookup.get(id)).find(Boolean) ?? null;
@@ -124,14 +117,33 @@ function RecentChatCard({
       className="group flex flex-1 min-w-0 items-center gap-3 rounded-xl border border-[var(--border)]/50 bg-[var(--card)]/50 px-3 py-2.5 text-left transition-all duration-150 hover:border-[var(--primary)]/40 hover:bg-[var(--card)] hover:shadow-sm"
     >
       <div className="relative flex-shrink-0">
-        <RecentChatAvatar avatar={firstAvatar} mode={mode} />
-        <div
-          className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-white ring-1 ring-[var(--card)]"
-          style={{ background: mode.bg }}
-          title={mode.label}
-        >
-          {mode.icon}
-        </div>
+        {/* Pond, no character: the picture itself is the mode's own icon, so no badge on top. */}
+        {isPond && !firstAvatar ? (
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--secondary)] text-[var(--muted-foreground)]">
+            <ModeIcon mode={chat.mode} size="1.375rem" fallback={mode.icon} />
+          </div>
+        ) : (
+          <RecentChatAvatar avatar={firstAvatar} mode={mode} />
+        )}
+        {isPond ? (
+          // Pond's mode icons are drawn for 18px and up: a bigger badge on the water colour, not a gradient dot.
+          firstAvatar && (
+            <div
+              className="absolute -bottom-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-lg bg-[var(--background)] text-[var(--foreground)] ring-1 ring-[var(--border)]"
+              title={mode.label}
+            >
+              <ModeIcon mode={chat.mode} fallback={mode.icon} />
+            </div>
+          )
+        ) : (
+          <div
+            className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-white ring-1 ring-[var(--card)]"
+            style={{ background: mode.bg }}
+            title={mode.label}
+          >
+            {mode.icon}
+          </div>
+        )}
       </div>
       <div className="min-w-0">
         <p className="truncate text-sm font-medium text-[var(--foreground)]">{chat.name}</p>

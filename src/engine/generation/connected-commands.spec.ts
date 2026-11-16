@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { IntegrationGateway } from "../capabilities/integrations";
 import type { LlmGateway } from "../capabilities/llm";
+import type { VisualAssetGateway } from "../capabilities/visual-assets";
 import type { StorageEntity, StorageGateway, StorageListOptions } from "../capabilities/storage";
 import { persistConnectedCommandTags, pruneConnectedConversationNotes } from "./connected-commands";
 import { loadCharacters } from "./prompt-assembly";
 import { parseCharacterCommands } from "../modes/chat/commands/character-commands";
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
+import { sentPhotoHistoryNote } from "../modes/chat/autonomous/unprompted-photos";
 import type { JsonRecord } from "./runtime-records";
 
 function asStorageValue<T>(value: unknown): T {
@@ -33,6 +35,7 @@ function nonCurrentScheduleDayName(): string {
 function commandStorage(args: {
   characters?: JsonRecord[];
   chats?: JsonRecord[];
+  connections?: JsonRecord[];
   lorebooks: JsonRecord[];
   lorebookEntries: JsonRecord[];
   creates?: Array<{ entity: StorageEntity; value: JsonRecord }>;
@@ -54,11 +57,13 @@ function commandStorage(args: {
           ? (args.characters ?? [])
           : entity === "chats"
             ? (args.chats ?? [])
-            : entity === "lorebooks"
-              ? args.lorebooks
-              : entity === "lorebook-entries"
-                ? args.lorebookEntries
-                : [];
+            : entity === "connections"
+              ? (args.connections ?? [])
+              : entity === "lorebooks"
+                ? args.lorebooks
+                : entity === "lorebook-entries"
+                  ? args.lorebookEntries
+                  : [];
       return asStorageValue<T | null>(rows.find((row) => row.id === id) ?? null);
     },
     async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
@@ -706,7 +711,6 @@ describe("persistConnectedCommandTags", () => {
           });
         },
       },
-      spotify: {} as IntegrationGateway["spotify"],
       customTools: {} as IntegrationGateway["customTools"],
     };
 
@@ -735,6 +739,441 @@ describe("persistConnectedCommandTags", () => {
       height: 256,
     });
     expect(imageRequests[0]?.prompt).toEqual(expect.stringContaining("silver hair"));
+  });
+
+  it("points the selfie attachment at the filename the gallery actually stored", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfieResolution: "256x256" },
+    };
+    const base = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Harlequin (Pro Dom)", data: { name: "Harlequin (Pro Dom)" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const galleryRows: JsonRecord[] = [];
+    const storage: StorageGateway = {
+      ...base,
+      async create<T = unknown>(entity: StorageEntity, value: Record<string, unknown>): Promise<T> {
+        if (entity !== "gallery") return base.create<T>(entity, value);
+        // The real gallery cleans up the name and adds a suffix when a file with that name already exists.
+        const row = {
+          id: "gallery-1",
+          ...value,
+          filePath: "selfie_harlequin__pro_dom_-3.png",
+          filename: "selfie_harlequin__pro_dom_-3.png",
+          url: "asset://localhost/data/gallery/selfie_harlequin__pro_dom_-3.png",
+        };
+        galleryRows.push(row);
+        return asStorageValue<T>(row);
+      },
+    };
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(): Promise<T> {
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+
+    const result = await persistConnectedCommandTags(storage, chat, "here [selfie]", integrations);
+
+    expect(galleryRows).toHaveLength(1);
+    expect(result.assistantAttachments).toEqual([
+      expect.objectContaining({
+        type: "image",
+        galleryId: "gallery-1",
+        url: "asset://localhost/data/gallery/selfie_harlequin__pro_dom_-3.png",
+        filename: "selfie_harlequin__pro_dom_-3.png",
+      }),
+    ]);
+  });
+
+  it("puts the character's selfie look tags in every selfie even when the prompt writer leaves them out", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfiePositivePrompt: "night" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [
+        {
+          id: "char-1",
+          name: "Harlequin",
+          data: {
+            name: "Harlequin",
+            extensions: {
+              appearance: "Curly black hair. Without the mask, his eyes glow green.",
+              selfieLookTags: "white mask, sharp-tooth grin, green jester hat with bells",
+            },
+          },
+        },
+      ],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const llmRequests: string[] = [];
+    const llm = {
+      complete: async (input: { messages: Array<{ content: string }> }) => {
+        llmRequests.push(input.messages.map((message) => message.content).join(" "));
+        return "curly black hair, glowing green eyes, turtleneck, selfie by a window";
+      },
+    } as unknown as LlmGateway;
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+
+    await persistConnectedCommandTags(storage, chat, "here [selfie]", integrations, llm, "llm-1");
+
+    expect(llmRequests[0]).toContain(
+      "Required image tags: white mask, sharp-tooth grin, green jester hat with bells, night",
+    );
+    const prompt = String(imageRequests[0]?.prompt);
+    expect(prompt).toContain("white mask");
+    expect(prompt).toContain("sharp-tooth grin");
+    expect(prompt).toContain("green jester hat with bells");
+    expect(prompt).toContain("night");
+  });
+
+  it("dresses the character in their usual outfit unless the selfie asked for something else", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [
+        {
+          id: "char-1",
+          name: "Harlequin",
+          data: {
+            name: "Harlequin",
+            extensions: {
+              selfieLookTags: "white mask, sharp-tooth grin",
+              selfieOutfitTags: "green jester hat with bells, black cape",
+            },
+          },
+        },
+      ],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const llmRequests: string[] = [];
+    const llm = {
+      complete: async (input: { messages: Array<{ content: string }> }) => {
+        llmRequests.push(input.messages.map((message) => message.content).join(" "));
+        return "curly black hair, lying in bed in his wagon, lantern light";
+      },
+    } as unknown as LlmGateway;
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const send = (selfieRequest: string) =>
+      persistConnectedCommandTags(storage, chat, "here [selfie]", integrations, llm, "llm-1", undefined, undefined, {
+        pendingSelfieIntent: true,
+        selfieRequest,
+      });
+
+    await send("send me a selfie?");
+    const dressed = String(imageRequests[0]?.prompt);
+    expect(dressed).toContain("white mask");
+    expect(dressed).toContain("green jester hat with bells");
+    expect(dressed).toContain("lying in bed in his wagon");
+    expect(dressed).not.toContain("nsfw");
+    expect(llmRequests[0]).toContain("What the user asked for: send me a selfie?");
+
+    await send("send me one shirtless, lying in bed");
+    const shirtless = String(imageRequests[1]?.prompt);
+    expect(shirtless).toContain("white mask");
+    expect(shirtless).not.toContain("black cape");
+    expect(shirtless).not.toContain("nsfw");
+    expect(llmRequests[1]).toContain("This selfie changes what they are wearing");
+
+    await send("send me a nude one 💚");
+    const nude = String(imageRequests[2]?.prompt);
+    expect(nude).toContain("nsfw");
+    expect(nude).toContain("sharp-tooth grin");
+    expect(nude).not.toContain("green jester hat with bells");
+  });
+
+  it("leaves headwear to the prompt writer and always adds the character's avoid tags", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfieNegativePrompt: "blurry" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [
+        {
+          id: "char-1",
+          name: "Harlequin",
+          data: {
+            name: "Harlequin",
+            extensions: {
+              selfieLookTags: "white mask, paper-white skin",
+              selfieHeadwearTags: "green jester hat with bells",
+              selfieAvoidTags: "pink skin, tan skin",
+            },
+          },
+        },
+      ],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const llmRequests: string[] = [];
+    const llm = {
+      complete: async (input: { messages: Array<{ content: string }> }) => {
+        llmRequests.push(input.messages.map((message) => message.content).join(" "));
+        return "lying in bed in his tent";
+      },
+    } as unknown as LlmGateway;
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const send = (selfieRequest: string) =>
+      persistConnectedCommandTags(storage, chat, "here [selfie]", integrations, llm, "llm-1", undefined, undefined, {
+        pendingSelfieIntent: true,
+        selfieRequest,
+      });
+
+    await send("send me a selfie?");
+    expect(llmRequests[0]).toContain("Usual headwear: green jester hat with bells. Include it unless the moment");
+    expect(String(imageRequests[0]?.prompt)).not.toContain("green jester hat with bells");
+    expect(String(imageRequests[0]?.negativePrompt)).toContain("pink skin");
+    expect(String(imageRequests[0]?.negativePrompt)).toContain("blurry");
+
+    await send("one with your hat off?");
+    expect(llmRequests[1]).toContain("The request takes it off, so leave it out.");
+  });
+
+  it("texting first: a withheld photo drops the [selfie] tag and a sent one is described for later prompts", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfieResolution: "256x256" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Mira", data: { name: "Mira" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const run = (content: string, textsFirstPhoto: "send" | "withhold") =>
+      persistConnectedCommandTags(storage, chat, content, integrations, undefined, null, undefined, undefined, {
+        textsFirstPhoto,
+      });
+
+    const withheld = await run('miss you [selfie: context="at the pier"]', "withhold");
+    expect(withheld.displayContent).toBe("miss you");
+    expect(withheld.assistantAttachments).toEqual([]);
+    expect(imageRequests).toHaveLength(0);
+
+    const sent = await run('look where I am [selfie: context="sunset at the pier"]', "send");
+    expect(sent.executedCommands).toEqual(["selfie"]);
+    expect(sent.assistantAttachments).toEqual([
+      expect.objectContaining({ type: "image", description: "sunset at the pier", unprompted: true }),
+    ]);
+    expect(sentPhotoHistoryNote({ attachments: sent.assistantAttachments })).toBe("(sent a photo: sunset at the pier)");
+
+    const forgotTag = await run("guess where I am", "send");
+    expect(forgotTag.executedCommands).toEqual(["selfie"]);
+    expect(imageRequests).toHaveLength(2);
+  });
+
+  it("texting first in a group, the photo is of the character texting", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1", "char-2"],
+      metadata: { imageGenConnectionId: "image-1" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [
+        { id: "char-1", name: "Mira", data: { name: "Mira" } },
+        { id: "char-2", name: "Juno", data: { name: "Juno" } },
+      ],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+
+    await persistConnectedCommandTags(storage, chat, "look", integrations, undefined, null, undefined, undefined, {
+      textsFirstPhoto: "send",
+      textsFirstCharacterId: "char-2",
+    });
+
+    expect(imageRequests[0]).toMatchObject({ reviewTitle: "Selfie: Juno" });
+  });
+
+  it("sends the selfie character's full-body sprite (not the avatar) as the reference only when the chat asks for it", async () => {
+    const miraAvatar = `data:image/png;base64,iVBORw0KGgoA${"A".repeat(120)}MAAA`;
+    const junoAvatar = `data:image/png;base64,iVBORw0KGgoA${"A".repeat(120)}JAAA`;
+    const junoFullBody = `data:image/png;base64,iVBORw0KGgoA${"A".repeat(120)}FAAA`;
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1", "char-2"],
+      metadata: { imageGenConnectionId: "image-1", selfieUseAvatarReferences: true },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [
+        { id: "char-1", name: "Mira", avatarPath: miraAvatar, data: { name: "Mira" } },
+        { id: "char-2", name: "Juno", avatarPath: junoAvatar, data: { name: "Juno" } },
+      ],
+      connections: [
+        {
+          id: "nai-1",
+          provider: "image_generation",
+          imageGenerationSource: "novelai",
+          model: "nai-diffusion-4-5-full",
+        },
+      ],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const visuals = {
+      async listSprites(ownerId: string) {
+        return ownerId === "char-2"
+          ? [
+              { expression: "happy", image: miraAvatar },
+              { expression: "full_idle", image: junoFullBody },
+            ]
+          : [];
+      },
+    } as unknown as VisualAssetGateway;
+    const run = (target: JsonRecord) =>
+      persistConnectedCommandTags(storage, target, "look", integrations, undefined, null, undefined, visuals, {
+        textsFirstPhoto: "send",
+        textsFirstCharacterId: "char-2",
+      });
+
+    await run(chat);
+    expect(imageRequests[0]).toMatchObject({
+      reviewTitle: "Selfie: Juno",
+      referenceImages: [junoFullBody],
+    });
+    expect(imageRequests[0]?.prompt).toEqual(expect.stringContaining("same art style as the references"));
+
+    await run({ ...chat, metadata: { imageGenConnectionId: "image-1" } });
+    expect(imageRequests[1]).not.toHaveProperty("referenceImages");
+    expect(imageRequests[1]?.prompt).not.toEqual(expect.stringContaining("reference image"));
+
+    // NovelAI draws English sentences into the picture; its references carry the likeness without the guidance.
+    await run({ ...chat, metadata: { imageGenConnectionId: "nai-1", selfieUseAvatarReferences: true } });
+    expect(imageRequests[2]).toMatchObject({ connectionId: "nai-1", referenceImages: [junoFullBody] });
+    expect(imageRequests[2]?.prompt).not.toEqual(expect.stringContaining("Reference guidance"));
+
+    // Without a full-body sprite, the avatar is the reference.
+    await persistConnectedCommandTags(storage, chat, "look", integrations, undefined, null, undefined, visuals, {
+      textsFirstPhoto: "send",
+      textsFirstCharacterId: "char-1",
+    });
+    expect(imageRequests[3]).toMatchObject({ reviewTitle: "Selfie: Mira", referenceImages: [miraAvatar] });
+  });
+
+  it("recovers the selfie when the character hands it over without naming it, but not when he holds it back", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "image-1", selfieResolution: "256x256" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Harlequin", data: { name: "Harlequin" } }],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(): Promise<T> {
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const reply = (content: string) =>
+      persistConnectedCommandTags(storage, chat, content, integrations, undefined, null, undefined, undefined, {
+        pendingSelfieIntent: true,
+      });
+
+    for (const handover of [
+      "Asking so nicely before noon, meu bem? Here. Ignore the lighting in the rigging.",
+      "Mm. Ask nicely first. Just kidding, I'm already taking it. Look closely, pet.",
+      "there you go. don't stare too long",
+    ]) {
+      expect((await reply(handover)).executedCommands).toEqual(["selfie"]);
+    }
+    for (const holdBack of [
+      "Not yet. Tell me what you're wearing first, then come here and ask properly.",
+      "You aren't getting one tonight, pet. Earn it.",
+      "I won't send a photo before noon.",
+    ]) {
+      expect((await reply(holdBack)).executedCommands).toEqual([]);
+    }
   });
 
   it("does not recover an implicit selfie when image generation is not configured", async () => {

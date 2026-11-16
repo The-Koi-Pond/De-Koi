@@ -4,14 +4,7 @@ import { adminApi, getExpungeFailureReceipt } from "../../../../shared/api/admin
 import { resetClientDataState, resetClientSessionState } from "../../actions";
 
 export type ExpungeScope =
-  | "chats"
-  | "characters"
-  | "personas"
-  | "lorebooks"
-  | "presets"
-  | "connections"
-  | "automation"
-  | "media";
+  "chats" | "characters" | "personas" | "lorebooks" | "presets" | "connections" | "automation" | "media";
 
 export function useExpungeData() {
   const qc = useQueryClient();

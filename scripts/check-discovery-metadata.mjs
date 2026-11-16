@@ -14,7 +14,7 @@ const validCategories = new Set([
   "Help",
 ]);
 const validCoverage = new Set(["core", "advanced", "experimental", "needs-polish"]);
-const validModes = new Set(["conversation", "roleplay", "fanfic"]);
+const validModes = new Set(["conversation", "roleplay", "fanfic", "trance"]);
 const validChatDestinations = new Set([
   "chat-settings",
   "chat-settings-continuity",
@@ -42,6 +42,7 @@ const coreSurfaceIds = [
   "conversation-mode",
   "roleplay-mode",
   "fanfic-mode",
+  "trance-mode",
   "characters",
   "personas",
   "lorebooks",

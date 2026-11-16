@@ -107,6 +107,8 @@ export const ttsConfigSchema = z.object({
   voicesPath: z.string().default(""),
   /** Transcribe voice input (mic button, voice calls) with this provider instead of the browser's speech recognition. */
   speechInputProvider: z.boolean().default(false),
+  /** Voice calls: the character makes a short thinking sound ("Hmm…") while a reply is being written. */
+  voiceCallThinkingSounds: z.boolean().default(true),
   /** Speech-to-text model; empty uses the provider default (whisper-1 / scribe_v1). */
   sttModel: z.string().default(""),
   /** Plain text on write; masked "••••••" on read when a key is saved */

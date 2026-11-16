@@ -1,3 +1,4 @@
+import { isRecord, readString } from "../shared/value-readers";
 // Image style profile settings: the built-in profiles, defaults, and the
 // normalizer the UI store runs at startup. The prompt compiler lives in
 // image-style-profiles.ts so the store does not load it with the home screen.
@@ -352,14 +353,6 @@ function slugId(value: string): string {
     .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/(^-|-$)/g, "")
     .slice(0, 80);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function readString(value: unknown, fallback: string): string {
-  return typeof value === "string" ? value : fallback;
 }
 
 function readBoolean(value: unknown, fallback: boolean): boolean {

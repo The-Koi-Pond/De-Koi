@@ -4,6 +4,7 @@ import type { Chat, Message } from "../../../engine/contracts/types/chat";
 import { ApiError } from "../../../shared/api/api-errors";
 import { storageApi } from "../../../shared/api/storage-api";
 import { CHAT_SUMMARY_FIELDS } from "./lib/chat-summary-projection";
+import { withoutPendingMessageDeletes } from "./lib/pending-message-deletes";
 import { preserveRecentMessageContentEdit } from "./lib/recent-message-content-edits";
 import { sanitizeTimelineMessage, timelineMessageProjection } from "./lib/timeline-message";
 import { chatKeys } from "./query-keys";
@@ -36,7 +37,9 @@ export function chatMessagesInfiniteQueryOptions(chatId: string, pageSize: numbe
           }),
         })
         .then((messages) =>
-          messages.map((message) => preserveRecentMessageContentEdit(chatId, sanitizeTimelineMessage(message))),
+          withoutPendingMessageDeletes(chatId, messages).map((message) =>
+            preserveRecentMessageContentEdit(chatId, sanitizeTimelineMessage(message)),
+          ),
         );
     },
     initialPageParam: undefined as string | undefined,

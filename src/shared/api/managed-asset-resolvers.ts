@@ -90,6 +90,21 @@ export async function resolveGalleryFileUrl(
   return filePathToAssetUrl(response.path ?? "");
 }
 
+/**
+ * A voice note's playable URL: through the hosted runtime's managed-asset route (`voice-note/<chat id>/<file>`),
+ * or the desktop app's asset URL for the file.
+ */
+export async function resolveVoiceNoteFileUrl(
+  chatId: string | null | undefined,
+  filename: string | null | undefined,
+  assetUrl: string | null | undefined,
+): Promise<string | null> {
+  const remotePath = chatId?.trim() && filename?.trim() ? `${chatId.trim()}/${filename.trim()}` : null;
+  const remoteUrl = await remoteManagedAssetResolvableUrl("voice-note", remotePath);
+  if (remoteUrl) return remoteUrl;
+  return assetUrl ? filePathToAssetUrl(assetUrl) : null;
+}
+
 export function galleryThumbnailPath(filename: string | null | undefined, absolutePath?: string | null): string | null {
   return galleryRemoteManagedPath(filename, absolutePath);
 }

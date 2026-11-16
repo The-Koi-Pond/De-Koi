@@ -4,7 +4,7 @@
 import { stripFanficChapterHeading } from "./prompts";
 import { buildFanficRepetitionCleanupLines, type FanficRepetitionReport } from "./repetition";
 
-export type FanficAiIsmId =
+type FanficAiIsmId =
   | "negation_beat"
   | "reframe"
   | "wry_which"
@@ -22,7 +22,7 @@ interface FanficAiIsmRule {
   advice: string;
 }
 
-export const FANFIC_AI_ISM_RULES: Record<FanficAiIsmId, FanficAiIsmRule> = {
+const FANFIC_AI_ISM_RULES: Record<FanficAiIsmId, FanficAiIsmRule> = {
   negation_beat: {
     id: "negation_beat",
     label: 'Short "He did not…" beats',
@@ -101,7 +101,7 @@ const STOCK_PHRASES = [
 const EM_DASH = /—/g;
 const SENTENCE = /[^.!?…]+(?:[.!?…]+["”’)]*|$)/g;
 
-export interface FanficAiIsmFinding {
+interface FanficAiIsmFinding {
   id: FanficAiIsmId;
   label: string;
   advice: string;

@@ -24,7 +24,35 @@ const draft = {
   adultsConfirmed: true,
 };
 
-function setup(options: { mode?: string; messages?: Record<string, unknown>[]; maxContext?: number } = {}) {
+const tranceMetadata = {
+  trance: {
+    version: 1,
+    request: {
+      moods: ["tired"],
+      moodNote: "long shift",
+      idea: "the lighthouse lamp",
+      pitch: { title: "Lamp Watch", summary: "Breathe with the lens.", sample: [] },
+    },
+    script: {
+      lines: [
+        { phase: "pretalk", text: "Sit, little moth." },
+        { phase: "pretalk", text: "The lamp does the work tonight." },
+        { phase: "induction", text: "In while it sweeps the water." },
+        { phase: "wake", text: "Three, two, one. Awake." },
+      ],
+    },
+    runs: [{ finishedBy: "completed", rating: 8, fullyAwake: true, note: "the stairs bit helped" }],
+  },
+};
+
+function setup(
+  options: {
+    mode?: string;
+    messages?: Record<string, unknown>[];
+    maxContext?: number;
+    metadata?: Record<string, unknown>;
+  } = {},
+) {
   const chats = new Map<string, Record<string, unknown>>([
     [
       "rp",
@@ -35,7 +63,10 @@ function setup(options: { mode?: string; messages?: Record<string, unknown>[]; m
         characterIds: ["vex"],
         personaId: "me",
         connectionId: "rp-conn",
-        metadata: { activeLorebookIds: ["city-lore"], summary: "Earlier, Rook lost a bet to Vex." },
+        metadata: options.metadata ?? {
+          activeLorebookIds: ["city-lore"],
+          summary: "Earlier, Rook lost a bet to Vex.",
+        },
       },
     ],
   ]);
@@ -178,11 +209,29 @@ describe("making a fic from a chat", () => {
     const fic = setup({ mode: "fanfic" });
     await expect(
       startFanficFromChat({ storage: fic.storage, llm: llmReplying("{}").llm }, { chatId: "rp" }),
-    ).rejects.toThrow("Only chats and roleplays can be turned into a fic.");
+    ).rejects.toThrow("Only chats, roleplays and trance sessions can be turned into a fic.");
     const empty = setup({ messages: [] });
     await expect(
       startFanficFromChat({ storage: empty.storage, llm: llmReplying("{}").llm }, { chatId: "rp" }),
     ).rejects.toThrow("There's nothing in this chat to turn into a fic yet.");
+  });
+
+  it("retells a trance session as a fic, not linked to it", async () => {
+    const { storage, chats } = setup({ mode: "trance", messages: [], metadata: tranceMetadata });
+    const { llm, requests } = llmReplying(JSON.stringify(draft));
+    const fic = await startFanficFromChat({ storage, llm }, { chatId: "rp" });
+
+    const [system, user] = requests[0]!.messages;
+    expect(system!.content).toContain("A hypnosis session (a character guiding the user's character into trance");
+    expect(user!.content).toContain("Vex (pretalk): Sit, little moth. The lamp does the work tonight.");
+    expect(user!.content).toContain("Rook: (After the session) I finished the session; felt 8/10");
+    expect(readFanficSource(fic.metadata)).toMatchObject({ chatId: "rp", mode: "trance" });
+    expect(readFanficLinkedChatIds(chats.get(String(fic.id))!.metadata)).toEqual([]);
+
+    const unwritten = setup({ mode: "trance", messages: [], metadata: { trance: { script: null } } });
+    await expect(startFanficFromChat({ storage: unwritten.storage, llm }, { chatId: "rp" })).rejects.toThrow(
+      "This session hasn't been written yet",
+    );
   });
 
   it("is no draft for an ordinary fic", () => {

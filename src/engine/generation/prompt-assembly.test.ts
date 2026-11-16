@@ -173,6 +173,25 @@ describe("prompt assembly connected conversation context", () => {
   });
 });
 
+describe("prompt assembly Spotify command", () => {
+  it("offers [spotify: …] to Conversation characters only when it is available", async () => {
+    const promptFor = async (spotifyCommandAvailable: boolean) => {
+      const prompt = await assembleGenerationPrompt(promptAssemblyStorage({ sections: [] }), {
+        chat: { id: "conversation-1", mode: "conversation", characterIds: ["char-1"], metadata: {} },
+        storedMessages: [{ role: "user", content: "Play me something." }],
+        connection: { provider: "openai", model: "qa-model" },
+        request: { promptPresetId: "preset-1" },
+        latestUserInput: "Play me something.",
+        spotifyCommandAvailable,
+      });
+      return prompt.messages.map((message) => message.content).join("\n");
+    };
+
+    expect(await promptFor(true)).toContain('[spotify: title="Song title", artist="Artist name"]');
+    expect(await promptFor(false)).not.toContain("[spotify:");
+  });
+});
+
 describe("prompt assembly merged roleplay", () => {
   it("adds ensemble anti-repetition guidance without forcing a targeted turn", async () => {
     const prompt = await assembleGenerationPrompt(

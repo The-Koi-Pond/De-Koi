@@ -161,6 +161,20 @@ describe("image style profiles", () => {
     expect(compiled.prompt).not.toContain("business district agency");
   });
 
+  it("keeps a selfie's setting and pose while still dropping non-visual style prose", () => {
+    const compiled = compileImagePrompt({
+      kind: "selfie",
+      prompt: "white mask, shirtless, lying in bed in his wagon, lantern light",
+      generatedStyle: "Harlequin dreams of tracking uncertain political terms.",
+      styleProfileId: "danbooru",
+      styleProfiles: createDefaultImageStyleProfileSettings(),
+    });
+
+    expect(compiled.prompt).toContain("lying in bed in his wagon");
+    expect(compiled.prompt).toContain("lantern light");
+    expect(compiled.prompt).not.toContain("political terms");
+  });
+
   it("preserves full background and illustration source scene text in tagged profiles", () => {
     const settings = createDefaultImageStyleProfileSettings();
     const prompt =

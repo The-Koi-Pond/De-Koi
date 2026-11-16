@@ -9,6 +9,7 @@ import type {
   CreateLorebookModalDefaults,
   SaveMomentLoreDraftModalProps,
 } from "../../features/catalog/lorebooks/shell";
+import { CreditsModal } from "./CreditsModal";
 
 const CreateCharacterModal = lazy(() =>
   import("../../features/catalog/characters/shell").then((module) => ({ default: module.CreateCharacterModal })),
@@ -149,6 +150,9 @@ export function ModalRenderer() {
       break;
     case "character-card-update":
       content = <CharacterCardUpdateModal open onClose={closeModal} />;
+      break;
+    case "credits":
+      content = <CreditsModal open onClose={closeModal} />;
       break;
     default:
       content = null;

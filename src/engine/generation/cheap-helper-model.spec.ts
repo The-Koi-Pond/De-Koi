@@ -44,8 +44,9 @@ describe("pickCheapHelperModel", () => {
     expect(pickCheapHelperModel(list("z-ai/glm-5.3-flash", "moonshotai/kimi-k2.5"), "z-ai/glm-5.3-flash")).toBeNull();
   });
 
-  it("keeps replies, chapters and the fanfic judge off the cheap model", () => {
+  it("keeps replies, chapters, combat encounters and the fanfic judge off the cheap model", () => {
     expect(CHEAP_HELPER_TASKS).not.toContain("judge");
+    expect(CHEAP_HELPER_TASKS).not.toContain("encounters");
     expect(CHEAP_HELPER_TASKS).toEqual(expect.arrayContaining(["memory", "summaries", "habitCheck", "fanficChecks"]));
   });
 });

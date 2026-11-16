@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTrackerStateStore } from "../../features/runtime/world-state/store";
 import { useAgentStore } from "../../shared/stores/agent.store";
 import { useChatStore } from "../../shared/stores/chat.store";
+import { useRoleplayEncounterStore } from "../../shared/stores/roleplay-encounter.store";
 
 export function useChatSwitchEffects() {
   useEffect(
@@ -12,6 +13,7 @@ export function useChatSwitchEffects() {
           if (activeChatId === previousChatId) return;
           useAgentStore.getState().reset();
           useTrackerStateStore.getState().setTrackerState(null);
+          useRoleplayEncounterStore.getState().leaveChat(activeChatId);
         },
       ),
     [],

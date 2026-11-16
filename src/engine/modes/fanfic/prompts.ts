@@ -383,7 +383,7 @@ export function renderFanficVoiceSheets(voices: readonly FanficVoiceSheet[] | un
 }
 
 /** Whether a library card belongs to a character with a voice sheet (its example lines then stay out). */
-export function fanficHasVoiceSheet(voices: readonly FanficVoiceSheet[] | undefined, cardName: string): boolean {
+function fanficHasVoiceSheet(voices: readonly FanficVoiceSheet[] | undefined, cardName: string): boolean {
   const name = cardName.trim().toLowerCase();
   if (!name || !voices?.length) return false;
   return voices.some((sheet) => {

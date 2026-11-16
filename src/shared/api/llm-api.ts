@@ -4,6 +4,7 @@ import { ApiError } from "./api-errors";
 import { ignoreLlmStreamCancelFailure } from "./llm-cancel-logging";
 import { invokeTauri } from "./tauri-client";
 import { cancelRemoteLlmStream, remoteRuntimeTarget, streamRemoteLlm, type RuntimeTarget } from "./remote-runtime";
+import { isRecord } from "../../engine/shared/value-readers";
 
 function createStreamId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -20,10 +21,6 @@ function wait(ms: number): Promise<false> {
   return new Promise((resolve) => {
     globalThis.setTimeout(() => resolve(false), ms);
   });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function isAbortError(error: unknown): boolean {

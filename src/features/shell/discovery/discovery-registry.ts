@@ -3,17 +3,17 @@ import { findSettingsDestination, isSettingsTabId } from "../settings/discovery"
 import {
   DISCOVERY_CATEGORIES,
   DISCOVERY_COVERAGE,
-  type DiscoveryAction,
   type DiscoveryCategory,
   type DiscoveryCoverage,
   type DiscoveryEntry,
   type DiscoveryPanelTarget,
 } from "./discovery-types";
 
-export const DISCOVERY_CORE_SURFACE_IDS = [
+const DISCOVERY_CORE_SURFACE_IDS = [
   "conversation-mode",
   "roleplay-mode",
   "fanfic-mode",
+  "trance-mode",
   "characters",
   "personas",
   "lorebooks",
@@ -41,7 +41,7 @@ const DISCOVERY_PANEL_TARGETS = [
 const categorySet = new Set<string>(DISCOVERY_CATEGORIES);
 const coverageSet = new Set<string>(DISCOVERY_COVERAGE);
 const panelTargetSet = new Set<string>(DISCOVERY_PANEL_TARGETS);
-const modeSet = new Set(["conversation", "roleplay", "fanfic"]);
+const modeSet = new Set(["conversation", "roleplay", "fanfic", "trance"]);
 const chatDestinationSet = new Set([
   "chat-settings",
   "chat-settings-prompt-preset",
@@ -176,4 +176,4 @@ export function validateDiscoveryEntries(entries: readonly unknown[] = rawDiscov
 
 export const DISCOVERY_ENTRIES = rawDiscoveryEntries as DiscoveryEntry[];
 
-export type { DiscoveryAction, DiscoveryCategory, DiscoveryCoverage, DiscoveryEntry, DiscoveryPanelTarget };
+export type { DiscoveryCategory, DiscoveryCoverage, DiscoveryEntry };

@@ -1,4 +1,4 @@
-import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { lazy, Suspense, useRef, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { ArrowUpDown, Check, Download, Minus, Plus, Search, Sparkles, Tag, X } from "lucide-react";
 
 import { cn } from "../../../shared/lib/utils";
@@ -11,6 +11,11 @@ import { countTagFilters, type TagFilterMode, type TagFilters } from "../lib/tag
  * ("Navigation") describes the layout.
  */
 
+// Phones' "More actions" button and menu for a row, kept out of the home bundle.
+const CatalogRowActionsMenu = lazy(() =>
+  import("./CatalogRowActionsMenu").then((module) => ({ default: module.CatalogRowActionsMenu })),
+);
+
 /** The panel's colour: koi for Characters, jade for Personas (as on the Characters | Personas switch), amber for Lorebooks. */
 export type CatalogPanelTone = "koi" | "jade" | "amber";
 
@@ -18,70 +23,112 @@ const STRIP_CELL =
   "flex min-w-0 items-center justify-center gap-1 px-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)]";
 const PLAIN_STRIP_CELL = "border-l border-[var(--border)]/60 text-[var(--foreground)] hover:bg-[var(--accent)]";
 const TONE = {
-  // The gradients are the panels' old button colours; the Pond theme maps them to its own koi and jade.
+  // Koi creates in the app's action colour (what Pond already did with the old pink-to-purple gradient), so the
+  // chat list, Characters and Presets match the mode accents and Add Connection. Jade and amber keep their
+  // panels' own colours.
   koi: {
-    create: "bg-gradient-to-r from-pink-400 to-purple-500",
+    create: "bg-[var(--primary)] text-[var(--primary-foreground)]",
     selected: "bg-[var(--primary)]/12 text-[var(--primary)]",
     activePill: "border-[var(--primary)]/40 bg-[var(--primary)]/12 text-[var(--primary)]",
     includedChip: "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30",
   },
   jade: {
-    create: "bg-gradient-to-r from-emerald-400 to-teal-500",
+    create: "bg-gradient-to-r from-emerald-400 to-teal-500 text-white",
     selected: "bg-emerald-400/12 text-emerald-400",
     activePill: "border-emerald-400/40 bg-emerald-400/12 text-emerald-400",
     includedChip: "bg-emerald-400/15 text-emerald-400 ring-1 ring-emerald-400/30",
   },
   amber: {
-    create: "bg-gradient-to-r from-amber-400 to-orange-500",
+    create: "bg-gradient-to-r from-amber-400 to-orange-500 text-white",
     selected: "bg-amber-400/12 text-amber-400",
     activePill: "border-amber-400/40 bg-amber-400/12 text-amber-400",
     includedChip: "bg-amber-400/15 text-amber-400 ring-1 ring-amber-400/30",
   },
 } as const;
 
+/** One more plain cell in the action strip, before Select (the chat list's Folder). */
+export type CatalogStripAction = {
+  label: string;
+  title: string;
+  icon: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+};
+
+const STRIP_GRID_COLUMNS = ["grid-cols-2", "grid-cols-3", "grid-cols-4", "grid-cols-5"] as const;
+
 /**
  * New / Import / Maker / Select: joined cells in one strip across the top of the panel.
- * Without `onOpenMaker` (a library with no AI Maker) the strip has three cells.
+ * Without `onOpenMaker` (a library with no AI Maker) the strip has three cells; without
+ * `onImport` (the chat list) there's no Import cell, and `extraAction` adds a cell before Select.
  */
 export function CatalogActionBar({
   tone,
   selectionMode,
   onCreate,
+  createLabel = "New",
+  createTitle = createLabel,
+  createIcon,
   onImport,
   onOpenMaker,
+  extraAction,
   onToggleSelectionMode,
+  selectDisabled,
 }: {
   tone: CatalogPanelTone;
   selectionMode: boolean;
   onCreate: () => void;
-  onImport: () => void;
+  /** The New cell's words ("New chat"), its tooltip and its icon (a plus by default). */
+  createLabel?: string;
+  createTitle?: string;
+  createIcon?: ReactNode;
+  onImport?: () => void;
   onOpenMaker?: () => void;
+  extraAction?: CatalogStripAction;
   onToggleSelectionMode: () => void;
+  selectDisabled?: boolean;
 }) {
+  const cellCount = 2 + (onImport ? 1 : 0) + (onOpenMaker ? 1 : 0) + (extraAction ? 1 : 0);
   return (
-    <div className={cn("grid h-10 border-b border-[var(--border)]/60", onOpenMaker ? "grid-cols-4" : "grid-cols-3")}>
+    <div className={cn("grid h-10 border-b border-[var(--border)]/60", STRIP_GRID_COLUMNS[cellCount - 2])}>
       <button
         type="button"
         onClick={onCreate}
-        className={cn(STRIP_CELL, TONE[tone].create, "text-white hover:brightness-110")}
-        title="New"
+        className={cn(STRIP_CELL, TONE[tone].create, "hover:brightness-110")}
+        title={createTitle}
       >
-        <Plus size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span className="truncate">New</span>
+        {createIcon ?? <Plus size="0.8125rem" className="shrink-0" aria-hidden="true" />}{" "}
+        <span className="truncate">{createLabel}</span>
       </button>
-      <button type="button" onClick={onImport} className={cn(STRIP_CELL, PLAIN_STRIP_CELL)} title="Import">
-        <Download size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span className="truncate">Import</span>
-      </button>
+      {onImport && (
+        <button type="button" onClick={onImport} className={cn(STRIP_CELL, PLAIN_STRIP_CELL)} title="Import">
+          <Download size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span className="truncate">Import</span>
+        </button>
+      )}
       {onOpenMaker && (
         <button type="button" onClick={onOpenMaker} className={cn(STRIP_CELL, PLAIN_STRIP_CELL)} title="AI Maker">
           <Sparkles size="0.8125rem" className="shrink-0" aria-hidden="true" /> <span className="truncate">Maker</span>
         </button>
       )}
+      {extraAction && (
+        <button
+          type="button"
+          onClick={extraAction.onClick}
+          disabled={extraAction.disabled}
+          className={cn(STRIP_CELL, PLAIN_STRIP_CELL, "disabled:cursor-wait disabled:opacity-60")}
+          title={extraAction.title}
+        >
+          {extraAction.icon} <span className="truncate">{extraAction.label}</span>
+        </button>
+      )}
       <button
         type="button"
         onClick={onToggleSelectionMode}
+        disabled={selectDisabled}
         className={cn(
           STRIP_CELL,
           "border-l border-[var(--border)]/60",
+          selectDisabled !== undefined && "disabled:opacity-40",
           selectionMode ? TONE[tone].selected : "text-[var(--foreground)] hover:bg-[var(--accent)]",
         )}
         aria-pressed={selectionMode}
@@ -347,33 +394,58 @@ export function catalogRowActionsRowProps(actionCount: number): { style: CSSProp
  * height equally; shown on hover or keyboard focus. Phones, where they always show, keep them side
  * by side. Touch screens without hover always show them too (`data-de-koi-action-group`, see
  * 07-responsive-accessibility.css). The row needs `group relative` and the `catalogRowActionsRowProps` height.
+ *
+ * `collapseOnPhone`: phones get one "More actions" button instead, so the row keeps its width for the name.
+ * Each menu item clicks the matching (hidden) button, so it runs the same handler; only use it for actions
+ * that don't position anything from the button they were clicked on.
  */
-export function CatalogRowActions({ actions }: { actions: CatalogRowAction[] }) {
+export function CatalogRowActions({
+  actions,
+  collapseOnPhone = false,
+}: {
+  actions: CatalogRowAction[];
+  collapseOnPhone?: boolean;
+}) {
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
   return (
-    <div
-      data-de-koi-action-group="catalog-row"
-      className="absolute inset-y-0 right-0 flex w-9 flex-col overflow-hidden rounded-r-xl border-l border-[var(--border)]/60 bg-[var(--sidebar)] opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-md:static max-md:w-auto max-md:flex-row max-md:rounded-xl max-md:border max-md:opacity-100"
-    >
-      {actions.map((action, index) => (
-        <button
-          key={action.key}
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            action.onClick(event);
-          }}
-          className={cn(
-            "flex min-h-0 flex-1 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)] max-md:h-9 max-md:w-9 max-md:flex-none",
-            index > 0 && "border-t border-[var(--border)]/60 max-md:border-l max-md:border-t-0",
-            action.className,
-          )}
-          title={action.title}
-          aria-label={action.label}
-          aria-haspopup={action.hasPopup}
-        >
-          {action.icon}
-        </button>
-      ))}
-    </div>
+    <>
+      <div
+        data-de-koi-action-group="catalog-row"
+        className={cn(
+          "absolute inset-y-0 right-0 flex w-9 flex-col overflow-hidden rounded-r-xl border-l border-[var(--border)]/60 bg-[var(--sidebar)] opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-md:static max-md:w-auto max-md:flex-row max-md:rounded-xl max-md:border max-md:opacity-100",
+          collapseOnPhone && "max-md:hidden",
+        )}
+      >
+        {actions.map((action, index) => (
+          <button
+            key={action.key}
+            ref={(element) => {
+              buttonRefs.current[index] = element;
+            }}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              action.onClick(event);
+            }}
+            className={cn(
+              "flex min-h-0 flex-1 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)] max-md:h-9 max-md:w-9 max-md:flex-none",
+              index > 0 && "border-t border-[var(--border)]/60 max-md:border-l max-md:border-t-0",
+              action.className,
+            )}
+            title={action.title}
+            aria-label={action.label}
+            aria-haspopup={action.hasPopup}
+          >
+            {action.icon}
+          </button>
+        ))}
+      </div>
+      {collapseOnPhone && (
+        <Suspense fallback={null}>
+          <CatalogRowActionsMenu actions={actions} buttonRefs={buttonRefs} />
+        </Suspense>
+      )}
+    </>
   );
 }

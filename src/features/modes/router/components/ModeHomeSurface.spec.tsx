@@ -10,6 +10,7 @@ const { connectionRows, createChatMutate } = vi.hoisted(() => ({
   connectionRows: { current: [] as Array<{ id: string; provider: string; model?: string; hasApiKey?: boolean }> },
   createChatMutate: vi.fn(),
 }));
+const { recentChatRows } = vi.hoisted(() => ({ recentChatRows: { current: [] as Array<{ id: string }> } }));
 const { embeddedRuntime } = vi.hoisted(() => ({ embeddedRuntime: { current: true } }));
 const { libraryPresence } = vi.hoisted(() => ({
   libraryPresence: {
@@ -25,6 +26,7 @@ vi.mock("../../../../shared/api/remote-runtime", () => ({ hasEmbeddedTauriRuntim
 
 vi.mock("../../../catalog/chats/index", () => ({
   useCreateChat: () => ({ mutate: createChatMutate }),
+  useRecentChatSummaries: () => ({ data: recentChatRows.current }),
 }));
 
 vi.mock("../../../catalog/chat-presets/index", () => ({
@@ -33,10 +35,6 @@ vi.mock("../../../catalog/chat-presets/index", () => ({
 
 vi.mock("../../shared/chat-ui/new-chat-gate", () => ({
   NewChatConnectionGate: () => null,
-}));
-
-vi.mock("./HomeCreditsModal", () => ({
-  HomeCreditsModal: () => null,
 }));
 
 vi.mock("./RecentChats", () => ({
@@ -86,6 +84,7 @@ describe("ModeHomeSurface launch splash", () => {
   beforeEach(() => {
     embeddedRuntime.current = true;
     connectionRows.current = [];
+    recentChatRows.current = [];
     createChatMutate.mockClear();
     beginSetupJourney.mockClear();
     openRightPanel.mockClear();
@@ -127,6 +126,21 @@ describe("ModeHomeSurface launch splash", () => {
     expect(splash?.querySelectorAll(".koi-home-splash-letter").length).toBeGreaterThan(0);
   });
 
+  it("greets a returning user differently from a first run", async () => {
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(<ModeHomeSurface />);
+    });
+    expect(container!.textContent).toContain("To get started, choose the type of chat");
+
+    recentChatRows.current = [{ id: "chat-1" }];
+    await act(async () => {
+      root!.render(<ModeHomeSurface />);
+    });
+    expect(container!.textContent).toContain("Pick up a recent chat, or start something new");
+    expect(container!.textContent).not.toContain("To get started");
+  });
+
   it("keeps each splash word whole, so long lines wrap between words", async () => {
     const longSplash = '"We have AI roleplay at home!" (AI roleplay at home:)';
     vi.spyOn(Math, "random").mockReturnValue(HOME_SPLASH_TEXTS.indexOf(longSplash) / HOME_SPLASH_TEXTS.length);
@@ -165,7 +179,7 @@ describe("ModeHomeSurface launch splash", () => {
 
       // The modes are a visual-novel choice menu instead of cards, with recent
       // chats under them, and no "Next steps" grid.
-      expect(container!.querySelectorAll(".vn-choice")).toHaveLength(3);
+      expect(container!.querySelectorAll(".vn-choice")).toHaveLength(4);
       expect(container!.querySelector(".koi-start-card")).toBeNull();
       expect(
         [...container!.querySelectorAll("[data-home-section]")].map((s) => s.getAttribute("data-home-section")),

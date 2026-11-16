@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { characterKeys } from "../query-keys";
 import { characterAvatarUrl, type CharacterAvatarSource } from "./character-avatar-url";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 type CharacterListRecord = Record<string, unknown> & { id?: string };
 
@@ -8,10 +9,6 @@ function isCharacterListRecord(value: unknown): value is CharacterListRecord & {
   return Boolean(
     value && typeof value === "object" && !Array.isArray(value) && typeof (value as { id?: unknown }).id === "string",
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 export function normalizeCharacterAvatarFields<T>(character: T): T {

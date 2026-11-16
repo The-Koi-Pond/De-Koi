@@ -66,23 +66,24 @@ export async function generationRunnerHealth(): Promise<RunnerHealth> {
   return value;
 }
 
-/** Forget the cached health result, e.g. after the runner refused a request. */
-export function resetGenerationRunnerHealth(): void {
-  health = null;
-}
-
 async function runnerFetch(path: string, init: RequestInit): Promise<Response> {
   const target = remoteRuntimeTarget();
   if (!target) throw remoteRuntimeNotConfiguredError();
-  const response = await fetchRemoteRuntime(
-    `${target.baseUrl}${path}`,
-    remoteFetchInit({
-      ...init,
-      headers: remoteHeaders(target, { "content-type": "application/json", ...init.headers }),
-    }),
-  );
-  if (!response.ok) throw await readRemoteError(response);
-  return response;
+  try {
+    const response = await fetchRemoteRuntime(
+      `${target.baseUrl}${path}`,
+      remoteFetchInit({
+        ...init,
+        headers: remoteHeaders(target, { "content-type": "application/json", ...init.headers }),
+      }),
+    );
+    if (!response.ok) throw await readRemoteError(response);
+    return response;
+  } catch (error) {
+    // The runner may have gone away since the last health check: check again before the next reply goes to it.
+    health = null;
+    throw error;
+  }
 }
 
 export const generationRunnerApi = {

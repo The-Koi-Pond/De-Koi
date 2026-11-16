@@ -12,7 +12,8 @@ import { CheckCircle2, Circle, CheckSquare2, Square, Sparkles, ListChecks, Shuff
 import { cn } from "../../../../shared/lib/utils";
 import type { ChoiceBlock, ChoiceOption, ChoiceVisibilityRule } from "../../../../engine/contracts/types/prompt";
 import { choiceOptionDisplayText, choiceVariableVisible } from "../lib/choice-display";
-import { isRecord, normalizeChoiceSelections, type ChoiceSelections } from "../lib/choice-selections";
+import { isRecord } from "../../../../engine/shared/value-readers";
+import { normalizeChoiceSelections, type ChoiceSelections } from "../lib/choice-selections";
 
 interface ChoiceSelectionModalProps {
   open: boolean;

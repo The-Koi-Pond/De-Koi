@@ -131,21 +131,27 @@ module.exports = {
       severity: "error",
       comment: "Top-level modes are separate product paths.",
       from: { path: "^(src/engine/modes/chat/|src/features/modes/conversation/)" },
-      to: { path: "^(src/engine/modes/(roleplay|game|fanfic)/|src/features/modes/(roleplay|game|fanfic)/)" },
+      to: {
+        path: "^(src/engine/modes/(roleplay|game|fanfic|trance)/|src/features/modes/(roleplay|game|fanfic|trance)/)",
+      },
     },
     {
       name: "roleplay-mode-must-not-import-chat-game-or-fanfic",
       severity: "error",
       comment: "Top-level modes are separate product paths.",
       from: { path: "^(src/engine/modes/roleplay/|src/features/modes/roleplay/)" },
-      to: { path: "^(src/engine/modes/(chat|game|fanfic)/|src/features/modes/(conversation|game|fanfic)/)" },
+      to: {
+        path: "^(src/engine/modes/(chat|game|fanfic|trance)/|src/features/modes/(conversation|game|fanfic|trance)/)",
+      },
     },
     {
       name: "game-mode-must-not-import-chat-roleplay-or-fanfic",
       severity: "error",
       comment: "Top-level modes are separate product paths.",
       from: { path: "^(src/engine/modes/game/|src/features/modes/game/)" },
-      to: { path: "^(src/engine/modes/(chat|roleplay|fanfic)/|src/features/modes/(conversation|roleplay|fanfic)/)" },
+      to: {
+        path: "^(src/engine/modes/(chat|roleplay|fanfic|trance)/|src/features/modes/(conversation|roleplay|fanfic|trance)/)",
+      },
     },
     {
       name: "fanfic-mode-must-not-import-chat-roleplay-or-game",
@@ -153,16 +159,25 @@ module.exports = {
       comment: "Top-level modes are separate product paths.",
       from: { path: "^(src/engine/modes/fanfic/|src/features/modes/fanfic/)" },
       to: {
-        path: "^(src/engine/modes/(chat|roleplay|game)/|src/features/modes/(conversation|roleplay|game|game-assets)/)",
+        path: "^(src/engine/modes/(chat|roleplay|game|trance)/|src/features/modes/(conversation|roleplay|game|game-assets|trance)/)",
+      },
+    },
+    {
+      name: "trance-mode-must-not-import-other-modes",
+      severity: "error",
+      comment: "Top-level modes are separate product paths.",
+      from: { path: "^(src/engine/modes/trance/|src/features/modes/trance/)" },
+      to: {
+        path: "^(src/engine/modes/(chat|roleplay|game|fanfic)/|src/features/modes/(conversation|roleplay|game|game-assets|fanfic)/)",
       },
     },
     {
       name: "shared-mode-ui-must-not-import-concrete-modes",
       severity: "error",
       comment:
-        "Shared mode UI is a lower mode layer and cannot import concrete conversation, roleplay, game, or fanfic packages.",
+        "Shared mode UI is a lower mode layer and cannot import concrete conversation, roleplay, game, fanfic, or trance packages.",
       from: { path: "^src/features/modes/shared/" },
-      to: { path: "^src/features/modes/(conversation|roleplay|game|fanfic)/" },
+      to: { path: "^src/features/modes/(conversation|roleplay|game|fanfic|trance)/" },
     },
     ...crossPackagePrivateRules,
   ],

@@ -48,6 +48,29 @@ describe("CatalogActionBar", () => {
     expect(buttons.map((button) => button.textContent?.trim())).toEqual(["New", "Import", "Select"]);
   });
 
+  it("drops Import and adds a named extra cell for a list without imports (the chat list)", () => {
+    let folderClicks = 0;
+    act(() =>
+      root.render(
+        <CatalogActionBar
+          tone="koi"
+          selectionMode={false}
+          onCreate={() => undefined}
+          createLabel="New chat"
+          extraAction={{ label: "Folder", title: "New folder", icon: null, onClick: () => (folderClicks += 1) }}
+          onToggleSelectionMode={() => undefined}
+          selectDisabled
+        />,
+      ),
+    );
+    const buttons = [...container.querySelectorAll("button")];
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(["New chat", "Folder", "Select"]);
+    expect(container.firstElementChild?.className).toContain("grid-cols-3");
+    act(() => buttons[1]!.click());
+    expect(folderClicks).toBe(1);
+    expect(buttons[2]!.disabled).toBe(true);
+  });
+
   it("reports whether selection mode is on", () => {
     render(true);
     const select = [...container.querySelectorAll("button")].find((button) => button.textContent === "Select");

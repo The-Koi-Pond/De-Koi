@@ -152,6 +152,66 @@ describe("habit scan", () => {
     };
   }
 
+  function freeModelStorage(model: string, throughMessageId: string) {
+    const messages = chatMessages(replies);
+    return {
+      get: vi.fn(async (entity: string, id: string) => {
+        if (entity === "connections") return { id, provider: "openrouter", model };
+        if (entity === "chats") {
+          return {
+            id,
+            metadata: { habitScan: { version: 2, throughMessageId, scannedReplies: 4, habits: [], scannedAt: "x" } },
+          };
+        }
+        return null;
+      }),
+      list: vi.fn(async () => []),
+      listChatMessages: vi.fn(async () => [...messages].reverse()),
+      patchChatMetadata: vi.fn(async () => ({})),
+    };
+  }
+
+  it("waits for four new replies before scanning again on an OpenRouter free model", async () => {
+    for (const model of ["openrouter/free", "google/gemma-4-31b-it:free"]) {
+      const llm = llmReturning(JSON.stringify({ habits: [] }));
+      await runHabitScanIfDue({
+        storage: freeModelStorage(model, "a0") as unknown as ScheduleHabitScanInput["storage"],
+        llm,
+        chatId: "chat-1",
+        mode: "roleplay",
+        connectionId: "free-connection",
+      });
+      expect(llm.complete, model).not.toHaveBeenCalled();
+    }
+  });
+
+  it("still scans after every new reply on a paid model", async () => {
+    const llm = llmReturning(JSON.stringify({ habits: [] }));
+    await runHabitScanIfDue({
+      storage: freeModelStorage("anthropic/claude-sonnet-5-5", "a2") as unknown as ScheduleHabitScanInput["storage"],
+      llm,
+      chatId: "chat-1",
+      mode: "roleplay",
+      connectionId: "paid-connection",
+    });
+    expect(llm.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts the replies since the last scan", () => {
+    const messages = chatMessages(replies);
+    const scan = (throughMessageId: string): HabitScan => ({
+      version: 2,
+      throughMessageId,
+      scannedReplies: 4,
+      habits: [],
+      scannedAt: "x",
+    });
+    expect(habitScanDue(messages, scan("a0"), 4)).toBe(false);
+    expect(habitScanDue(messages, scan("a3"), 1)).toBe(false);
+    expect(habitScanDue(messages, scan("a2"), 1)).toBe(true);
+    expect(habitScanDue(messages, scan("gone"), 4)).toBe(true);
+  });
+
   it("keeps the reply's connection when the habit check is not routed", async () => {
     const storage = routedStorage({ memory: "cheap" });
     const llm = llmReturning(JSON.stringify({ habits: [] }));

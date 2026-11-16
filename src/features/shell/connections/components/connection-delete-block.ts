@@ -1,4 +1,5 @@
 import { ApiError } from "../../../../shared/api/api-errors";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 export type ConnectionReferenceSummary = {
   id?: string;
@@ -10,10 +11,6 @@ export type ConnectionDeleteBlock = {
   chats: ConnectionReferenceSummary[];
   agents: ConnectionReferenceSummary[];
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";

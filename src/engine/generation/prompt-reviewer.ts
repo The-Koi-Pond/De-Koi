@@ -1,7 +1,7 @@
 import type { LlmGateway, LlmRequest } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
 import { createInlineThinkingStreamParser, extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
-import { readString as stringValue } from "../shared/value-readers";
+import { isRecord, readString as stringValue } from "../shared/value-readers";
 
 export type PromptReviewInput = {
   presetId: string;
@@ -11,9 +11,7 @@ export type PromptReviewInput = {
 };
 
 export type PromptReviewEvent =
-  | { type: "token"; data: string }
-  | { type: "done"; data: string }
-  | { type: "error"; data: string };
+  { type: "token"; data: string } | { type: "done"; data: string } | { type: "error"; data: string };
 
 const PROMPT_REVIEWER_SYSTEM_PROMPT = `You are an expert prompt engineer reviewing prompt presets for AI roleplay applications. Analyze the prompt structure and content, then return a structured review in JSON:
 
@@ -204,10 +202,6 @@ async function assemblePromptReviewView(storage: StorageGateway, presetId: strin
 function orderValue(section: JsonRecord): number {
   const value = section.sortOrder ?? section.order ?? section.injectionOrder;
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function llmChunkText(chunk: { text?: unknown; data?: unknown; error?: unknown; message?: unknown }): string {

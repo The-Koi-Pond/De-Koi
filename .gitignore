@@ -75,3 +75,6 @@ src-tauri/gen/android/**/*.keystore
 /.codex-cargo*/
 *~[0-9]*
 dist-runner/
+
+# Playwright run output
+/test-results/

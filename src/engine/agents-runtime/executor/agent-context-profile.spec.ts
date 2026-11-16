@@ -10,7 +10,7 @@ const EXPECTED_PROFILE_MEMBERS = {
   narrative: ["continuity", "cyoa", "echo-chamber", "lorebook-keeper", "knowledge-retrieval", "knowledge-router"],
   visual: ["expression", "illustrator", "background"],
   state: ["world-state", "quest", "combat", "character-tracker", "persona-stats", "custom-tracker"],
-  music: ["music-dj", "spotify", "schedule-planner", "response-orchestrator", "autonomous-messenger"],
+  music: ["music-dj", "schedule-planner", "response-orchestrator", "autonomous-messenger"],
   minimal: ["html", "chat-summary"],
 } as const;
 

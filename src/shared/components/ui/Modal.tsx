@@ -6,6 +6,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { useEscapeOverlay } from "../../hooks/use-escape-overlay";
+import { keepTabInside } from "../../lib/focus-trap";
 
 interface ModalProps {
   open: boolean;
@@ -16,9 +17,6 @@ interface ModalProps {
   width?: string;
   onExited?: () => void;
 }
-
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function Modal({ open, onClose, title, children, width = "max-w-md", onExited }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -87,29 +85,7 @@ export function Modal({ open, onClose, title, children, width = "max-w-md", onEx
     [],
   );
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Tab") return;
-
-    const panel = panelRef.current;
-    if (!panel) return;
-
-    const focusableElements = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-    const firstFocusable = focusableElements[0];
-    const lastFocusable = focusableElements.at(-1);
-    if (!firstFocusable || !lastFocusable) return;
-
-    const activeElement = document.activeElement;
-    if (!panel.contains(activeElement)) {
-      event.preventDefault();
-      firstFocusable.focus();
-    } else if (event.shiftKey && activeElement === firstFocusable) {
-      event.preventDefault();
-      lastFocusable.focus();
-    } else if (!event.shiftKey && activeElement === lastFocusable) {
-      event.preventDefault();
-      firstFocusable.focus();
-    }
-  };
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => keepTabInside(event, panelRef.current);
 
   // Remove from DOM after exit animation completes
   const handleAnimationEnd = () => {

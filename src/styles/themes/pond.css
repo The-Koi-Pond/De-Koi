@@ -603,8 +603,22 @@
 }
 
 [data-visual-theme="pond"] .vn-choice-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   color: var(--muted-foreground);
   font-size: 0.75rem;
+}
+
+/* The mode's icon (tea cup, kitsune mask, ink brush) beside its name; its ink
+   lines brighten with the choice you're pointing at. */
+[data-visual-theme="pond"] .vn-choice-mode-icon {
+  flex: none;
+  transition: color 0.15s ease;
+}
+
+[data-visual-theme="pond"] .vn-choice:is(:hover, :focus-visible) .vn-choice-mode-icon {
+  color: var(--foreground);
 }
 
 @media (prefers-reduced-motion: reduce) {

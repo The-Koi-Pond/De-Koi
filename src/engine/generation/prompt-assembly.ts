@@ -24,6 +24,11 @@ import {
 import { applyRegexScriptsToPromptMessages } from "../generation-core/regex/regex-application";
 import { stripConversationPromptTimestamps } from "../modes/chat/core/summaries/transcript-sanitize";
 import { reactionHistoryNote, readMessageReactions, USER_REACTOR } from "../modes/chat/core/message-reactions";
+import { sentPhotoHistoryNote } from "../modes/chat/autonomous/unprompted-photos";
+import { messagesSentDuringReplies, sentDuringReplyHistoryNote } from "../modes/chat/core/sent-during-reply";
+import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
+import { VOICE_NOTE_REPLY_INSTRUCTION, voiceNoteHistoryNote } from "../modes/chat/voice-notes/voice-notes";
+import { VOICE_CALL_DELIVERY_INSTRUCTION } from "../modes/chat/voice-call/delivery-tags";
 import {
   commandCapabilityEnabled,
   conversationCommandCapabilities,
@@ -74,6 +79,7 @@ import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPriori
 import { conversationContextFocus, isFocusedConversationVoiceExamples } from "./conversation-context-focus";
 import { characterWillNote } from "./character-will";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
+import { buildReplySteeringGuidance } from "./reply-steering";
 import { habitScanGuidance, readHabitScan } from "./habit-scan";
 import { analyzeRoleplayHistory } from "./roleplay-quality-signals";
 import {
@@ -214,6 +220,8 @@ export interface PromptAssemblyInput {
   persistPromptVariables?: boolean;
   reusableContext?: PromptAssemblyReusableContext;
   regexScripts?: JsonRecord[];
+  /** Offer `[spotify: …]` to Conversation characters (Spotify is the Music Player source and connected). */
+  spotifyCommandAvailable?: boolean;
 }
 
 interface PromptAssemblyReusableContext {
@@ -2797,7 +2805,44 @@ function buildConversationFreshnessBlock(
 }
 
 /**
- * Conversation notes that change every turn (the clock, the "conversation resumed" gap, the freshness hint).
+ * What the user's own recent words ask of the next reply: a different approach after "that missed", the scene they
+ * asked for over the character's usual mood, and leading when they're unsure (see reply-steering.ts). Conversation
+ * and Roleplay (visual novel included) each get their own wording; an impersonated Roleplay turn gets none.
+ */
+function buildReplySteeringBlock(
+  input: PromptAssemblyInput,
+  wrapFormat: WrapFormat,
+  names: ConversationFreshnessNames,
+): ChatMLMessage | null {
+  const chatMode = modeOf(input.chat);
+  const mode =
+    chatMode === "conversation"
+      ? "conversation"
+      : (chatMode === "roleplay" || chatMode === "visual_novel") && input.request.impersonate !== true
+        ? "roleplay"
+        : null;
+  if (!mode) return null;
+  const guidance = buildReplySteeringGuidance({
+    messages: input.storedMessages,
+    latestUserInput: input.latestUserInput,
+    userName: names.userName,
+    mode,
+  });
+  if (!guidance) return null;
+  return {
+    role: "system",
+    contextKind: "prompt",
+    content: wrapContent(
+      ["Follow this for the next reply; it comes from the user's own words. Do not mention it.", guidance].join("\n"),
+      `${mode}_steering`,
+      wrapFormat,
+    ),
+  };
+}
+
+/**
+ * Notes that change every turn: Conversation's clock, "conversation resumed" gap and freshness hint, and the
+ * steering note in both Conversation and Roleplay.
  * They ride on the latest user turn instead of sitting among the system blocks: providers that hoist every
  * system message into one system prompt (Anthropic, Claude Subscription) would otherwise get a new system
  * prompt each minute, and a changed system prompt misses the provider's prompt cache for the whole request.
@@ -2810,6 +2855,7 @@ function buildConversationTurnNotes(
   return [
     buildConversationPresenceBlock(input, wrapFormat),
     buildConversationFreshnessBlock(input, wrapFormat, names),
+    buildReplySteeringBlock(input, wrapFormat, names),
   ].filter((block): block is ChatMLMessage => block !== null);
 }
 
@@ -3104,6 +3150,9 @@ function buildConversationCommandBlock(
   connectedMode: string | null,
   wrapFormat: WrapFormat,
   focused = false,
+  spotifyCommandAvailable = false,
+  textsFirstPhoto?: unknown,
+  selfieRequested = false,
 ): ChatMLMessage | null {
   const meta = parseRecord(chat.metadata);
   if (!conversationCommandPromptEnabled(chat)) return null;
@@ -3115,21 +3164,14 @@ function buildConversationCommandBlock(
   const hasCharacters = characters.length > 0;
   const hasConnectedRoleplay = connectedMode === "roleplay";
   const canCrossPost = commandCapabilityEnabled(capabilities, ["crossPost", "canCrossPost"]);
-  const canSelfie = commandCapabilityEnabled(capabilities, [
-    "selfie",
-    "canSelfie",
-    "imageGeneration",
-    "canGenerateImages",
-  ]);
+  // Texting first, the engine already rolled for a photo: offer the tag only when this text carries one.
+  const sendTextsFirstPhoto = textsFirstPhoto === "send";
+  const canSelfie =
+    textsFirstPhoto !== "withhold" &&
+    !sendTextsFirstPhoto &&
+    commandCapabilityEnabled(capabilities, ["selfie", "canSelfie", "imageGeneration", "canGenerateImages"]);
   const canMemory = commandCapabilityEnabled(capabilities, ["memory", "canSaveMemory"]);
   const canStartScene = commandCapabilityEnabled(capabilities, ["scene", "canStartScene", "canStartScenes"]);
-  const spotifyPlaybackAvailable = commandCapabilityEnabled(
-    capabilities,
-    ["spotifyPlaybackAvailable", "spotifyPlayback", "spotifyAvailable"],
-    false,
-  );
-  const canSpotify =
-    spotifyPlaybackAvailable && commandCapabilityEnabled(capabilities, ["spotify", "canSpotify", "canPlaySpotify"]);
   const canReact = commandCapabilityEnabled(capabilities, ["react", "canReact"]);
   const instructions = [
     focused
@@ -3143,10 +3185,16 @@ function buildConversationCommandBlock(
         ? '- Cross-post with [cross_post: target="group or chat name"] when naturally sharing elsewhere.'
         : '- Cross-post a message with [cross_post: target="group or chat name"] when the character naturally wants to move or share a message across conversations.'
       : "",
+    sendTextsFirstPhoto
+      ? '- This text comes with a photo of you. End it with [selfie: context="what the photo shows"], something from what you are doing right now, and mention it the way a person sending a pic would.'
+      : "",
     canSelfie
       ? focused
         ? '- Send an appropriate image with [selfie] or [selfie: context="brief visual context"]. Any claim of sending, taking, or attaching a photo must include the tag in that response.'
         : '- Request an image with [selfie] or [selfie: context="brief visual context"] when a casual conversation selfie is appropriate and image generation is configured. If you say you are sending, sharing, taking, or attaching a selfie/photo/pic, include [selfie] in that same response; do not only narrate the action.'
+      : "",
+    canSelfie && selfieRequested
+      ? '- The last message asks for a photo of you. If you send it, end the reply with [selfie: context="what the photo shows"]. Saying "here" or that you are taking or sending it, without the tag, sends nothing.'
       : "",
     hasCharacters && canMemory
       ? '- Save a durable character memory with [memory: target="Character Name", summary="brief memory"] when the character learns something they should remember later.'
@@ -3156,13 +3204,15 @@ function buildConversationCommandBlock(
         ? '- Start roleplay with [scene: scenario="what happens", background="optional setting", plan="optional short plan"] when clearly called for.'
         : '- Start a linked roleplay scene with [scene: scenario="what happens", background="optional setting", plan="optional short plan"] when the conversation clearly calls for a scene.'
       : "",
-    canSpotify
-      ? '- Play music on the user\'s active Spotify player with [spotify: title="Song title", artist="Artist"] when a specific song naturally fits the conversation.'
-      : "",
     canReact
       ? focused
         ? '- Tapback with [react: emoji="❤️"] when it fits, with a reply or alone.'
         : '- Tapback their last text with [react: emoji="❤️"] when a person would (good news, a joke), with a reply or alone.'
+      : "",
+    spotifyCommandAvailable
+      ? focused
+        ? '- Play a song on the user\'s Spotify with [spotify: title="Song title", artist="Artist name"] when sharing one.'
+        : '- Play a specific song on the user\'s Spotify with [spotify: title="Song title", artist="Artist name"] when the character wants to share or put on that song. It plays on repeat.'
       : "",
     hasConnectedRoleplay
       ? "- Send linked-chat context with <influence>one-shot OOC steering note</influence> or <note>durable fact for the linked prompt</note> when this conversation should affect the linked roleplay."
@@ -3192,7 +3242,33 @@ async function buildConversationContextBlocks(
     buildConversationScheduleBlock(input.chat, characters, wrapFormat),
     crossChat,
     linked.block,
-    buildConversationCommandBlock(input.chat, characters, linked.connectedMode, wrapFormat, focused),
+    input.request.voiceNote === "send"
+      ? {
+          role: "system" as const,
+          contextKind: "prompt" as const,
+          content: wrapContent(VOICE_NOTE_REPLY_INSTRUCTION, "voice_note", wrapFormat),
+        }
+      : null,
+    input.request.voiceCallDeliveryTags === true
+      ? {
+          role: "system" as const,
+          contextKind: "prompt" as const,
+          content: wrapContent(VOICE_CALL_DELIVERY_INSTRUCTION, "voice_call", wrapFormat),
+        }
+      : null,
+    buildConversationCommandBlock(
+      input.chat,
+      characters,
+      linked.connectedMode,
+      wrapFormat,
+      focused,
+      input.spotifyCommandAvailable === true,
+      input.request.textsFirstPhoto,
+      detectConversationSelfieRequestIntent({
+        latestUserInput: input.latestUserInput,
+        recentMessages: input.storedMessages,
+      }),
+    ),
   ].filter((block): block is ChatMLMessage => block !== null);
 }
 
@@ -3343,16 +3419,30 @@ interface HistoryPromptSelection {
   requestedLimit: number;
 }
 
-/** "(Sam reacted ❤️)" after a reacted Conversation message, so the character knows how a text landed. */
+/**
+ * Notes after a Conversation message: "(sent a photo: …)" for a character's photo, so the model knows what it
+ * sent, "(Sam sent the message just before this one while this text was being written …)" so the next reply
+ * answers it, and "(Sam reacted ❤️)" for a reaction, so the character knows how a text landed.
+ */
 function conversationReactionNote(
   characters: GenerationCharacterContext[],
   personaName: string | null,
+  storedMessages: readonly JsonRecord[],
 ): (message: JsonRecord) => string {
   const names = new Map(characters.map((character) => [character.id, character.name]));
+  const userName = personaName?.trim() || "The user";
+  const sentDuring = messagesSentDuringReplies(storedMessages);
   return (message) =>
-    reactionHistoryNote(readMessageReactions(message.extra), (by) =>
-      by === USER_REACTOR ? personaName?.trim() || "The user" : (names.get(by) ?? "Someone"),
-    );
+    [
+      readString(message.role) === "assistant" ? sentPhotoHistoryNote(message.extra) : "",
+      readString(message.role) === "assistant" ? voiceNoteHistoryNote(message.extra) : "",
+      sentDuringReplyHistoryNote(sentDuring.get(readString(message.id)) ?? 0, userName),
+      reactionHistoryNote(readMessageReactions(message.extra), (by) =>
+        by === USER_REACTOR ? userName : (names.get(by) ?? "Someone"),
+      ),
+    ]
+      .filter(Boolean)
+      .join("\n");
 }
 
 function historyMessageSelection(
@@ -3389,14 +3479,15 @@ function historyMessageSelection(
     const images = Array.isArray(message.images)
       ? message.images.filter((image): image is string => typeof image === "string" && image.trim().length > 0)
       : [];
-    if (!content.length && images.length === 0) continue;
-    const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
     const note = historyNote(message);
+    // A photo-only text still counts: its note is what the model sees of it.
+    if (!content.length && images.length === 0 && !note) continue;
+    const providerMetadata = role === "assistant" ? messageProviderMetadata(message) : undefined;
     visibleMessages.push({
       source: message,
       prompt: {
         role,
-        content: note ? `${content}\n${note}` : content,
+        content: note ? (content ? `${content}\n${note}` : note) : content,
         contextKind: "history" as const,
         characterId: readString(message.characterId).trim() || undefined,
         name: readString(message.name).trim() || undefined,
@@ -4446,7 +4537,9 @@ export async function assembleGenerationPrompt(
     historyLimit,
     chatMeta.excludePastReasoning === false,
     conversationFocus?.includeAssistantHistory ?? true,
-    chatMode === "conversation" ? conversationReactionNote(characters, persona?.name ?? null) : undefined,
+    chatMode === "conversation"
+      ? conversationReactionNote(characters, persona?.name ?? null, input.storedMessages)
+      : undefined,
   );
   const compactedSourceHistory =
     !reusableContext && shouldCompactHistoryForSummary(input.chat, selectedPreset, summary)

@@ -79,6 +79,17 @@ function errorMessage(error: unknown): string {
   return error instanceof Error && error.message ? error.message : String(error);
 }
 
+// Gemini's safety filter refuses some explicit chapters outright (HTTP 400 "blocked by safety filters"). Retrying on
+// the same model fails the same way, so say where the check can go instead.
+const SAFETY_BLOCK = /safety filter|blocked by safety|content[ _]filter|prohibited content/i;
+
+function checkErrorMessage(error: unknown): string {
+  const message = errorMessage(error);
+  return SAFETY_BLOCK.test(message)
+    ? "the checking model's safety filter refused this chapter. Send Fanfic checks to another model in Connections → Helper Models"
+    : message;
+}
+
 async function readChapter(storage: StorageGateway, chatId: string, messageId: string) {
   const messages = (await storage.listChatMessages<JsonRecord>(chatId)).filter(isRecord);
   const layout = fanficChapterLayout(messages);
@@ -236,7 +247,7 @@ export async function* polishFanficChapter(
       });
     } catch (error) {
       if (isAbort(error, signal)) throw error;
-      steps.push({ step, status: "failed", fixed: 0, left: 0, error: errorMessage(error) });
+      steps.push({ step, status: "failed", fixed: 0, left: 0, error: checkErrorMessage(error) });
     }
   };
 

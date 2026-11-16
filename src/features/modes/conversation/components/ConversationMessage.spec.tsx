@@ -460,6 +460,49 @@ describe("ConversationMessage memo subscriptions", () => {
     expect(container!.querySelector(".mari-streaming-pending")).not.toBeNull();
     expect(container!.querySelector(".mari-typing-dots")).toBeNull();
   });
+  it("shows a voice note as a player, with the text as a transcript on demand", async () => {
+    const voiceMessage: Message = {
+      ...message,
+      id: "message-voice",
+      content: "omw. save me a seat",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+        attachments: [
+          {
+            type: "audio",
+            voiceNote: true,
+            url: "asset://localhost/voice-notes/chat-1/voice-a.mp3",
+            filename: "voice-a.mp3",
+            contentType: "audio/mpeg",
+          },
+        ],
+      },
+    };
+
+    await act(async () => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage message={voiceMessage} characterMap={characterMap} chatCharacterIds={["character-1"]} />
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container!.querySelector('button[aria-label="Play voice message"]')).not.toBeNull();
+    expect(container!.textContent).not.toContain("omw. save me a seat");
+
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!.click();
+      await Promise.resolve();
+    });
+
+    expect(container!.textContent).toContain("omw. save me a seat");
+  });
+
   it("lets generated image attachments be removed or regenerated without deleting the message", async () => {
     const onDelete = vi.fn();
     const onIllustrateMoment = vi.fn().mockResolvedValue(undefined);

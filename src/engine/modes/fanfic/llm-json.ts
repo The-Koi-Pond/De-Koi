@@ -15,6 +15,7 @@ import {
 import { isRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { userFacingError } from "../../shared/user-facing-error";
 import { parseGameJsonish } from "../../shared/parsing-jsonish";
+import { untilAborted } from "../../shared/until-aborted";
 
 /** The reply didn't follow the requested format; worth one more try rather than failing outright. */
 export class FanficReplyParseError extends Error {
@@ -87,34 +88,6 @@ export function fanficCallBudget(
 /** Total characters across a call's messages. */
 export function fanficMessageChars(messages: readonly LlmMessage[]): number {
   return messages.reduce((sum, message) => sum + (typeof message.content === "string" ? message.content.length : 0), 0);
-}
-
-function abortError(): DOMException {
-  return new DOMException("The operation was aborted.", "AbortError");
-}
-
-/**
- * Settles as soon as the signal aborts, even when the gateway ignores it (the app gateway's complete() can't cancel a
- * request already sent), so Stop ends the work right away and the late reply is dropped.
- */
-export function untilAborted<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return work;
-  if (signal.aborted) return Promise.reject(abortError());
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(abortError());
-    signal.addEventListener("abort", onAbort, { once: true });
-    work.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        if (signal.aborted) reject(abortError());
-        else resolve(value);
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
-      },
-    );
-  });
 }
 
 /**

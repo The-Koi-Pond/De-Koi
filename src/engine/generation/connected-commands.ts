@@ -16,11 +16,19 @@ import {
   type UpdateLorebookCommand,
   type UpdatePersonaCommand,
 } from "../modes/chat/commands/character-commands";
-import { conversationSelfieCommandEnabled } from "../modes/chat/commands/activation";
+import { conversationCommandPromptEnabled, conversationSelfieCommandEnabled } from "../modes/chat/commands/activation";
 import { buildRoleplaySceneOpeningGuide } from "../modes/roleplay/scene/scene-opening";
 import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
 import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { resolveConversationSelfieSystemPrompt } from "./prompt-overrides";
+import { illustrationReferencesForRequest } from "../generation-core/images/illustration-reference-selection";
+import {
+  appendSelfieReferenceGuidance,
+  referenceGuidanceSuitsImageConnection,
+  avatarReferenceImage,
+  characterImageReferenceSubject,
+  fullBodySpriteReferenceImage,
+} from "./character-image-references";
 import {
   compileImagePrompt,
   createDefaultImageStyleProfileSettings,
@@ -41,6 +49,7 @@ import {
 } from "./runtime-records";
 import { characterExtensionsPatch } from "../entities/character-extensions-patch";
 import { readMessageReactions, withMessageReaction } from "../modes/chat/core/message-reactions";
+import { MUSIC_RECENT_TRACKS_KEY, readChatMusicRecentTracks, withMusicRecentTrack } from "../shared/music/chat-music";
 
 type ConnectedCommandEvent =
   | { type: "cross_post"; data: JsonRecord }
@@ -50,7 +59,8 @@ type ConnectedCommandEvent =
   | { type: "selfie_error"; data: JsonRecord }
   | { type: "command_error"; data: JsonRecord }
   | { type: "scene_created"; data: JsonRecord }
-  | { type: "message_reaction"; data: JsonRecord };
+  | { type: "message_reaction"; data: JsonRecord }
+  | { type: "music_now_playing"; data: JsonRecord };
 
 export interface ConnectedCommandResult {
   displayContent: string;
@@ -72,8 +82,14 @@ type SelfieCommand = Extract<CharacterCommand, { type: "selfie" }>;
 
 type ConnectedCommandOptions = {
   pendingSelfieIntent?: boolean;
+  /** The user's message asking for the selfie, so the picture shows what they asked for. */
+  selfieRequest?: string;
   /** The user message this reply answers and the replying character, for [react: ...] tapbacks. */
   reactionTarget?: { messageId: string; reactorId: string } | null;
+  /** Texts-first only: "send" means this message carries a photo, "withhold" means it carries none. */
+  textsFirstPhoto?: "send" | "withhold";
+  /** Texts-first only: the character texting, whose photo it is (in a group, not always the first character). */
+  textsFirstCharacterId?: string | null;
 };
 
 const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
@@ -81,6 +97,17 @@ const LEGACY_ASSISTANT_CONTEXT_METADATA_KEY = "mariContext";
 const SELFIE_WORD_RE = /\b(?:selfie|photo|pic|picture|image)\b/i;
 const ASSISTANT_SELFIE_CLAIM_RE =
   /\b(?:send|sent|sending|show|showing|share|shares|shared|attach|attaches|attached|post|posts|posted|take|takes|took|snap|snaps|snapped|here's|here is)\b[\s\S]{0,120}\b(?:selfie|photo|pic|picture)\b|\[\s*[^\]]{0,80}\b(?:send|sends|sent|show|shows|share|shares|take|takes|snap|snaps)\b[^\]]{0,120}\b(?:selfie|photo|pic|picture)\b[^\]]*\]/i;
+// Handing the photo over without naming it, right after the user asked for one: "Here.", "I'm already taking it".
+const ASSISTANT_PHOTO_HANDOVER_RE =
+  /(?:^|[.!?…]\s+|\n\s*)(?:here|there)\s*[.!…]|\b(?:here you go|here it is|there you go|(?:taking|took|snapping|snapped|sending|sent) (?:it|one|this one))\b/i;
+// A selfie that changes what the character is wearing: their usual outfit is then a default, not a rule.
+const SELFIE_OUTFIT_CHANGE_RE =
+  /\b(?:shirtless|topless|nude|naked|nsfw|undress(?:ed|ing)?|unclothed|bare[- ]?chest(?:ed)?|no shirt|without (?:a |his |her |their |the )?(?:shirt|clothes|costume|outfit)|out of (?:his |her |their |the )?(?:clothes|costume|outfit)|underwear|boxers|briefs|lingerie|towel|bath|bathtub|shower|showering|pajamas|pyjamas|sleepwear|bathrobe|robe|stripped|stripping)\b/i;
+// A selfie that asks for the character's hat or hood to be off.
+const SELFIE_HEADWEAR_OFF_RE =
+  /\b(?:no (?:hat|hood|cap)|(?:hat|hood|cap) off|hood down|hatless|bare[- ]?headed|without (?:a |his |her |their |the |your )?(?:hat|hood|cap)|(?:take|took|taking) (?:off )?(?:your |his |her |their |the )?(?:hat|hood|cap)(?: off)?)\b/i;
+// Nudity or sex: image models such as NovelAI keep it suggestive unless the prompt carries the nsfw tag.
+const SELFIE_EXPLICIT_RE = /\b(?:nude|naked|nsfw|explicit|lewd|porn\w*)\b/i;
 const ASSISTANT_SELFIE_DECLINE_RE =
   /\b(?:can't|cannot|can not|won't|will not|unable|not able|do not|don't|rather not|prefer not to)\b[\s\S]{0,120}\b(?:send|show|share|take|attach|post|give|have)?[\s\S]{0,40}\b(?:selfie|photo|pic|picture|image)s?\b|\b(?:selfie|photo|pic|picture|image)s?\b[\s\S]{0,80}\b(?:not available|not possible|can't|cannot|unable|rather not|prefer not)\b/i;
 
@@ -152,6 +179,22 @@ function inferSelfieContextFromResponse(response: string): string | undefined {
   return context || undefined;
 }
 
+/**
+ * Texting first, the photo roll decides: "withhold" drops any [selfie] the model wrote anyway (the frequency and
+ * one-per-burst cap hold), "send" keeps exactly one, adding it when the model left the tag out.
+ */
+function textsFirstPhotoCommands(
+  commands: CharacterCommand[],
+  response: string,
+  decision: "send" | "withhold" | undefined,
+): CharacterCommand[] {
+  if (!decision) return commands;
+  const others = commands.filter((command) => command.type !== "selfie");
+  if (decision === "withhold") return others;
+  const selfie = commands.find((command): command is SelfieCommand => command.type === "selfie");
+  return [...others, selfie ?? { type: "selfie", context: inferSelfieContextFromResponse(response) }];
+}
+
 function recoverImplicitSelfieCommand(args: {
   response: string;
   pendingSelfieIntent: boolean;
@@ -162,9 +205,10 @@ function recoverImplicitSelfieCommand(args: {
   if (args.existingCommands.some((command) => command.type === "selfie")) return null;
   if (!args.pendingSelfieIntent) return null;
   const response = args.response.trim();
-  if (!SELFIE_WORD_RE.test(response)) return null;
   if (ASSISTANT_SELFIE_DECLINE_RE.test(response)) return null;
-  const assistantClaimsSelfie = ASSISTANT_SELFIE_CLAIM_RE.test(response);
+  const assistantClaimsSelfie =
+    (SELFIE_WORD_RE.test(response) && ASSISTANT_SELFIE_CLAIM_RE.test(response)) ||
+    ASSISTANT_PHOTO_HANDOVER_RE.test(response);
   if (!assistantClaimsSelfie) return null;
   return { type: "selfie", context: inferSelfieContextFromResponse(response) };
 }
@@ -742,9 +786,10 @@ async function buildSelfiePrompt(args: {
   llmConnectionId?: string | null;
   chat: JsonRecord;
   commandContext?: string;
+  selfieRequest?: string;
   characterId: string | null;
   imagePromptSettings?: ImagePromptSettings;
-}): Promise<{ prompt: string; negativePrompt: string; characterName: string }> {
+}): Promise<{ prompt: string; negativePrompt: string; characterName: string; character: JsonRecord | null }> {
   const character = args.characterId ? await args.storage.get<JsonRecord>("characters", args.characterId) : null;
   const data = parseData(character ?? undefined);
   const characterName = nameOf(character ?? {}) || readString(data.name, "character") || "character";
@@ -756,7 +801,23 @@ async function buildSelfiePrompt(args: {
       readString(data.description).trim()
     : "";
   const metadata = parseRecord(args.chat.metadata);
-  const positive = readString(metadata.selfiePositivePrompt).trim() || stringArray(metadata.selfieTags).join(", ");
+  const chatPositive = readString(metadata.selfiePositivePrompt).trim() || stringArray(metadata.selfieTags).join(", ");
+  // The character's own look tags go into every selfie, so the details that make them recognizable never get dropped.
+  // Their usual outfit does too, unless this selfie changes what they are wearing.
+  const extensions = parseRecord(data.extensions);
+  const lookTags = readString(extensions.selfieLookTags).trim();
+  const outfitTags = readString(extensions.selfieOutfitTags).trim();
+  // Headwear is the prompt writer's call (on unless the moment calls for it off); avoid tags are this character's negatives.
+  const headwearTags = readString(extensions.selfieHeadwearTags).trim();
+  const avoidTags = readString(extensions.selfieAvoidTags).trim();
+  const request = readString(args.selfieRequest).replace(/\s+/g, " ").trim().slice(0, 400);
+  const asked = [args.commandContext, request].filter(Boolean).join(" ");
+  const outfitChanged = SELFIE_OUTFIT_CHANGE_RE.test(asked);
+  const headwearOff = SELFIE_HEADWEAR_OFF_RE.test(asked);
+  const explicit = SELFIE_EXPLICIT_RE.test(asked);
+  const positive = [explicit ? "nsfw" : "", lookTags, outfitChanged ? "" : outfitTags, chatPositive]
+    .filter(Boolean)
+    .join(", ");
   const template = readString(metadata.selfiePrompt).trim();
   const systemPrompt = await resolveConversationSelfieSystemPrompt({
     storage: args.storage,
@@ -789,7 +850,17 @@ async function buildSelfiePrompt(args: {
               `Character: ${characterName}`,
               appearance ? `Appearance: ${appearance}` : "",
               positive ? `Required image tags: ${positive}` : "",
+              outfitTags && outfitChanged
+                ? `Usual outfit: ${outfitTags}. This selfie changes what they are wearing, so follow the request and the context instead.`
+                : "",
+              headwearTags
+                ? headwearOff
+                  ? `Usual headwear: ${headwearTags}. The request takes it off, so leave it out.`
+                  : `Usual headwear: ${headwearTags}. Include it unless the moment calls for it off (for example bathing, asleep, or hair let down).`
+                : "",
               formatInstruction,
+              "Include the setting, pose and how dressed they are from the request and context.",
+              request ? `What the user asked for: ${request}` : "",
               userPrompt,
             ]
               .filter(Boolean)
@@ -810,6 +881,7 @@ async function buildSelfiePrompt(args: {
         ? "selfie, casual camera angle, expressive face, detailed lighting"
         : "casual camera angle, expressive face, detailed lighting",
       positive,
+      headwearOff ? "" : headwearTags,
     ]
       .filter((part) => readString(part).trim())
       .join(", ");
@@ -817,14 +889,31 @@ async function buildSelfiePrompt(args: {
   const compiled = compileImagePrompt({
     kind: "selfie",
     prompt,
-    negativePrompt: readString(metadata.selfieNegativePrompt).trim(),
+    negativePrompt: [readString(metadata.selfieNegativePrompt).trim(), avoidTags].filter(Boolean).join(", "),
     styleProfileId: args.imagePromptSettings?.styleProfileId,
     styleProfiles: normalizeImageStyleProfileSettings(
       args.imagePromptSettings?.styleProfiles ?? createDefaultImageStyleProfileSettings(),
     ),
     userPositive: positive,
   });
-  return { prompt: compiled.prompt, negativePrompt: compiled.negativePrompt, characterName };
+  return { prompt: compiled.prompt, negativePrompt: compiled.negativePrompt, characterName, character };
+}
+
+/**
+ * The character's full-body sprite when there is one, else their avatar. Same rule as illustrations: a sprite is the
+ * reference picture of the character, while an avatar can be any art (fan art, a crop, another artist's style), and
+ * sending both makes the model blend two different looks.
+ */
+async function selfieReferenceImages(
+  visuals: VisualAssetGateway | undefined,
+  character: JsonRecord,
+  characterName: string,
+): Promise<string[]> {
+  const subject = { ...characterImageReferenceSubject(character, "character"), name: characterName };
+  const reference =
+    (await fullBodySpriteReferenceImage(visuals, subject)) || (await avatarReferenceImage(visuals, subject));
+  // Drops an empty or oversized image.
+  return illustrationReferencesForRequest([{ image: reference, subjectName: characterName }]).referenceImages;
 }
 
 async function generateSelfie(args: {
@@ -837,10 +926,17 @@ async function generateSelfie(args: {
   events: ConnectedCommandEvent[];
   assistantAttachments: JsonRecord[];
   imagePromptSettings?: ImagePromptSettings;
+  /** Sent while texting first, not because the user asked. */
+  unprompted?: boolean;
+  /** Whose selfie it is; defaults to the chat's first character. */
+  characterId?: string | null;
+  visuals?: VisualAssetGateway;
+  /** The user's message asking for this selfie, when they asked. */
+  selfieRequest?: string;
 }): Promise<boolean> {
   const metadata = parseRecord(args.chat.metadata);
   const imageConnectionId = readString(metadata.imageGenConnectionId).trim();
-  const characterId = activeCharacterId(args.chat);
+  const characterId = args.characterId || activeCharacterId(args.chat);
   if (!imageConnectionId) {
     eventsPushSelfieError(args.events, characterId, "No image generation connection configured for this chat.");
     return false;
@@ -851,15 +947,26 @@ async function generateSelfie(args: {
   }
 
   try {
-    const { prompt, negativePrompt, characterName } = await buildSelfiePrompt({
+    const built = await buildSelfiePrompt({
       storage: args.storage,
       llm: args.llm,
       llmConnectionId: args.llmConnectionId,
       chat: args.chat,
       commandContext: args.command.context,
+      selfieRequest: args.selfieRequest,
       characterId,
       imagePromptSettings: args.imagePromptSettings,
     });
+    const { negativePrompt, characterName } = built;
+    const referenceImages =
+      boolish(metadata.selfieUseAvatarReferences, false) && built.character
+        ? await selfieReferenceImages(args.visuals, built.character, characterName)
+        : [];
+    const imageConnection = await args.storage.get<JsonRecord>("connections", imageConnectionId);
+    const prompt =
+      referenceImages.length > 0 && referenceGuidanceSuitsImageConnection(imageConnection)
+        ? appendSelfieReferenceGuidance(built.prompt, characterName)
+        : built.prompt;
     const size = parseSelfieSize(metadata.selfieResolution);
     const image = await args.integrations.image.generate({
       connectionId: imageConnectionId,
@@ -870,6 +977,7 @@ async function generateSelfie(args: {
       negativePrompt: negativePrompt || undefined,
       width: size.width,
       height: size.height,
+      ...(referenceImages.length > 0 ? { referenceImages } : {}),
     });
     const normalizedImage = normalizeGeneratedImageResult(image);
     const imageUrl = normalizedImage.dataUrl;
@@ -888,12 +996,18 @@ async function generateSelfie(args: {
       height: size.height,
     });
     const storedImageUrl = readString(gallery.url).trim() || imageUrl;
+    // The gallery may store the file under a cleaned-up, de-duplicated name; the chat finds the picture by it.
+    const storedFilename = readString(gallery.filename).trim() || filename;
+    const description = args.command.context?.replace(/\s+/g, " ").trim();
     const attachment = {
       type: "image",
       url: storedImageUrl,
-      filename,
+      filename: storedFilename,
       prompt,
       galleryId: readString(gallery.id) || null,
+      // What the character meant to show, so later prompts can say what was sent.
+      ...(description ? { description } : {}),
+      ...(args.unprompted ? { unprompted: true } : {}),
     };
     args.assistantAttachments.push(attachment);
     args.events.push({
@@ -948,6 +1062,57 @@ async function applyCharacterReaction(
   const reactions = withMessageReaction(current, target.reactorId, emoji, nowIso());
   await storage.patchChatMessageExtra(target.messageId, { reactions });
   events.push({ type: "message_reaction", data: { chatId, messageId: target.messageId, reactions } });
+  return true;
+}
+
+const SPOTIFY_NOT_CONNECTED_MESSAGE = "Spotify isn't connected. Open Music Player settings to connect it.";
+
+/**
+ * Whether characters may use `[spotify: …]` in this chat: a Conversation chat with
+ * character commands on, while Spotify is the Music Player source and connected.
+ */
+export async function spotifyCommandAvailable(
+  chat: JsonRecord,
+  integrations: IntegrationGateway | undefined,
+): Promise<boolean> {
+  if (!conversationCommandPromptEnabled(chat)) return false;
+  const spotify = integrations?.music?.spotify;
+  return spotify ? await spotify.isReady() : false;
+}
+
+/** Plays the character's song on repeat, records it in the chat's recent history and makes it the widget's track. */
+async function playSpotifyCommand(
+  storage: StorageGateway,
+  integrations: IntegrationGateway | undefined,
+  chat: JsonRecord,
+  command: Extract<CharacterCommand, { type: "spotify" }>,
+  events: ConnectedCommandEvent[],
+): Promise<boolean> {
+  if (!conversationCommandPromptEnabled(chat)) return false;
+  if (!command.title || !command.artist) {
+    eventsPushCommandError(events, "spotify", "The Spotify command needs both a title and an artist.");
+    return false;
+  }
+  const spotify = integrations?.music?.spotify;
+  if (!spotify || !(await spotify.isReady())) {
+    eventsPushCommandError(events, "spotify", SPOTIFY_NOT_CONNECTED_MESSAGE);
+    return false;
+  }
+  const track = await spotify.findTrack<JsonRecord>({ title: command.title, artist: command.artist });
+  const playback = parseRecord(await spotify.playOnRepeat<JsonRecord>({ track }));
+  const chatId = readString(chat.id);
+  const trackId = readString(track.id).trim();
+  if (chatId && trackId) {
+    const current = await storage.get<JsonRecord>("chats", chatId);
+    const history = readChatMusicRecentTracks(current?.metadata ?? chat.metadata);
+    await storage.patchChatMetadata(chatId, {
+      [MUSIC_RECENT_TRACKS_KEY]: withMusicRecentTrack(history, { provider: "spotify", id: trackId }),
+    });
+  }
+  events.push({
+    type: "music_now_playing",
+    data: { chatId, track, message: readString(playback.message).trim() || null },
+  });
   return true;
 }
 
@@ -1190,8 +1355,7 @@ async function createLorebookEntries(
 }
 
 type LorebookEntryCommand =
-  | NonNullable<CreateLorebookCommand["entries"]>[number]
-  | NonNullable<UpdateLorebookCommand["entries"]>[number];
+  NonNullable<CreateLorebookCommand["entries"]>[number] | NonNullable<UpdateLorebookCommand["entries"]>[number];
 type UpdateLorebookEntry = NonNullable<UpdateLorebookCommand["entries"]>[number];
 
 function normalizeEntryName(name: string): string {
@@ -1431,6 +1595,8 @@ async function executeCommand(
       return (await applyCharacterReaction(storage, chatId, command.emoji, options?.reactionTarget ?? null, events))
         ? { name: "react" }
         : null;
+    case "spotify":
+      return (await playSpotifyCommand(storage, integrations, chat, command, events)) ? { name: "spotify" } : null;
     case "note":
     case "influence": {
       const storageChatId = await connectedNoteStorageChatId(storage, chat);
@@ -1456,26 +1622,6 @@ async function executeCommand(
       }
       return { name: "memory" };
     }
-    case "spotify":
-      if (integrations) {
-        const search = await integrations.spotify.searchTracks<{ tracks?: Array<{ uri?: string }> }>({
-          query: `${command.title} ${command.artist}`,
-          limit: 1,
-        });
-        const track = search.tracks?.find((item) => item.uri);
-        if (!track) {
-          eventsPushCommandError(
-            events,
-            command.type,
-            `Spotify did not find a playable track for "${command.title}" by "${command.artist}".`,
-          );
-          return null;
-        }
-        await integrations.spotify.playTrack({ track });
-        return { name: "spotify" };
-      }
-      eventsPushCommandError(events, command.type, "Spotify integration is not connected.");
-      return null;
     case "create_persona":
       await storage.create("personas", personaPatch(command));
       return { name: "create_persona" };
@@ -1654,6 +1800,10 @@ async function executeCommand(
         events,
         assistantAttachments,
         imagePromptSettings,
+        unprompted: options?.textsFirstPhoto === "send",
+        characterId: options?.textsFirstPhoto === "send" ? options.textsFirstCharacterId : null,
+        visuals,
+        selfieRequest: options?.textsFirstPhoto === "send" ? undefined : options?.selfieRequest,
       }))
         ? { name: "selfie" }
         : null;
@@ -1686,7 +1836,11 @@ export async function persistConnectedCommandTags(
       readString(metadata.imageGenConnectionId).trim().length > 0 && conversationSelfieCommandEnabled(chat),
     existingCommands: parsed.commands,
   });
-  const commands = recoveredSelfie ? [...parsed.commands, recoveredSelfie] : parsed.commands;
+  const commands = textsFirstPhotoCommands(
+    recoveredSelfie ? [...parsed.commands, recoveredSelfie] : parsed.commands,
+    parsed.cleanContent,
+    options?.textsFirstPhoto,
+  );
   const executedCommands: string[] = [];
   const events: ConnectedCommandEvent[] = [...parsed.parseEvents];
   const assistantAttachments: JsonRecord[] = [];

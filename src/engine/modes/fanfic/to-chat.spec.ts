@@ -166,6 +166,41 @@ describe("continuing a fic as a chat", () => {
     expect(chat).toMatchObject({ mode: "conversation", characterIds: ["harl"], personaId: persona.id });
   });
 
+  it("branches off after an earlier chapter: only the chapters up to it, no outline, and no link", async () => {
+    const { storage, chats } = setup();
+    const { llm, requests } = llmReplying(setupReply);
+    const chat = await startChatFromFanfic({ storage, llm }, { ficChatId: "fic", ...roleplay, afterChapter: "1" });
+
+    const [system, user] = requests[0]!.messages;
+    expect(system!.content).toContain("picks up after its chapter 1.");
+    expect(system!.content).toContain("nothing after that chapter has happened");
+    expect(system!.content).toContain("a recap of the fic through chapter 1");
+    expect(user!.content).toContain("## The fic through chapter 1\n");
+    expect(user!.content).toContain("They set the word: bells.");
+    // Neither the later chapter nor the outline that plans it.
+    expect(user!.content).not.toContain("Pierrot walked out at dawn.");
+    expect(user!.content).not.toContain("Pierrot leaves.");
+
+    expect(chat).toMatchObject({ name: "Collection, after chapter 1 (roleplay)" });
+    const metadata = chat.metadata as Record<string, unknown>;
+    expect(metadata.summaryEntries).toEqual([
+      expect.objectContaining({ title: "The story so far: Collection, through chapter 1" }),
+    ]);
+    expect(metadata.fanficOrigin).toEqual({ version: 1, ficChatId: "fic", title: "Collection", afterChapter: "1" });
+    expect(readFanficLinkedChatIds(chats.get("fic")!.metadata)).toEqual([]);
+    expect(readFanficLink(chats.get(String(chat.id))!.metadata)).toBeNull();
+  });
+
+  it("treats the last chapter, named or not, as carrying the fic on, and refuses a chapter that's gone", async () => {
+    const { storage } = setup();
+    const { llm } = llmReplying(setupReply);
+    const chat = await startChatFromFanfic({ storage, llm }, { ficChatId: "fic", ...roleplay, afterChapter: "2" });
+    expect(chat).toMatchObject({ name: "Collection (roleplay)" });
+    await expect(
+      startChatFromFanfic({ storage, llm }, { ficChatId: "fic", ...roleplay, afterChapter: "7" }),
+    ).rejects.toThrow("Chapter 7 isn't in the fic any more.");
+  });
+
   it("asks again when a card is missing, and saves nothing when the setup never comes", async () => {
     const { storage, created } = setup();
     const { llm, requests } = llmReplying({ ...setupReply, cards: [] });

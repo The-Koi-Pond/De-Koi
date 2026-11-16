@@ -10,6 +10,7 @@ import { runGalleryUploadBatch } from "../../../../shared/lib/gallery-upload";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
 import { personaAvatarUrl, type PersonaAvatarSource } from "../lib/persona-avatar-url";
 import { PERSONA_SUMMARY_FIELDS } from "../lib/persona-summary-fields";
+import { isRecord } from "../../../../engine/shared/value-readers";
 
 export { personaKeys } from "../query-keys";
 
@@ -47,10 +48,6 @@ function personaIsActive(persona: PersonaSummary): boolean {
   return (
     persona.isActive === true || persona.isActive === "true" || persona.active === true || persona.active === "true"
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function normalizePersonaAvatarFields<T>(persona: T): T {

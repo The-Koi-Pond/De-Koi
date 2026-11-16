@@ -1,17 +1,16 @@
 import "../../../../styles/globals/06-chat-mode-themes.css";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
+import { BUILT_IN_AGENT_IDS, enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
 import {
   dispatchMusicPlaybackEvent,
   handleMusicAiPickRequest,
   MUSIC_AI_PICK_REQUEST_EVENT,
 } from "../../../../shared/lib/music-playback-events";
 import { useChatStore } from "../../../../shared/stores/chat.store";
-import { useEncounterStore } from "../../../../shared/stores/encounter.store";
+import { useRoleplayEncounterStore } from "../../../../shared/stores/roleplay-encounter.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { spriteApi } from "../../../../shared/api/image-generation-api";
-import { useDeleteChat } from "../../../catalog/chats/index";
 import { spriteKeys, type SpriteInfo } from "../../../catalog/sprites/index";
 import {
   type ExpressionAvatarResolver,
@@ -25,10 +24,11 @@ import {
   useChatTtsAutoplay,
   useSpriteMetadataState,
   isAbandonedChatDraft,
-  isEmptyNewChatSetup,
+  useNewChatDraft,
 } from "../../shared/chat-ui/index";
-import { useEncounter } from "../encounter/hooks/use-encounter";
+import { useRoleplayEncounter } from "../encounter/hooks/use-roleplay-encounter";
 import { useAgentInjectionReview } from "../hooks/use-agent-injection-review";
+import { useRoleplaySceneBackgrounds } from "../hooks/use-roleplay-scene-backgrounds";
 import { useRoleplaySceneSound } from "../hooks/use-roleplay-scene-sound";
 import { useRoleplayTranscriptScroll } from "../hooks/use-roleplay-transcript-scroll";
 import { useScene } from "../hooks/use-scene";
@@ -107,8 +107,6 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   const centerCompact = useUIStore((state) => state.centerCompact);
   const weatherEffects = useUIStore((state) => state.weatherEffects);
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
-  const setActiveChatId = useChatStore((state) => state.setActiveChatId);
-  const deleteChat = useDeleteChat();
   const overlays = useChatOverlays(activeChatId);
   const data = useChatSurfaceData({
     activeChatId,
@@ -133,7 +131,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   }, [data.chatMeta, fallbackChatMode]);
   const agentsUiEnabled = enabledAgentTypes.size > 0;
   const expressionAgentEnabled = enabledAgentTypes.has("expression");
-  const combatAgentEnabled = enabledAgentTypes.has("combat");
+  const encountersEnabled = enabledAgentTypes.has(BUILT_IN_AGENT_IDS.COMBAT);
   const timeline = useChatTimelineActions({
     activeChatId,
     messages: data.messages,
@@ -150,11 +148,9 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   const renderMessages = data.messages ?? cachedMessagesForActiveChat;
   const isRenderingCachedMessages = data.messages === undefined && cachedMessagesForActiveChat !== undefined;
   const spriteState = useSpriteMetadataState({ chat: data.chat, chatMeta: data.chatMeta, messages: renderMessages });
-  const { startEncounter } = useEncounter();
+  const { openSetup: openEncounterSetup } = useRoleplayEncounter();
   const { concludeScene, reopenScene, abandonScene, forkScene, isForking } = useScene();
-  const encounterActive = useEncounterStore(
-    (state) => state.chatId === activeChatId && (state.active || state.showConfigModal),
-  );
+  const encounterShown = useRoleplayEncounterStore((state) => state.encounter?.chatId === activeChatId);
   const { request, drafts, onDraftChange, onContinue, onClose } = useAgentInjectionReview();
 
   const summaryContextSize: number = (data.chatMeta.summaryContextSize as number) ?? 50;
@@ -187,7 +183,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     timeline.multiSelectMode ||
     Boolean(timeline.deleteDialogMessageId) ||
     Boolean(timeline.peekPromptData) ||
-    encounterActive;
+    encounterShown;
   useChatTranscriptShortcuts({
     activeChatId,
     blocked: shortcutsBlocked,
@@ -211,6 +207,16 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     messages: renderMessages,
     isStreaming: timeline.isStreaming,
     sceneText: metadataString(data.chatMeta.sceneDescription, ""),
+  });
+  useRoleplaySceneBackgrounds({
+    enabled: data.chatMode === "roleplay",
+    chatId: activeChatId,
+    chatMeta: data.chatMeta,
+    chatCharacterIds: data.chatCharIds,
+    characterRows: data.allCharacters,
+    messages: renderMessages,
+    isStreaming: timeline.isStreaming,
+    updateMeta,
   });
 
   const musicCharacterProfiles = useMemo(
@@ -387,31 +393,13 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     [activeChatId, forkScene, isForking, timeline.isStreaming],
   );
 
-  const handleFinishNewRoleplaySetup = useCallback(() => {
-    if (
-      isEmptyNewChatSetup({
-        activeChatId,
-        setupChatId: overlays.newChatSetupChatId,
-        chatCharIds: data.chatCharIds,
-        totalMessageCount: data.totalMessageCount,
-        messagesLoaded: data.messages !== undefined,
-      })
-    ) {
-      const cancellingChatId = activeChatId;
-      overlays.setWizardOpen(false);
-      void deleteChat
-        .mutateAsync(cancellingChatId)
-        .then(() => {
-          overlays.clearNewChatSetup();
-          if (useChatStore.getState().activeChatId === cancellingChatId) setActiveChatId(null);
-        })
-        .catch(() => {
-          if (useChatStore.getState().activeChatId === cancellingChatId) overlays.setWizardOpen(true);
-        });
-      return;
-    }
-    overlays.finishWizard();
-  }, [activeChatId, data.chatCharIds, data.messages, data.totalMessageCount, deleteChat, overlays, setActiveChatId]);
+  const newChatDraft = useNewChatDraft({
+    activeChatId,
+    overlays,
+    chatCharIds: data.chatCharIds,
+    totalMessageCount: data.totalMessageCount,
+    messagesLoaded: data.messages !== undefined,
+  });
 
   const cardCssMode = (() => {
     const mode = data.chatMeta.cardCssMode;
@@ -441,8 +429,8 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         expressionAgentEnabled={expressionAgentEnabled}
         expressionAvatarsEnabled={expressionAvatarsEnabled}
         expressionAvatarResolver={expressionAvatarResolver}
-        combatAgentEnabled={combatAgentEnabled}
-        encounterActive={encounterActive}
+        encountersEnabled={encountersEnabled}
+        encounterShown={encounterShown}
         spritePosition={spriteState.spritePosition}
         spriteCharacterIds={spriteOverlayOwnerKeys}
         spriteDisplayModes={spriteState.spriteDisplayModes}
@@ -500,7 +488,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         onRerunSingleTracker={timeline.handleRerunSingleTracker}
         onRetryFailedAgents={timeline.handleRetryFailedAgents}
         onRetryAgent={timeline.handleRetryAgent}
-        onStartEncounter={() => startEncounter()}
+        onOpenEncounterSetup={() => openEncounterSetup(activeChatId)}
         onConcludeScene={() => concludeScene(activeChatId, data.chat?.connectionId ?? null)}
         onReopenScene={() => reopenScene(activeChatId)}
         onAbandonScene={() => abandonScene(activeChatId)}
@@ -513,7 +501,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         onCloseFiles={overlays.closeFiles}
         onCloseGallery={overlays.closeGallery}
         onIllustrate={timeline.handleIllustrate}
-        onWizardFinish={handleFinishNewRoleplaySetup}
+        onWizardFinish={newChatDraft.finish}
         onResumeSetup={
           isAbandonedChatDraft({
             activeChatId,
@@ -526,7 +514,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
             ? overlays.resumeSetup
             : undefined
         }
-        onWizardCancel={overlays.finishWizard}
+        onWizardCancel={newChatDraft.cancel}
         onClosePeekPrompt={timeline.closePeekPrompt}
         onResetSpritePlacements={spriteState.handleResetSpritePlacements}
         onSpriteSideChange={spriteState.handleSetSpritePosition}

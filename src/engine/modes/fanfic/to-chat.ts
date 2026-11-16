@@ -1,10 +1,11 @@
 // ──────────────────────────────────────────────
 // Continuing a fic as a roleplay or a chat
 // ──────────────────────────────────────────────
-// The fic's model reads the fic and sets up a new roleplay or texting chat that picks up after its last chapter: the
-// story so far goes in as the chat's summary (shown and editable in the chat's summaries), characters with no card get
-// one written from the fic, the requester plays their own persona or one of the fic's characters, and the chat opens
-// on a first message. The fic itself is left as it is.
+// The fic's model reads the fic and sets up a new roleplay or texting chat that picks up after its last chapter, or
+// after any earlier one: the story so far goes in as the chat's summary (shown and editable in the chat's summaries),
+// characters with no card get one written from the fic, the requester plays their own persona or one of the fic's
+// characters, and the chat opens on a first message. A chat that picks up after the last chapter is linked to the fic;
+// one that branches off earlier is not, since the fic's later chapters aren't its story. The fic is left as it is.
 import type { LlmGateway, LlmMessage } from "../../capabilities/llm";
 import type { StorageGateway } from "../../capabilities/storage";
 import type { FanficState } from "../../contracts/types/fanfic";
@@ -45,6 +46,8 @@ export interface StartChatFromFanficInput {
   /** The characters the AI plays, by name: one for a texting chat. */
   cast: string[];
   playAs: FanficPlayAs;
+  /** The chapter it picks up after, by label ("3", "2.5"); the last chapter when absent. */
+  afterChapter?: string | null;
 }
 
 /** Where a chat made from a fic came from (`metadata.fanficOrigin`). */
@@ -52,6 +55,8 @@ interface FanficOrigin {
   version: 1;
   ficChatId: string;
   title: string;
+  /** Set when it branches off before the last chapter. */
+  afterChapter?: string;
 }
 
 const REPLY_MAX_TOKENS = 8000;
@@ -133,6 +138,8 @@ function validate(input: StartChatFromFanficInput): void {
 function buildMessages(args: {
   state: FanficState;
   title: string;
+  /** The chapter it picks up after, when that isn't the last one. */
+  branchAfter: string | null;
   story: string;
   ledger: string;
   mode: FanficChatMode;
@@ -140,35 +147,42 @@ function buildMessages(args: {
   newCards: string[];
   user: { name: string; description: string; fromFic: boolean; needsPersona: boolean };
 }): LlmMessage[] {
-  const { state, mode, cast, newCards, user } = args;
+  const { state, mode, cast, newCards, user, branchAfter } = args;
   const castList = cast.join(", ");
+  const after = branchAfter ? `chapter ${branchAfter}` : "the last chapter";
   const rules = [
-    `You are turning the fanfic "${args.title}" into a ${mode === "roleplay" ? "roleplay" : "texting chat"} that picks up after its last chapter. The requester who asked for the fic will play ${user.name}; the AI will play ${castList}.`,
+    `You are turning the fanfic "${args.title}" into a ${mode === "roleplay" ? "roleplay" : "texting chat"} that picks up after ${branchAfter ? `its chapter ${branchAfter}` : "its last chapter"}. The requester who asked for the fic will play ${user.name}; the AI will play ${castList}.`,
+    ...(branchAfter
+      ? [
+          `The fic is given through chapter ${branchAfter} only. The chat branches off there and goes its own way: nothing after that chapter has happened.`,
+        ]
+      : []),
     user.fromFic
       ? `${user.name} is a character in the fic.`
       : `${user.name} is the requester's own character and isn't in the fic${user.description ? `: ${user.description}` : ""}. Fit them in naturally: the first message sets up how ${castList} ${cast.length === 1 ? "knows or meets" : "know or meet"} them. Keep the fic's events as they were.`,
     "",
     "Reply with one JSON object and nothing else:",
     "{",
-    `  "storySoFar": a recap of the fic through its last chapter, for the chat's memory: what happened, in order, in plain past-tense sentences; then where everyone is now, what each of them knows, their promises and the open threads. Facts only, no prose style, at most ${RECAP_MAX_CHARS - 1000} characters,`,
+    `  "storySoFar": a recap of the fic through ${after}, for the chat's memory: what happened, in order, in plain past-tense sentences; then where everyone is now, what each of them knows, their promises and the open threads. Facts only, no prose style, at most ${RECAP_MAX_CHARS - 1000} characters,`,
     newCards.length > 0
       ? `  "cards": a character card for each of ${newCards.join(", ")}, who have no card yet: [{ "name", "description": who they are, how they look, their history in the fic, what they want and how they talk (use the voice sheets), "personality": a short line of traits }],`
       : '  "cards": [],',
     user.needsPersona
-      ? `  "persona": the requester's persona for ${user.name}: { "name", "description": who ${user.name} is as of the end of the fic, in the third person },`
+      ? `  "persona": the requester's persona for ${user.name}: { "name", "description": who ${user.name} is as of ${after}, in the third person },`
       : '  "persona": null,',
     mode === "roleplay"
-      ? `  "opening": the roleplay's first message, written for ${castList}: a scene that picks up right after the last chapter, or a little later, in the fic's tone. Third-person narration with dialogue, like a roleplay reply, two to five paragraphs. Give ${user.name} something to react to, and never write ${user.name}'s actions, words or thoughts.`
-      : `  "opening": ${cast[0]}'s first text to ${user.name}, sent some time after the last chapter: one to three short texts separated by blank lines, in ${cast[0]}'s own voice, the way they would type on a phone. No narration.`,
+      ? `  "opening": the roleplay's first message, written for ${castList}: a scene that picks up right after ${after}, or a little later, in the fic's tone. Third-person narration with dialogue, like a roleplay reply, two to five paragraphs. Give ${user.name} something to react to, and never write ${user.name}'s actions, words or thoughts.`
+      : `  "opening": ${cast[0]}'s first text to ${user.name}, sent some time after ${after}: one to three short texts separated by blank lines, in ${cast[0]}'s own voice, the way they would type on a phone. No narration.`,
     "}",
   ].join("\n");
   const sections = [
     `## Content rules\n${fanficContentRules(state.request)}`,
     `## The request\n${renderFanficRequestForPrompt(state.request)}`,
-    state.outline ? `## The outline\n${renderFanficOutline(state.outline)}` : "",
+    // The outline plans chapters a branch never reaches.
+    state.outline && !branchAfter ? `## The outline\n${renderFanficOutline(state.outline)}` : "",
     args.ledger,
     renderFanficVoiceSheets(state.voices),
-    `## The fic so far\n${args.story}`,
+    `## The fic ${branchAfter ? `through chapter ${branchAfter}` : "so far"}\n${args.story}`,
   ].filter((section) => section.trim());
   return [
     { role: "system", content: rules },
@@ -243,8 +257,13 @@ export async function startChatFromFanfic(
   const layout = fanficChapterLayout(
     (await deps.storage.listChatMessages<JsonRecord>(input.ficChatId)).filter(isRecord),
   );
-  const story = fanficCanonLine(layout);
-  if (story.length === 0) throw userFacingError("Write a chapter first: the chat picks up after the last one.");
+  const line = fanficCanonLine(layout);
+  if (line.length === 0) throw userFacingError("Write a chapter first: the chat picks up after the last one.");
+  const wanted = input.afterChapter?.trim();
+  const cut = wanted ? line.findIndex((chapter) => chapter.label === wanted) : line.length - 1;
+  if (cut < 0) throw userFacingError(`Chapter ${wanted} isn't in the fic any more. Pick another chapter.`);
+  const story = line.slice(0, cut + 1);
+  const branchAfter = cut < line.length - 1 ? story.at(-1)!.label : null;
 
   const connectionId = readString(fic.connectionId).trim();
   if (!connectionId) throw userFacingError(FANFIC_NO_CONNECTION);
@@ -266,7 +285,7 @@ export async function startChatFromFanfic(
   };
   const title = state.outline?.title.trim() || readString(fic.name).trim() || "Untitled";
   const ledger = renderFanficLedgerForPrompt(readFanficLedger(fic.metadata), story);
-  const frame = { state, title, ledger, mode: input.mode, cast, newCards, user };
+  const frame = { state, title, branchAfter, ledger, mode: input.mode, cast, newCards, user };
   const budget = fanficCallBudget(effectiveMaxContext(connection, {}), {
     maxReplyTokens: REPLY_MAX_TOKENS,
     fixedChars: fanficMessageChars(buildMessages({ ...frame, story: "" })),
@@ -309,12 +328,20 @@ export async function startChatFromFanfic(
 
   const summary = appendChatSummaryEntryToMetadata(
     {},
-    { title: `The story so far: ${title}`, content: setup.storySoFar },
+    {
+      title: `The story so far: ${title}${branchAfter ? `, through chapter ${branchAfter}` : ""}`,
+      content: setup.storySoFar,
+    },
   );
-  const origin: FanficOrigin = { version: 1, ficChatId: input.ficChatId, title };
+  const origin: FanficOrigin = {
+    version: 1,
+    ficChatId: input.ficChatId,
+    title,
+    ...(branchAfter ? { afterChapter: branchAfter } : {}),
+  };
   const lorebooks = parseRecord(fic.metadata).activeLorebookIds;
   const chat = await deps.storage.create<JsonRecord>("chats", {
-    name: `${title} (${input.mode === "roleplay" ? "roleplay" : "chat"})`,
+    name: `${title}${branchAfter ? `, after chapter ${branchAfter}` : ""} (${input.mode === "roleplay" ? "roleplay" : "chat"})`,
     mode: input.mode,
     characterIds: castIds,
     groupId: null,
@@ -340,7 +367,7 @@ export async function startChatFromFanfic(
     extra: {},
     swipes: [{ content: setup.opening }],
   });
-  // Linked both ways, so each knows what happens in the other from here on.
-  await linkFanficChat(deps.storage, { ficChatId: input.ficChatId, chatId });
+  // Linked both ways, so each knows what happens in the other from here on. A branch goes its own way, unlinked.
+  if (!branchAfter) await linkFanficChat(deps.storage, { ficChatId: input.ficChatId, chatId });
   return chat;
 }

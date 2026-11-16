@@ -3,7 +3,6 @@
 // Click an agent → opens this editor
 // ──────────────────────────────────────────────
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
@@ -11,7 +10,6 @@ import { saveTextFileToUserSelectedLocation } from "../../../../shared/api/file-
 import {
   agentEnabledFlag,
   agentCreditLabel,
-  agentKeys,
   useAgentConfigs,
   useUpdateAgent,
   useCreateAgent,
@@ -42,10 +40,8 @@ import {
   ToggleRight,
   Trash2,
   Layers,
-  Music,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
   BookOpen,
   Upload,
   Loader2,
@@ -67,7 +63,6 @@ import {
   SaveErrorBanner,
   UnsavedChangesBar,
 } from "../../../../shared/components/ui/ExplicitSaveChrome";
-import { spotifyApi } from "../../../../shared/api/integration-utility-api";
 import {
   DEFAULT_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH,
   MAX_CUSTOM_AGENT_ACTIVATION_SCAN_DEPTH,
@@ -101,40 +96,10 @@ import {
 import { agentExportFilename, buildAgentExportEnvelope, createCustomAgentType } from "../lib/agent-import-export";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 
-const SPOTIFY_NATIVE_REDIRECT_URI = "http://127.0.0.1:8754/spotify/callback";
-const SPOTIFY_OAUTH_SETTING_KEYS = [
-  "spotifyAccessToken",
-  "spotifyAccessTokenEncrypted",
-  "spotifyRefreshToken",
-  "spotifyRefreshTokenEncrypted",
-  "spotifyExpiresAt",
-  "spotifyScope",
-] as const;
 const GENERIC_AGENT_TOOL_PICKER_HIDDEN_NAMES = new Set([LOREBOOK_WRITE_TOOL_NAME]);
 const VISIBLE_BUILT_IN_AGENT_TOOLS = BUILT_IN_TOOLS.filter(
   (tool) => !GENERIC_AGENT_TOOL_PICKER_HIDDEN_NAMES.has(tool.name),
 );
-
-// Fallback before status loads; Rust may return an env-configured redirect URI.
-function getDisplayedSpotifyRedirectUri(): string {
-  return SPOTIFY_NATIVE_REDIRECT_URI;
-}
-
-function spotifyOauthSettings(settings: Record<string, unknown>): Record<string, unknown> {
-  const fields: Record<string, unknown> = {};
-  for (const key of SPOTIFY_OAUTH_SETTING_KEYS) {
-    if (settings[key] !== undefined) fields[key] = settings[key];
-  }
-  return fields;
-}
-
-function stripSpotifyOauthSettings(settings: Record<string, unknown>): Record<string, unknown> {
-  const next = { ...settings };
-  for (const key of SPOTIFY_OAUTH_SETTING_KEYS) {
-    delete next[key];
-  }
-  return next;
-}
 
 // ═══════════════════════════════════════════════
 //  Phase metadata
@@ -217,7 +182,6 @@ export function AgentEditor() {
   const { data: customToolCapabilities } = useCustomToolCapabilities();
   const updateAgent = useUpdateAgent();
   const createAgent = useCreateAgent();
-  const qc = useQueryClient();
   const deleteAgent = useDeleteAgent();
 
   // Find built-in meta (null for custom agents)
@@ -265,7 +229,6 @@ export function AgentEditor() {
   const [localEnabledTools, setLocalEnabledTools] = useState<string[]>([]);
   const [localLorebookWriteEnabled, setLocalLorebookWriteEnabled] = useState(false);
   const [localWritableLorebookId, setLocalWritableLorebookId] = useState("");
-  const [localSpotifyClientId, setLocalSpotifyClientId] = useState("");
   const [localSourceLorebookIds, setLocalSourceLorebookIds] = useState<string[]>([]);
   const [localUseChatActiveLorebooks, setLocalUseChatActiveLorebooks] = useState(true);
   const [localSourceFileIds, setLocalSourceFileIds] = useState<string[]>([]);
@@ -274,19 +237,6 @@ export function AgentEditor() {
   const [localAvatarReferenceMode, setLocalAvatarReferenceMode] = useState<IllustratorAvatarReferenceMode>("inherit");
   const [localImagePositivePrompt, setLocalImagePositivePrompt] = useState("");
   const [localImageNegativePrompt, setLocalImageNegativePrompt] = useState("");
-  const [spotifyStatus, setSpotifyStatus] = useState<{
-    connected: boolean;
-    expired: boolean;
-    redirectUri: string | null;
-  } | null>(null);
-  const [spotifyConnecting, setSpotifyConnecting] = useState(false);
-  const [spotifyConnectError, setSpotifyConnectError] = useState<string | null>(null);
-  const [spotifyPasteOpen, setSpotifyPasteOpen] = useState(false);
-  const [spotifyPasteValue, setSpotifyPasteValue] = useState("");
-  const [spotifyPasteError, setSpotifyPasteError] = useState<string | null>(null);
-  const [spotifyPasteSubmitting, setSpotifyPasteSubmitting] = useState(false);
-  const spotifyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const spotifyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dirty, setDirty] = useState(false);
   const setEditorDirty = useUIStore((s) => s.setEditorDirty);
   useEffect(() => {
@@ -329,7 +279,6 @@ export function AgentEditor() {
       setLocalEnabledTools(writerState.enabledTools);
       setLocalLorebookWriteEnabled(writerState.lorebookWriteEnabled);
       setLocalWritableLorebookId(writerState.writableLorebookId);
-      setLocalSpotifyClientId(settings.spotifyClientId ?? "");
       setLocalSourceLorebookIds(settings.sourceLorebookIds ?? []);
       setLocalUseChatActiveLorebooks(
         readBooleanSetting(settings.useChatActiveLorebooks, defaultSettings.useChatActiveLorebooks === true),
@@ -361,7 +310,6 @@ export function AgentEditor() {
       setLocalEnabledTools(DEFAULT_AGENT_TOOLS[builtIn.id] ?? []);
       setLocalLorebookWriteEnabled(false);
       setLocalWritableLorebookId("");
-      setLocalSpotifyClientId("");
       setLocalSourceLorebookIds([]);
       setLocalUseChatActiveLorebooks(defaultSettings.useChatActiveLorebooks === true);
       setLocalSourceFileIds([]);
@@ -392,7 +340,6 @@ export function AgentEditor() {
       setLocalEnabledTools([]);
       setLocalLorebookWriteEnabled(false);
       setLocalWritableLorebookId("");
-      setLocalSpotifyClientId("");
       setLocalSourceLorebookIds([]);
       setLocalUseChatActiveLorebooks(false);
       setLocalSourceFileIds([]);
@@ -409,9 +356,6 @@ export function AgentEditor() {
     setDirty(false);
     setSaveError(null);
   }, [agentDetailId, dbConfig, builtIn, connections, customRunIntervalMeta?.defaultValue]);
-
-  // Fetch Spotify connection status when viewing a Spotify agent
-  const isSpotifyAgent = agentDetailId === "spotify" || dbConfig?.type === "spotify";
 
   // Lorebook Keeper agent — run interval setting
   const isLorebookKeeperAgent = agentDetailId === "lorebook-keeper" || dbConfig?.type === "lorebook-keeper";
@@ -465,45 +409,12 @@ export function AgentEditor() {
   const uploadSource = useUploadKnowledgeSource();
   const deleteSource = useDeleteKnowledgeSource();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (!isSpotifyAgent || !dbConfig?.id) {
-      setSpotifyStatus(null);
-      return;
-    }
-    let cancelled = false;
-    spotifyApi
-      .status(dbConfig.id)
-      .then((data) => {
-        if (!cancelled)
-          setSpotifyStatus({
-            connected: data.connected,
-            expired: data.expired ?? false,
-            redirectUri: data.redirectUri ?? null,
-          });
-      })
-      .catch(() => {
-        if (!cancelled) setSpotifyStatus(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isSpotifyAgent, dbConfig?.id]);
-
-  // Clean up Spotify polling timers on unmount
-  useEffect(() => {
-    return () => {
-      if (spotifyPollRef.current) clearInterval(spotifyPollRef.current);
-      if (spotifyTimeoutRef.current) clearTimeout(spotifyTimeoutRef.current);
-    };
-  }, []);
-
   // Whether the prompt textarea shows the default or a custom override
   const isUsingDefaultPrompt = !localPrompt.trim();
 
   const allConnections =
     (connections as
-      | Array<{ id: string; name: string; provider: string; defaultForAgents?: boolean | string }>
-      | undefined) ?? [];
+      Array<{ id: string; name: string; provider: string; defaultForAgents?: boolean | string }> | undefined) ?? [];
 
   const llmConnections = allConnections.filter((conn) => conn.provider !== "image_generation");
   const imageConnections = allConnections.filter((conn) => conn.provider === "image_generation");
@@ -567,16 +478,6 @@ export function AgentEditor() {
       return false;
     }
 
-    // Preserve OAuth fields the form doesn't expose. The native update replaces
-    // `settings` wholesale, so anything we omit here would be wiped — and the
-    // Spotify tokens live in settings rather than their own column.
-    const currentSettings: Record<string, unknown> = dbConfig?.settings
-      ? typeof dbConfig.settings === "string"
-        ? JSON.parse(dbConfig.settings as string)
-        : (dbConfig.settings as Record<string, unknown>)
-      : {};
-    const preservedSpotifyFields = spotifyOauthSettings(currentSettings);
-
     const payload = {
       name: localName,
       description: localDescription,
@@ -586,7 +487,6 @@ export function AgentEditor() {
       connectionId: localConnectionId || null,
       promptTemplate: localPrompt,
       settings: {
-        ...preservedSpotifyFields,
         ...(isEditingCustomAgent ? { resultType: localResultType } : {}),
         ...(activationKeywords.length > 0
           ? {
@@ -602,7 +502,6 @@ export function AgentEditor() {
         ...(localInjectAsSection ? { injectAsSection: true } : {}),
         enabledTools: writerSaveState.enabledTools,
         ...writerSaveState.writerSettings,
-        ...(localSpotifyClientId ? { spotifyClientId: localSpotifyClientId } : {}),
         ...(isKnowledgeRetrievalAgent || isKnowledgeRouterAgent
           ? { useChatActiveLorebooks: localUseChatActiveLorebooks }
           : {}),
@@ -667,7 +566,6 @@ export function AgentEditor() {
     localEnabledTools,
     localLorebookWriteEnabled,
     localWritableLorebookId,
-    localSpotifyClientId,
     localSourceLorebookIds,
     localSourceFileIds,
     localAutoGenerateAvatars,
@@ -1655,288 +1553,6 @@ export function AgentEditor() {
               </div>
             </button>
           </FieldGroup>
-
-          {/* ── Spotify Settings (only shown for Spotify agent) ── */}
-          {(agentDetailId === "spotify" || dbConfig?.type === "spotify") && (
-            <FieldGroup
-              label="Spotify Connection"
-              icon={<Music size="0.875rem" className="text-green-400" />}
-              help="Connect your Spotify account to let this agent control playback."
-            >
-              <div className="space-y-3">
-                {/* Client ID input */}
-                <div>
-                  <label className="block text-[0.6875rem] font-medium text-white/60 mb-1">Spotify Client ID</label>
-                  <input
-                    type="text"
-                    value={localSpotifyClientId}
-                    onChange={(e) => {
-                      setLocalSpotifyClientId(e.target.value);
-                      setDirty(true);
-                    }}
-                    placeholder="Paste your Spotify app Client ID..."
-                    className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/30 outline-none focus:border-green-500/50 focus:ring-1 focus:ring-green-500/20 font-mono"
-                  />
-                </div>
-
-                {/* Connection status & buttons */}
-                {spotifyStatus?.connected ? (
-                  <div className="flex items-center gap-3">
-                    <span className="flex items-center gap-1.5 rounded-lg bg-green-500/10 px-3 py-2 text-xs font-medium text-green-400">
-                      <Check size="0.75rem" />
-                      {spotifyStatus.expired ? "Connected (token expired — will auto-refresh)" : "Connected to Spotify"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!dbConfig?.id) return;
-                        await spotifyApi.disconnect(dbConfig.id);
-                        setSpotifyStatus({
-                          connected: false,
-                          expired: false,
-                          redirectUri: spotifyStatus?.redirectUri ?? null,
-                        });
-                        // Strip tokens from the cached agent row synchronously
-                        // so a Save click racing with the pending refetch can't
-                        // resurrect them via handleSave's preservation path.
-                        qc.setQueryData<AgentConfigRow[] | undefined>(agentKeys.all, (rows) =>
-                          rows?.map((row) => {
-                            if (row.id !== dbConfig.id) return row;
-                            const parsed: Record<string, unknown> =
-                              typeof row.settings === "string"
-                                ? JSON.parse(row.settings)
-                                : ((row.settings as unknown as Record<string, unknown>) ?? {});
-                            const rest = stripSpotifyOauthSettings(parsed);
-                            return { ...row, settings: JSON.stringify(rest) };
-                          }),
-                        );
-                        await qc.invalidateQueries({ queryKey: agentKeys.all });
-                        await qc.invalidateQueries({ queryKey: ["spotify"] });
-                      }}
-                      className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/50 transition-colors hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20"
-                    >
-                      Disconnect
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={!localSpotifyClientId.trim() || !dbConfig?.id || spotifyConnecting}
-                    onClick={async () => {
-                      if (!localSpotifyClientId.trim() || !dbConfig?.id) return;
-                      setSpotifyConnecting(true);
-                      setSpotifyConnectError(null);
-                      try {
-                        // Save clientId first if dirty
-                        if (dirty) {
-                          await updateAgent.mutateAsync({
-                            id: dbConfig.id,
-                            settings: {
-                              ...(dbConfig.settings
-                                ? typeof dbConfig.settings === "string"
-                                  ? JSON.parse(dbConfig.settings as string)
-                                  : dbConfig.settings
-                                : {}),
-                              spotifyClientId: localSpotifyClientId,
-                            },
-                          });
-                        }
-                        const data = await spotifyApi.authorize({
-                          clientId: localSpotifyClientId,
-                          agentId: dbConfig.id,
-                        });
-                        if (!data.authUrl) {
-                          throw new Error(data.error ?? "Authorize request did not return an auth URL");
-                        }
-                        // Clear any existing poll before starting a new one
-                        if (spotifyPollRef.current) clearInterval(spotifyPollRef.current);
-                        if (spotifyTimeoutRef.current) clearTimeout(spotifyTimeoutRef.current);
-                        // Poll for connection status
-                        spotifyPollRef.current = setInterval(async () => {
-                          try {
-                            const status = await spotifyApi.status(dbConfig.id);
-                            if (status.connected) {
-                              clearInterval(spotifyPollRef.current!);
-                              spotifyPollRef.current = null;
-                              if (spotifyTimeoutRef.current) {
-                                clearTimeout(spotifyTimeoutRef.current);
-                                spotifyTimeoutRef.current = null;
-                              }
-                              // Refetch so cached settings include the new tokens
-                              // before any later save, and refresh Spotify surfaces
-                              // that may have cached a disconnected response.
-                              await qc.invalidateQueries({ queryKey: agentKeys.all });
-                              await qc.invalidateQueries({ queryKey: ["spotify"] });
-                              setSpotifyStatus({
-                                connected: true,
-                                expired: false,
-                                redirectUri: status.redirectUri ?? null,
-                              });
-                              setSpotifyConnecting(false);
-                              setSpotifyPasteOpen(false);
-                              setSpotifyPasteValue("");
-                              setSpotifyPasteError(null);
-                            }
-                          } catch {
-                            // keep polling
-                          }
-                        }, 2000);
-                        // Stop polling after the native pending-auth TTL.
-                        spotifyTimeoutRef.current = setTimeout(() => {
-                          if (spotifyPollRef.current) {
-                            clearInterval(spotifyPollRef.current);
-                            spotifyPollRef.current = null;
-                          }
-                          spotifyTimeoutRef.current = null;
-                          setSpotifyConnecting(false);
-                        }, 10 * 60_000);
-                      } catch (err) {
-                        setSpotifyConnectError(err instanceof Error ? err.message : "Failed to start Spotify auth");
-                        setSpotifyConnecting(false);
-                      }
-                    }}
-                    className={cn(
-                      "flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs font-medium transition-all",
-                      localSpotifyClientId.trim() && dbConfig?.id
-                        ? "bg-[#1DB954] text-white hover:bg-[#1ed760] active:scale-95"
-                        : "bg-white/5 text-white/30 cursor-not-allowed",
-                    )}
-                  >
-                    <Music size="0.875rem" />
-                    {spotifyConnecting ? "Waiting for authorization..." : "Connect Spotify Account"}
-                  </button>
-                )}
-
-                {spotifyConnectError && !spotifyStatus?.connected && (
-                  <p className="text-[0.6875rem] text-red-400/80">{spotifyConnectError}</p>
-                )}
-
-                {/* Paste-back fallback for installs where the browser can't reach the loopback callback. */}
-                {spotifyConnecting && !spotifyStatus?.connected && dbConfig?.id && (
-                  <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 text-[0.6875rem] text-white/50 space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => setSpotifyPasteOpen((v) => !v)}
-                      className="text-white/60 hover:text-white/80 transition-colors text-left w-full"
-                    >
-                      {spotifyPasteOpen ? "▾" : "▸"} Browser couldn&apos;t reach the callback?
-                    </button>
-                    {spotifyPasteOpen && (
-                      <div className="space-y-2 pt-1">
-                        <p className="text-white/40 leading-relaxed">
-                          If you&apos;re running De-Koi on a different machine, the popup probably failed to load
-                          (Spotify only allows <code className="text-white/50">127.0.0.1</code> or HTTPS callbacks).
-                          Copy the full URL from the popup&apos;s address bar and paste it here:
-                        </p>
-                        <textarea
-                          value={spotifyPasteValue}
-                          onChange={(e) => {
-                            setSpotifyPasteValue(e.target.value);
-                            setSpotifyPasteError(null);
-                          }}
-                          rows={3}
-                          placeholder="http://127.0.0.1:8754/spotify/callback?code=...&state=..."
-                          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[0.6875rem] text-white placeholder-white/20 outline-none focus:border-green-500/50 focus:ring-1 focus:ring-green-500/20 font-mono"
-                        />
-                        {spotifyPasteError && <p className="text-red-400/80 text-[0.625rem]">{spotifyPasteError}</p>}
-                        <button
-                          type="button"
-                          disabled={!spotifyPasteValue.trim() || spotifyPasteSubmitting}
-                          onClick={async () => {
-                            if (!dbConfig?.id || !spotifyPasteValue.trim()) return;
-                            setSpotifyPasteSubmitting(true);
-                            setSpotifyPasteError(null);
-                            try {
-                              const data = await spotifyApi.exchange(spotifyPasteValue.trim());
-                              if (!data.success) {
-                                setSpotifyPasteError(data.error ?? "Spotify exchange did not complete");
-                              } else {
-                                if (spotifyPollRef.current) {
-                                  clearInterval(spotifyPollRef.current);
-                                  spotifyPollRef.current = null;
-                                }
-                                if (spotifyTimeoutRef.current) {
-                                  clearTimeout(spotifyTimeoutRef.current);
-                                  spotifyTimeoutRef.current = null;
-                                }
-                                const status = await spotifyApi.status(dbConfig.id).catch(() => null);
-                                // Refetch so cached settings include the new
-                                // tokens before any later save, and refresh
-                                // Spotify surfaces immediately.
-                                await qc.invalidateQueries({ queryKey: agentKeys.all });
-                                await qc.invalidateQueries({ queryKey: ["spotify"] });
-                                setSpotifyStatus({
-                                  connected: status?.connected ?? true,
-                                  expired: status?.expired ?? false,
-                                  redirectUri: status?.redirectUri ?? null,
-                                });
-                                setSpotifyConnecting(false);
-                                setSpotifyPasteOpen(false);
-                                setSpotifyPasteValue("");
-                              }
-                            } catch (err) {
-                              setSpotifyPasteError(err instanceof Error ? err.message : "Submission failed");
-                            } finally {
-                              setSpotifyPasteSubmitting(false);
-                            }
-                          }}
-                          className={cn(
-                            "rounded-lg px-3 py-1.5 text-[0.6875rem] font-medium transition-all",
-                            spotifyPasteValue.trim() && !spotifyPasteSubmitting
-                              ? "bg-[#1DB954] text-white hover:bg-[#1ed760] active:scale-95"
-                              : "bg-white/5 text-white/30 cursor-not-allowed",
-                          )}
-                        >
-                          {spotifyPasteSubmitting ? "Submitting..." : "Complete connection"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Setup instructions */}
-                <div className="rounded-lg border border-green-500/10 bg-green-500/5 p-3 text-[0.6875rem] text-white/50 space-y-2">
-                  <p className="font-medium text-green-400/80">Setup:</p>
-                  <ol className="list-decimal list-inside space-y-1 text-white/40">
-                    <li>
-                      Go to the{" "}
-                      <a
-                        href="https://developer.spotify.com/dashboard"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-green-400 hover:underline inline-flex items-center gap-0.5"
-                      >
-                        Spotify Developer Dashboard <ExternalLink size="0.5625rem" />
-                      </a>
-                    </li>
-                    <li>Create a new app — select &quot;Web API&quot;</li>
-                    <li>
-                      In Redirect URIs, add:{" "}
-                      <code className="text-white/50 select-all">
-                        {spotifyStatus?.redirectUri ?? getDisplayedSpotifyRedirectUri()}
-                      </code>
-                    </li>
-                    <li>
-                      Copy the <strong>Client ID</strong> and paste it above
-                    </li>
-                    <li>
-                      Save the agent, then click <strong>Connect Spotify Account</strong>
-                    </li>
-                  </ol>
-                  <p className="text-[0.625rem] text-white/30 mt-1">
-                    Requires Spotify Premium. Tokens refresh automatically — no need to reconnect.
-                  </p>
-                  <p className="text-[0.625rem] text-white/30 leading-relaxed">
-                    Spotify only accepts <code className="text-white/40">https://</code> redirect URIs or loopback (
-                    <code className="text-white/40">http://127.0.0.1</code>). If you&apos;re running De-Koi on another
-                    machine over plain HTTP, register the loopback URI anyway and use the paste-back fallback that
-                    appears under the Connect button. For HTTPS runtime hosts, set{" "}
-                    <code className="text-white/40">SPOTIFY_REDIRECT_URI</code> to your HTTPS URL.
-                  </p>
-                </div>
-              </div>
-            </FieldGroup>
-          )}
 
           {/* ── Knowledge Source Lorebooks (Knowledge Retrieval + Knowledge Router) ── */}
           {(isKnowledgeRetrievalAgent || isKnowledgeRouterAgent) && (

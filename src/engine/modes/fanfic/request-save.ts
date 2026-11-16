@@ -12,7 +12,7 @@ export interface SaveFanficRequestInput {
   lorebookIds?: string[];
 }
 
-export class FanficRequestSaveError extends Error {
+class FanficRequestSaveError extends Error {
   readonly cause: unknown;
 
   constructor(cause: unknown, rollbackFailed: boolean) {

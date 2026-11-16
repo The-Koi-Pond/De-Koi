@@ -4,7 +4,7 @@ import { useHelperRuns } from "../hooks/use-helper-runs";
 
 const WHEN = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-/** "Ran (outline) on Cheap • small-model: your Helper Models pick for Fanfic planning." with the time it ran. */
+/** "Last outline used Cheap • small-model, your Helper Models pick for Fanfic planning." with the time it ran. */
 export function HelperRunText({ run, className }: { run: HelperRun; className?: string }) {
   return (
     <p
