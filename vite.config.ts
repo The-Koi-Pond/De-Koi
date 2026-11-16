@@ -42,6 +42,10 @@ const roleplaySharedLucideIcons = new Set([
   "zap",
 ]);
 
+// The Tauri window module (and the helpers only it uses) loads on first use from
+// window-controls-api.ts; grouped into vendor-tauri it would be back in the home load.
+const lazyTauriApiModulePattern = /\/node_modules\/@tauri-apps\/api\/(?:window|dpi|image|event)\.js$/;
+
 const lucideCoreModulePattern =
   /\/node_modules\/lucide-react\/dist\/esm\/(?:shared\/src\/utils|defaultAttributes|Icon|createLucideIcon)\.js$/;
 const lucideIconModulePattern = /\/node_modules\/lucide-react\/dist\/esm\/icons\/([^/]+)\.js$/;
@@ -49,6 +53,7 @@ const lucideIconModulePattern = /\/node_modules\/lucide-react\/dist\/esm\/icons\
 function manualVendorChunk(id: string) {
   const normalizedId = id.replace(/\\/g, "/");
   if (!normalizedId.includes("/node_modules/")) return undefined;
+  if (lazyTauriApiModulePattern.test(normalizedId)) return undefined;
 
   if (lucideCoreModulePattern.test(normalizedId)) return "vendor-icons-core";
 
