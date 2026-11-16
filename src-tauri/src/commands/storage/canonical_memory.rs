@@ -13,7 +13,9 @@ mod query_embedding_cache;
 mod semantic;
 #[path = "canonical_memory/vector_cache.rs"]
 mod vector_cache;
-pub(crate) use query_embedding_cache::{QueryEmbeddingCache, QueryEmbeddingKey};
+pub(crate) use query_embedding_cache::{
+    QueryEmbeddingCache, QueryEmbeddingKey, QueryEmbeddingTicket,
+};
 pub(crate) use semantic::query_memories_semantic;
 pub(crate) use vector_cache::SemanticVectorCache;
 
