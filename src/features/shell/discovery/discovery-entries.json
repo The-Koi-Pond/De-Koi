@@ -1014,6 +1014,7 @@
       "negative prompt",
       "novelai",
       "reference strength",
+      "reference fidelity",
       "dall-e"
     ],
     "audience": "Users who want visual scenes and character art generated from chat context.",

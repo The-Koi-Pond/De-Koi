@@ -46,6 +46,7 @@ const DEFAULT_NOVELAI_DEFAULTS: NovelAiDefaults = {
   promptGuidanceRescale: 0,
   undesiredContentPreset: 0,
   referenceStrength: 0.6,
+  referenceFidelity: 1,
 };
 
 export const SD_WEBUI_SAMPLER_OPTIONS = [
@@ -224,6 +225,7 @@ function normalizeNovelAiDefaults(rawDefaults: unknown): NovelAiDefaults {
       4,
     ),
     referenceStrength: readNumber(raw.referenceStrength, DEFAULT_NOVELAI_DEFAULTS.referenceStrength, 0, 1),
+    referenceFidelity: readNumber(raw.referenceFidelity, DEFAULT_NOVELAI_DEFAULTS.referenceFidelity, 0, 1),
   };
 }
 

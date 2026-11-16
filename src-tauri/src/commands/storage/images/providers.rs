@@ -386,6 +386,8 @@ struct NovelAiDefaults {
     prompt_guidance_rescale: f64,
     undesired_content_preset: u64,
     reference_strength: f64,
+    /// How closely V4.5 director references are copied (0-1); NovelAI sends `1 - fidelity` as the secondary strength.
+    reference_fidelity: f64,
 }
 
 fn default_parameters_root(connection: &Value) -> Option<Value> {
@@ -483,6 +485,7 @@ fn resolve_novelai_defaults(connection: &Value) -> NovelAiDefaults {
         prompt_guidance_rescale: read_f64(defaults.get("promptGuidanceRescale"), 0.0, 0.0, 1.0),
         undesired_content_preset: read_u64(defaults.get("undesiredContentPreset"), 0, 0, 4),
         reference_strength: read_f64(defaults.get("referenceStrength"), 0.6, 0.0, 1.0),
+        reference_fidelity: read_f64(defaults.get("referenceFidelity"), 1.0, 0.0, 1.0),
     }
 }
 
@@ -2884,6 +2887,7 @@ async fn generate_novelai(
             &model,
             options,
             defaults.reference_strength,
+            defaults.reference_fidelity,
         )?;
     }
     let body = json!({
@@ -2975,6 +2979,7 @@ fn apply_novelai_reference_images(
     model: &str,
     options: &ImageGenerationOptions,
     strength: f64,
+    fidelity: f64,
 ) -> AppResult<()> {
     if is_novelai_v45_model(model) {
         let refs = options
@@ -2998,7 +3003,11 @@ fn apply_novelai_reference_images(
         parameters["director_reference_descriptions"] = json!(descriptions);
         parameters["director_reference_information_extracted"] = json!(vec![1.0; refs.len()]);
         parameters["director_reference_strength_values"] = json!(vec![strength; refs.len()]);
-        parameters["director_reference_secondary_strength_values"] = json!(vec![0.0; refs.len()]);
+        // NovelAI's "Fidelity" slider: lower fidelity loosens how closely the reference's pose and
+        // details are copied while keeping the character and style.
+        let secondary = ((1.0 - fidelity) * 100.0).round() / 100.0;
+        parameters["director_reference_secondary_strength_values"] =
+            json!(vec![secondary; refs.len()]);
         return Ok(());
     }
 
@@ -4153,7 +4162,7 @@ mod tests {
             "defaultParameters": {
                 "imageGeneration": {
                     "service": "novelai",
-                    "novelai": { "referenceStrength": 0.85 }
+                    "novelai": { "referenceStrength": 0.85, "referenceFidelity": 0.7 }
                 }
             }
         });
@@ -4210,7 +4219,7 @@ mod tests {
         );
         assert_eq!(
             parameters["director_reference_secondary_strength_values"],
-            json!([0.0])
+            json!([0.3])
         );
         assert!(parameters.get("reference_image_multiple").is_none());
         assert!(parameters
@@ -4277,6 +4286,20 @@ mod tests {
     }
 
     #[test]
+    fn novelai_reference_fidelity_defaults_to_full_and_reads_the_connection_setting() {
+        let plain = json!({ "imageGenerationSource": "novelai" });
+        assert_eq!(resolve_novelai_defaults(&plain).reference_fidelity, 1.0);
+
+        let tuned = json!({
+            "imageGenerationSource": "novelai",
+            "defaultParameters": {
+                "imageGeneration": { "service": "novelai", "novelai": { "referenceFidelity": 0.5 } }
+            }
+        });
+        assert_eq!(resolve_novelai_defaults(&tuned).reference_fidelity, 0.5);
+    }
+
+    #[test]
     fn novelai_v45_without_references_omits_reference_parameters() {
         let mut parameters = json!({});
 
@@ -4285,6 +4308,7 @@ mod tests {
             "nai-diffusion-4-5-full",
             &ImageGenerationOptions::default(),
             0.6,
+            1.0,
         )
         .expect("empty reference list should be valid");
 
@@ -4306,6 +4330,7 @@ mod tests {
                 ..ImageGenerationOptions::default()
             },
             0.6,
+            1.0,
         )
         .expect("V4 reference image should be valid");
 
