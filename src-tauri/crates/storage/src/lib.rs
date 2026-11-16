@@ -1670,19 +1670,34 @@ impl FileStorage {
     }
 
     fn cached_rows(&self, collection: &str) -> AppResult<Option<Vec<Value>>> {
+        Ok(self
+            .shared_cached_rows(collection)?
+            .map(|rows| rows.as_ref().clone()))
+    }
+
+    /// Selects from the cached rows (clean or dirty) in place and clones only what `select`
+    /// keeps, so a narrow read of a large cached collection costs its matches, not a full copy.
+    fn cached_rows_selected<T>(
+        &self,
+        collection: &str,
+        select: impl FnMut(&Value) -> Option<T>,
+    ) -> AppResult<Option<Vec<T>>> {
+        Ok(self
+            .shared_cached_rows(collection)?
+            .map(|rows| rows.iter().filter_map(select).collect()))
+    }
+
+    fn shared_cached_rows(&self, collection: &str) -> AppResult<Option<Arc<Vec<Value>>>> {
         validate_collection_name(collection)?;
-        let rows = {
-            let mut cache = self
-                .cache
-                .write()
-                .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
-            let access = next_cache_access(&mut cache);
-            cache.collections.get_mut(collection).map(|cached| {
-                cached.last_access = access;
-                Arc::clone(&cached.rows)
-            })
-        };
-        Ok(rows.map(|rows| rows.as_ref().clone()))
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
+        let access = next_cache_access(&mut cache);
+        Ok(cache.collections.get_mut(collection).map(|cached| {
+            cached.last_access = access;
+            Arc::clone(&cached.rows)
+        }))
     }
 
     fn cached_row_by_id(&self, collection: &str, id: &str) -> AppResult<Option<Option<Value>>> {
@@ -2071,15 +2086,22 @@ impl FileStorage {
 
     /// Per-chat message readers stream `messages.json` for speed, but a record-local journal holds
     /// acknowledged writes (a regenerated swipe, a metadata patch) that the file does not have yet.
-    /// While one exists, those readers must use the journal-applied rows instead.
-    fn cached_or_pending_message_rows(
+    /// While one exists, those readers must use the journal-applied rows instead. Cached rows,
+    /// clean or dirty, already include every acknowledged write and come first.
+    fn cached_or_pending_chat_message_rows(
         &self,
+        chat_id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<Option<Vec<Value>>> {
-        if let Some(rows) = self.cached_rows("messages")? {
+        let in_chat = |row: &Value| row.get("chatId").and_then(Value::as_str) == Some(chat_id);
+        if let Some(rows) =
+            self.cached_rows_selected("messages", |row| in_chat(row).then(|| row.clone()))?
+        {
             return Ok(Some(rows));
         }
-        self.pending_collection_rows("messages", recover_on_fallback)
+        Ok(self
+            .pending_collection_rows("messages", recover_on_fallback)?
+            .map(|rows| rows.into_iter().filter(|row| in_chat(row)).collect()))
     }
 
     fn pending_collection_rows(
@@ -2208,11 +2230,10 @@ impl FileStorage {
         if filter_values.is_empty() {
             return Ok(Vec::new());
         }
-        if let Some(rows) = self.cached_rows(collection)? {
-            return Ok(rows
-                .into_iter()
-                .filter(|row| row_string_field_matches_in(row, filter_field, filter_values))
-                .collect());
+        if let Some(rows) = self.cached_rows_selected(collection, |row| {
+            row_string_field_matches_in(row, filter_field, filter_values).then(|| row.clone())
+        })? {
+            return Ok(rows);
         }
 
         if let Some(rows) = self.pending_collection_rows(collection, recover_on_fallback)? {
@@ -2479,12 +2500,11 @@ impl FileStorage {
         }
         let field_set: HashSet<String> = fields.iter().cloned().collect();
         let nested_field_sets = selected_nested_fields(field_selections);
-        if let Some(rows) = self.cached_dirty_rows(collection)? {
-            return Ok(rows
-                .into_iter()
-                .filter(|row| row_string_field_matches_in(row, filter_field, filter_values))
-                .map(|row| project_row(row, &field_set, &nested_field_sets))
-                .collect());
+        if let Some(rows) = self.cached_rows_selected(collection, |row| {
+            row_string_field_matches_in(row, filter_field, filter_values)
+                .then(|| project_row(row.clone(), &field_set, &nested_field_sets))
+        })? {
+            return Ok(rows);
         }
 
         if let Some(rows) = self.pending_collection_rows(collection, recover_on_fallback)? {
@@ -2792,15 +2812,11 @@ impl FileStorage {
         }
         let field_set: HashSet<String> = fields.iter().cloned().collect();
         let nested_field_sets = selected_nested_fields(field_selections);
-        let dirty_rows = self.cached_dirty_rows("messages")?;
-        let pending_rows = match dirty_rows {
-            Some(rows) => Some(rows),
-            None => self.pending_collection_rows("messages", recover_on_fallback)?,
-        };
-        if let Some(rows) = pending_rows {
+        if let Some(rows) =
+            self.cached_or_pending_chat_message_rows(chat_id, recover_on_fallback)?
+        {
             return Ok(rows
                 .into_iter()
-                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
                 .map(|row| project_row(row, &field_set, &nested_field_sets))
                 .collect());
         }
@@ -2838,11 +2854,10 @@ impl FileStorage {
         chat_id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
-        if let Some(rows) = self.cached_or_pending_message_rows(recover_on_fallback)? {
-            return Ok(rows
-                .into_iter()
-                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
-                .collect());
+        if let Some(rows) =
+            self.cached_or_pending_chat_message_rows(chat_id, recover_on_fallback)?
+        {
+            return Ok(rows);
         }
         let path = self.collection_path("messages")?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
@@ -2880,15 +2895,11 @@ impl FileStorage {
         chat_id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<Vec<Value>> {
-        let dirty_rows = self.cached_dirty_rows("messages")?;
-        let pending_rows = match dirty_rows {
-            Some(rows) => Some(rows),
-            None => self.pending_collection_rows("messages", recover_on_fallback)?,
-        };
-        if let Some(rows) = pending_rows {
+        if let Some(rows) =
+            self.cached_or_pending_chat_message_rows(chat_id, recover_on_fallback)?
+        {
             return Ok(rows
                 .into_iter()
-                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
                 .filter_map(|row| {
                     let id = row.get("id")?.clone();
                     let mut object = Map::new();
@@ -2939,11 +2950,10 @@ impl FileStorage {
         chat_id: &str,
         recover_on_fallback: bool,
     ) -> AppResult<usize> {
-        if let Some(rows) = self.cached_or_pending_message_rows(recover_on_fallback)? {
-            return Ok(rows
-                .iter()
-                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
-                .count());
+        if let Some(rows) =
+            self.cached_or_pending_chat_message_rows(chat_id, recover_on_fallback)?
+        {
+            return Ok(rows.len());
         }
         let path = self.collection_path("messages")?;
         if !path.exists() || fs::metadata(&path)?.len() == 0 {
@@ -2998,11 +3008,9 @@ impl FileStorage {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        if let Some(rows) = self.cached_or_pending_message_rows(recover_on_fallback)? {
-            let mut rows = rows
-                .into_iter()
-                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
-                .collect::<Vec<_>>();
+        if let Some(mut rows) =
+            self.cached_or_pending_chat_message_rows(chat_id, recover_on_fallback)?
+        {
             apply_message_page(&mut rows, limit, before, raw_offset);
             return Ok(rows);
         }
@@ -3084,11 +3092,9 @@ impl FileStorage {
 
         let field_set: HashSet<String> = fields.iter().cloned().collect();
         let nested_field_sets = selected_nested_fields(field_selections);
-        if let Some(rows) = self.cached_or_pending_message_rows(recover_on_fallback)? {
-            let mut rows = rows
-                .into_iter()
-                .filter(|row| row.get("chatId").and_then(Value::as_str) == Some(chat_id))
-                .collect::<Vec<_>>();
+        if let Some(mut rows) =
+            self.cached_or_pending_chat_message_rows(chat_id, recover_on_fallback)?
+        {
             apply_message_page(&mut rows, page.limit, page.before, page.raw_offset);
             return Ok(rows
                 .into_iter()
@@ -10170,6 +10176,63 @@ mod tests {
         }
 
         assert_eq!(storage.cache.read().unwrap().projected_lists.len(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn per_chat_and_swipe_reads_use_cached_rows_instead_of_rereading_the_file() {
+        // Every reply lists the chat's messages and their swipes. Re-reading both files for
+        // that took about 0.5 s per list on a Raspberry Pi with real-sized chat histories.
+        let root = temp_storage_root("per-chat-reads-use-cached-rows");
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .replace_all(
+                "messages",
+                vec![
+                    json!({ "id": "message-1", "chatId": "chat-1", "role": "user", "content": "hi" }),
+                    json!({ "id": "message-2", "chatId": "chat-2", "role": "user", "content": "elsewhere" }),
+                ],
+            )
+            .unwrap();
+        storage
+            .replace_all(
+                "message-swipes",
+                vec![
+                    json!({ "id": "message-1::swipe::0", "messageId": "message-1", "index": 0, "content": "hi" }),
+                    json!({ "id": "message-2::swipe::0", "messageId": "message-2", "index": 0, "content": "elsewhere" }),
+                ],
+            )
+            .unwrap();
+        // With the files gone, only the cache can answer.
+        let collections = root.join("collections");
+        fs::remove_file(collections.join("messages.json")).unwrap();
+        fs::remove_file(collections.join("message-swipes.json")).unwrap();
+
+        let fields = ["id", "content"].map(ToOwned::to_owned).to_vec();
+        assert_eq!(
+            storage
+                .list_messages_for_chat_projected("chat-1", &fields, &Map::new())
+                .unwrap(),
+            vec![json!({ "id": "message-1", "content": "hi" })]
+        );
+        assert_eq!(
+            storage.list_message_ids_for_chat("chat-1").unwrap(),
+            vec![json!({ "id": "message-1" })]
+        );
+        let message_ids = HashSet::from(["message-1".to_string()]);
+        let swipe_fields = ["messageId", "index"].map(ToOwned::to_owned).to_vec();
+        assert_eq!(
+            storage
+                .list_projected_where_in(
+                    "message-swipes",
+                    "messageId",
+                    &message_ids,
+                    &swipe_fields,
+                    &Map::new()
+                )
+                .unwrap(),
+            vec![json!({ "messageId": "message-1", "index": 0 })]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }
