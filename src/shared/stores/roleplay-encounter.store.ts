@@ -37,6 +37,8 @@ export interface Encounter {
   startError: string | null;
   turnError: string | null;
   summaryStatus: EncounterSummaryStatus;
+  /** Why the summary failed, when trying again can't help (a broken Encounters helper route). */
+  summaryError: string | null;
 }
 
 export interface EncounterNarrationChoices {
@@ -77,7 +79,7 @@ interface EncounterStoreState {
   beginSummary: () => EncounterCallTicket | null;
   startSummarySave: (callId: number) => void;
   finishSummary: (callId: number) => void;
-  failSummary: (callId: number) => void;
+  failSummary: (callId: number, message: string | null) => void;
   isCurrent: (callId: number) => boolean;
   /**
    * Called on every chat switch: a pending call of an encounter in another chat is cancelled and settled, except a
@@ -106,6 +108,7 @@ function freshEncounter(chatId: string): Encounter {
     startError: null,
     turnError: null,
     summaryStatus: "idle",
+    summaryError: null,
   };
 }
 
@@ -184,14 +187,14 @@ export const useRoleplayEncounterStore = create<EncounterStoreState>((set, get) 
     beginSummary: () => {
       const { encounter, pending } = get();
       if (encounter?.stage !== "ended" || pending || encounter.summaryStatus === "written") return null;
-      return begin("summary", { ...encounter, summaryStatus: "generating" });
+      return begin("summary", { ...encounter, summaryStatus: "generating", summaryError: null });
     },
     startSummarySave: (callId) => {
       const { pending } = get();
       if (pending?.id === callId && pending.kind === "summary") set({ pending: { ...pending, saving: true } });
     },
     finishSummary: (callId) => settle(callId, () => ({ summaryStatus: "written" })),
-    failSummary: (callId) => settle(callId, () => ({ summaryStatus: "failed" })),
+    failSummary: (callId, message) => settle(callId, () => ({ summaryStatus: "failed", summaryError: message })),
     isCurrent: (callId) => get().pending?.id === callId,
     leaveChat: (activeChatId) => {
       const { encounter, pending } = get();

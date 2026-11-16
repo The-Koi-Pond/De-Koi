@@ -38,6 +38,7 @@ function encounter(overrides: Partial<Encounter>): Encounter {
     startError: null,
     turnError: null,
     summaryStatus: "idle",
+    summaryError: null,
     ...overrides,
   };
 }
@@ -91,6 +92,13 @@ describe("EncounterHost", () => {
     expect(document.body.textContent).toContain("Failed to generate summary.");
     expect(buttonNamed("Try again")).toBeDefined();
     expect(buttonNamed("Close anyway")).toBeDefined();
+  });
+
+  it("says why the summary failed when its helper route is broken", () => {
+    const reason = "The Encounters helper is set to a connection that no longer exists.";
+    show(encounter({ stage: "ended", result: "victory", summaryStatus: "failed", summaryError: reason }));
+
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe(`Failed to generate summary. ${reason}`);
   });
 
   it("is a labeled dialog with focus inside, and Escape asks to end combat", () => {

@@ -1,10 +1,11 @@
 // The three encounter model calls (setup, turn, summary). All of them go through `requestEncounterText`, the one
-// place that picks a connection, so routing encounters to a helper model later only changes that function.
+// place that picks a connection: the Encounters helper route when one is set, else the chat's connection.
 // Behavior spec: docs/provenance/roleplay-encounters.md ("Model calls").
 import type { LlmGateway, LlmMessage } from "../../../capabilities/llm";
 import type { StorageGateway } from "../../../capabilities/storage";
 import type { AgentContext } from "../../../contracts/types/agent";
 import { requireRecord, resolveGenerationConnection } from "../../../generation/context";
+import { chatConnectionRule, noteHelperRun, resolveHelperRoute } from "../../../generation/helper-runs";
 import { readString, type JsonRecord } from "../../../generation/runtime-records";
 import { extractLeadingThinkingBlocks } from "../../../generation-core/llm/inline-thinking";
 import { userFacingError } from "../../../shared/user-facing-error";
@@ -66,31 +67,49 @@ const RESOLVER_MISSING_CONNECTION: Record<string, string> = {
   "No connections are marked for the random pool": EMPTY_RANDOM_POOL_MESSAGE,
 };
 
-async function encounterConnectionId(storage: StorageGateway, chat: JsonRecord): Promise<string> {
-  let connection: JsonRecord;
+async function chatConnection(storage: StorageGateway, chat: JsonRecord): Promise<JsonRecord> {
   try {
-    connection = await resolveGenerationConnection(storage, chat, { connectionId: null });
+    return await resolveGenerationConnection(storage, chat, { connectionId: null });
   } catch (error) {
     const missing = error instanceof Error ? RESOLVER_MISSING_CONNECTION[error.message] : undefined;
     // Anything else (a storage or server failure) keeps its own message (decision 10).
     if (!missing) throw error;
     throw userFacingError(missing);
   }
+}
+
+/** Picks the call's connection and notes the run, so Helper Models can say where encounters last ran and why. */
+async function encounterConnectionId(storage: StorageGateway, request: EncounterModelRequest): Promise<string> {
+  const chatId = readString(request.chat.id).trim();
+  // Resolved outside the chat-connection fallback on purpose: a broken or non-local route throws its
+  // ModelRouteError to the caller and never falls back to the chat's connection.
+  const routed = await resolveHelperRoute(storage, "encounters", { job: request.kind, chatId });
+  const connection = routed ?? (await chatConnection(storage, request.chat));
   const connectionId = readString(connection.id).trim();
   if (!connectionId) throw userFacingError(NO_CONNECTION_MESSAGE);
+  // A call cancelled before it starts never ran, so Helper Models shouldn't list it.
+  request.signal.throwIfAborted();
+  await noteHelperRun(storage, {
+    task: "encounters",
+    rule: routed ? "route" : chatConnectionRule(connection, request.chat.connectionId),
+    connectionId,
+    connection,
+    job: request.kind,
+    chatId,
+  });
   return connectionId;
 }
 
 /**
- * Every encounter model call: the chat's connection (no override; the Combat agent's own setting isn't used), the
- * call's parameters, and the caller's abort signal. A call cancelled while the model was answering throws instead of
- * returning, so a late answer can't reach the chat.
+ * Every encounter model call: the Encounters helper route if set, else the chat's connection (no override; the
+ * Combat agent's own setting isn't used), the call's parameters, and the caller's abort signal. A call cancelled while
+ * the model was answering throws instead of returning, so a late answer can't reach the chat.
  */
 async function requestEncounterText(
   capabilities: EncounterCapabilities,
   request: EncounterModelRequest,
 ): Promise<string> {
-  const connectionId = await encounterConnectionId(capabilities.storage, request.chat);
+  const connectionId = await encounterConnectionId(capabilities.storage, request);
   request.signal.throwIfAborted();
   const text = await capabilities.llm.complete(
     { connectionId, messages: request.messages, parameters: { ...request.parameters } },

@@ -86,6 +86,7 @@ function FightView(props: { encounter: Encounter; fight: EncounterFight }) {
           <EncounterEnd
             result={encounter.result}
             summaryStatus={encounter.summaryStatus}
+            summaryError={encounter.summaryError}
             onRetrySummary={() => void retrySummary()}
             onClose={close}
           />

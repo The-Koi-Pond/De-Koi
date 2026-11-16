@@ -272,7 +272,8 @@ which takes the call kind (setup, turn, summary), the chat, the messages, the
 parameters and an abort signal, and returns the text. Only it picks the
 connection.
 
-**Connection, unchanged:** `resolveGenerationConnection` with no override: the
+**Connection, unchanged when Encounters has no Helper Models route:**
+`resolveGenerationConnection` with no override: the
 chat's `connectionId` (`"random"` draws from the random pool on every call),
 else the app default, else the first enabled connection. The `combat` agent's
 own connection setting isn't used.
@@ -450,6 +451,11 @@ The type names in `combat-encounter.ts` are internal and may change.
 14. **Saving a fight in progress:** not in this rebuild. Memory-only, as today.
 
 ## Later, separate pull request: helper routing
+
+**Done:** Helper Models now has an Encounters task (`encounters`), wired into
+`requestEncounterText` as intended below. A broken route's message shows on the
+setup failure screen, under the turn controls and on the summary failure;
+scenes don't share the task.
 
 Roadmap #1485, "Pick a model per task", lists "Later (#1267): scenes and
 encounters". Connections > Helper Models already sends some background work to
