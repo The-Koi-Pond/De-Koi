@@ -44,6 +44,16 @@ describe("reply steering", () => {
     expect(isUnsureMessage("I'm sorry. I can't figure out what it is that I need.")).toBe(true);
     expect(isUnsureMessage("idk you pick")).toBe(true);
     expect(isUnsureMessage("I don't know why he's like that")).toBe(false);
+    expect(isUnsureMessage("idk lol")).toBe(true);
+    expect(isUnsureMessage("i don't know... theres just so much i struggle with")).toBe(true);
+  });
+
+  // Filler "idk" inside a real answer, where a "lead" note talked over what they said.
+  it("doesn't read filler idk as unsure", () => {
+    expect(isUnsureMessage("Blue idk it's dark")).toBe(false);
+    expect(isUnsureMessage("Probably my posture. Stress does that soooo idk blame that. I do have a slight idea")).toBe(
+      false,
+    );
   });
 
   it("tells the next reply to change approach, quoting them, and to deliver the ask", () => {
@@ -71,7 +81,8 @@ describe("reply steering", () => {
       messages: [user("make it scary"), reply("Which do you want, cold or close?")],
       latestUserInput: "I dunno, whatever is scary?",
     });
-    expect(guidance).toContain("Lead: choose one concrete thing yourself and go with it.");
+    expect(guidance).toContain("Then lead: choose one concrete thing yourself and go with it.");
+    expect(guidance).toContain("If they also sound hurt or hard on themselves, answer that first");
     expect(guidance).not.toContain("missed");
   });
 
