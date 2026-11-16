@@ -79,7 +79,7 @@ import { prioritizeMemoryRecallAgainstCharacterMemories, type MemoryRecallPriori
 import { conversationContextFocus, isFocusedConversationVoiceExamples } from "./conversation-context-focus";
 import { characterWillNote } from "./character-will";
 import { buildConversationFreshnessGuidance } from "./conversation-freshness";
-import { buildConversationSteeringGuidance } from "./conversation-steering";
+import { buildReplySteeringGuidance } from "./reply-steering";
 import { habitScanGuidance, readHabitScan } from "./habit-scan";
 import { analyzeRoleplayHistory } from "./roleplay-quality-signals";
 import {
@@ -2806,18 +2806,27 @@ function buildConversationFreshnessBlock(
 
 /**
  * What the user's own recent words ask of the next reply: a different approach after "that missed", the scene they
- * asked for over the character's usual mood, and leading when they're unsure (see conversation-steering.ts).
+ * asked for over the character's usual mood, and leading when they're unsure (see reply-steering.ts). Conversation
+ * and Roleplay (visual novel included) each get their own wording; an impersonated Roleplay turn gets none.
  */
-function buildConversationSteeringBlock(
+function buildReplySteeringBlock(
   input: PromptAssemblyInput,
   wrapFormat: WrapFormat,
   names: ConversationFreshnessNames,
 ): ChatMLMessage | null {
-  if (modeOf(input.chat) !== "conversation") return null;
-  const guidance = buildConversationSteeringGuidance({
+  const chatMode = modeOf(input.chat);
+  const mode =
+    chatMode === "conversation"
+      ? "conversation"
+      : (chatMode === "roleplay" || chatMode === "visual_novel") && input.request.impersonate !== true
+        ? "roleplay"
+        : null;
+  if (!mode) return null;
+  const guidance = buildReplySteeringGuidance({
     messages: input.storedMessages,
     latestUserInput: input.latestUserInput,
     userName: names.userName,
+    mode,
   });
   if (!guidance) return null;
   return {
@@ -2825,14 +2834,15 @@ function buildConversationSteeringBlock(
     contextKind: "prompt",
     content: wrapContent(
       ["Follow this for the next reply; it comes from the user's own words. Do not mention it.", guidance].join("\n"),
-      "conversation_steering",
+      `${mode}_steering`,
       wrapFormat,
     ),
   };
 }
 
 /**
- * Conversation notes that change every turn (the clock, the "conversation resumed" gap, the freshness hint).
+ * Notes that change every turn: Conversation's clock, "conversation resumed" gap and freshness hint, and the
+ * steering note in both Conversation and Roleplay.
  * They ride on the latest user turn instead of sitting among the system blocks: providers that hoist every
  * system message into one system prompt (Anthropic, Claude Subscription) would otherwise get a new system
  * prompt each minute, and a changed system prompt misses the provider's prompt cache for the whole request.
@@ -2845,7 +2855,7 @@ function buildConversationTurnNotes(
   return [
     buildConversationPresenceBlock(input, wrapFormat),
     buildConversationFreshnessBlock(input, wrapFormat, names),
-    buildConversationSteeringBlock(input, wrapFormat, names),
+    buildReplySteeringBlock(input, wrapFormat, names),
   ].filter((block): block is ChatMLMessage => block !== null);
 }
 
