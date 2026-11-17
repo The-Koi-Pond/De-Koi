@@ -68,6 +68,7 @@ import { activeCharacterIds } from "./active-characters";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
 import { buildStoryContinuityContext } from "./story-continuity-context";
 import { memorySearchQuery } from "./memory-search-words";
+import { settleByDeadline } from "./semantic-recall-deadline";
 import { distinctiveMatch, distinctiveTermWeights, queryTermFocus } from "./distinctive-terms";
 import { epistemicSubjectsForGeneration } from "./epistemic-context";
 import {
@@ -219,6 +220,8 @@ export interface PromptAssemblyInput {
   } | null;
   /** Explicit null disables semantic retrieval while preserving lexical recall. */
   semanticConnectionId?: string | null;
+  /** Epoch ms after which memory lookups stop waiting for the embedding and use keyword matches alone. */
+  semanticRecallDeadlineAt?: number | null;
   visuals?: VisualAssetGateway;
   persistPromptVariables?: boolean;
   reusableContext?: PromptAssemblyReusableContext;
@@ -2479,6 +2482,7 @@ async function buildMemoryRecallBlock(
   visibleHistoryMessages: JsonRecord[] = [],
   personaName?: string | null,
   searchWords?: string | null,
+  semanticDeadlineAt?: number | null,
 ): Promise<MemoryRecallPromptContext | null> {
   if (!memoryRecallEnabled(chat) || !latestUserInput.trim()) return null;
   const chatId = readString(chat.id).trim();
@@ -2501,7 +2505,9 @@ async function buildMemoryRecallBlock(
 
   let semanticQueryVector: number[] | null = null;
   try {
-    const sourceEmbedding = embeddingSource ? await embeddingSource.embed([latestUserInput]) : null;
+    const sourceEmbedding = embeddingSource
+      ? await settleByDeadline(embeddingSource.embed([latestUserInput]), semanticDeadlineAt, () => null)
+      : null;
     const vector = sourceEmbedding?.[0]?.filter((value): value is number => Number.isFinite(value));
     semanticQueryVector = vector?.length ? vector : null;
   } catch {
@@ -4603,6 +4609,7 @@ export async function assembleGenerationPrompt(
             historySelection.sourceMessages,
             persona?.name ?? null,
             input.memorySearchWords,
+            input.semanticRecallDeadlineAt,
           ),
       canReuseSourceSensitiveContext && reusableContext
         ? Promise.resolve({
@@ -4635,6 +4642,7 @@ export async function assembleGenerationPrompt(
                 )
               : maxContext,
             epistemicSubjects: canonicalEpistemicSubjects,
+            semanticDeadlineAt: input.semanticRecallDeadlineAt,
           }),
       buildConversationContextBlocks(storage, input, characters, wrapFormat, !!conversationFocus),
       loadPromptRegexScripts(),

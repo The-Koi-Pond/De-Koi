@@ -15,6 +15,7 @@ import type {
   CanonicalMemoryRecord,
   KnowledgeEdge,
 } from "../contracts/types/memory";
+import { SEMANTIC_RECALL_WAIT_MS } from "./semantic-recall-deadline";
 import { startGeneration } from "./start-generation";
 
 type StoredMessage = {
@@ -886,6 +887,42 @@ describe("startGeneration Memory Recall preflight", () => {
         .join("\n"),
     ).toContain("I hid the key under the blue lantern.");
   });
+
+  it("calls the model with keyword recall when the recall embedding is still out at the deadline", async () => {
+    const calls: LlmRequest[] = [];
+    const harness = memoryRecallStorage({
+      metadata: { enableMemoryRecall: true, memoryRecallReadBehindMessages: 1, contextMessageLimit: 2 },
+    });
+    const llm = memoryAwareLlm(calls);
+    const deps = { storage: harness.storage, llm, integrations: {} as IntegrationGateway };
+    for (const userMessage of [
+      "I hid the key under the blue lantern.",
+      "The night market is loud.",
+      "Mira waved from the bridge.",
+    ]) {
+      await collectEvents(startGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", userMessage }));
+    }
+    await vi.waitFor(async () => {
+      expect(await harness.storage.listChatMemories<Record<string, unknown>>("chat-1")).not.toHaveLength(0);
+    });
+
+    const question = "Where did I hide the key?";
+    const fastEmbed = vi.mocked(llm.embed!).getMockImplementation()!;
+    vi.mocked(llm.embed!).mockImplementation((request) =>
+      JSON.stringify(request.texts) === JSON.stringify([question]) ? new Promise(() => undefined) : fastEmbed(request),
+    );
+    const startedAt = Date.now();
+
+    await collectEvents(startGeneration(deps, { chatId: "chat-1", connectionId: "conn-1", userMessage: question }));
+
+    expect(Date.now() - startedAt).toBeLessThan(SEMANTIC_RECALL_WAIT_MS + 1_500);
+    expect(
+      calls
+        .at(-1)
+        ?.messages.map((message) => message.content)
+        .join("\n"),
+    ).toContain("I hid the key under the blue lantern.");
+  }, 10_000);
 
   it("spends no early recall embedding on a chat with no memories yet", async () => {
     const harness = memoryRecallStorage();
