@@ -6,11 +6,16 @@ import {
   GitBranch,
   Loader2,
   Languages,
+  Pause,
   Pencil,
+  Play,
   RefreshCw,
+  RotateCcw,
   ScrollText,
   Timer,
   Trash2,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { cn } from "../../../../shared/lib/utils";
 import { buildSaveMomentSource, IllustrateMomentAction, SaveMomentAction } from "../../shared/chat-ui";
@@ -31,6 +36,7 @@ export function ConversationMessageActions({
   if (context.hideActions) return null;
 
   const visible = context.showActions || context.forceShowActions;
+  const { speech } = context;
   const tabIdx = visible ? undefined : -1;
   const saveMomentSource = buildSaveMomentSource({
     chatId: context.message.chatId,
@@ -58,6 +64,54 @@ export function ConversationMessageActions({
         title="Copy"
         tabIndex={tabIdx}
       />
+      {speech.enabled && (
+        <>
+          {speech.speakingThis && !speech.loadingThis && (
+            <>
+              <MsgAction
+                icon={speech.pausedThis ? <Play size="0.75rem" /> : <Pause size="0.75rem" />}
+                onClick={speech.pauseOrResume}
+                title={speech.pausedThis ? "Resume speaking" : "Pause speaking"}
+                className="text-sky-400"
+                tabIndex={tabIdx}
+              />
+              <MsgAction
+                icon={<RotateCcw size="0.75rem" />}
+                onClick={speech.restart}
+                title="Restart speaking"
+                className="text-sky-400"
+                tabIndex={tabIdx}
+              />
+            </>
+          )}
+          <MsgAction
+            icon={
+              speech.loadingThis ? (
+                <Loader2 size="0.75rem" className="animate-spin" />
+              ) : speech.speakingThis || speech.streamingActive ? (
+                <VolumeX size="0.75rem" />
+              ) : (
+                <Volume2 size="0.75rem" />
+              )
+            }
+            onClick={speech.toggle}
+            title={
+              speech.streamingActive
+                ? "Stop streaming narration"
+                : !speech.hasContent
+                  ? "No dialogue to speak"
+                  : speech.loadingThis
+                    ? "Loading…"
+                    : speech.speakingThis
+                      ? "Stop speaking"
+                      : "Speak"
+            }
+            className={speech.speakingThis || speech.streamingActive ? "text-sky-400" : undefined}
+            disabled={!speech.streamingActive && (!speech.hasContent || (speech.busy && !speech.speakingThis))}
+            tabIndex={tabIdx}
+          />
+        </>
+      )}
       <SaveMomentAction
         source={saveMomentSource}
         onCreateSummaryDraft={context.onSaveMomentSummary}

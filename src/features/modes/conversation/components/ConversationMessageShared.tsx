@@ -17,7 +17,7 @@ import type {
   PersonaInfo,
   RegenerateOptions,
 } from "../../shared/chat-ui/types";
-import type { SaveMomentSource } from "../../shared/chat-ui/index";
+import type { MessageSpeech, SaveMomentSource } from "../../shared/chat-ui/index";
 import {
   GenerationReplayDetailsModal,
   GenerationInterruptedStatus,
@@ -169,6 +169,7 @@ export interface ConversationMessageRenderContext {
   characterWebResearchSources: MessageExtra["characterWebResearchSources"] | null;
   activePromptSnapshot: Message["extra"]["generationPromptSnapshot"] | null;
   copied: boolean;
+  speech: MessageSpeech;
   handleMessageClick: (event: MouseEvent) => void;
   handleMessageDoubleClick: (event: MouseEvent) => void;
   handleCopy: () => void;
