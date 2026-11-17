@@ -39,6 +39,9 @@ use write_gate::WriteGate;
 const STORAGE_SAVE_DEBOUNCE_MS: u64 = 750;
 const FOREGROUND_COMPACTION_GRACE: Duration = Duration::from_secs(30);
 const MAX_CLEAN_COLLECTION_CACHE_BYTES: usize = 16 * 1024 * 1024;
+/// Messages and swipe sidecars are read on every reply and grow with every chat, so they get a
+/// larger clean-cache allowance than other collections. Above it, each read streams the file again.
+const MAX_CLEAN_MESSAGE_COLLECTION_CACHE_BYTES: usize = 48 * 1024 * 1024;
 const MAX_TOTAL_CLEAN_COLLECTION_CACHE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PROJECTED_LIST_CACHE_SHAPES: usize = 32;
 
@@ -167,6 +170,14 @@ fn next_cache_access(cache: &mut StorageCache) -> u64 {
 enum CacheEvictionKey {
     Collection(String),
     Projection(ProjectionCacheKey),
+}
+
+fn max_clean_collection_cache_bytes(collection: &str) -> usize {
+    if append_journal::checkpoint_tracks(collection) {
+        MAX_CLEAN_MESSAGE_COLLECTION_CACHE_BYTES
+    } else {
+        MAX_CLEAN_COLLECTION_CACHE_BYTES
+    }
 }
 
 fn clean_cache_bytes(cache: &StorageCache) -> usize {
@@ -1766,7 +1777,8 @@ impl FileStorage {
     fn cache_collection(&self, collection: &str, rows: &[Value], dirty: bool) -> AppResult<()> {
         validate_collection_name(collection)?;
         let approx_bytes = rows.iter().map(approximate_json_bytes).sum::<usize>();
-        let prepared = (dirty || approx_bytes <= MAX_CLEAN_COLLECTION_CACHE_BYTES)
+        let max_clean_bytes = max_clean_collection_cache_bytes(collection);
+        let prepared = (dirty || approx_bytes <= max_clean_bytes)
             .then(|| (Arc::new(rows.to_vec()), row_indices_by_id(rows)));
         let mut cache = self
             .cache
@@ -1777,7 +1789,7 @@ impl FileStorage {
             cache
                 .projected_lists
                 .retain(|key, _| key.collection != collection);
-        } else if approx_bytes > MAX_CLEAN_COLLECTION_CACHE_BYTES {
+        } else if approx_bytes > max_clean_bytes {
             cache.collections.remove(collection);
             return Ok(());
         } else {
@@ -10083,6 +10095,30 @@ mod tests {
         storage.cache_collection("gallery", &rows, false).unwrap();
 
         assert!(!storage.is_collection_cached("gallery").unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn message_collections_stay_cached_past_sixteen_mib_up_to_forty_eight() {
+        // Every reply reads the chat's messages and swipes; a long-used install passes 16 MiB of
+        // swipe sidecars, and an uncached read streams the whole file again.
+        let root = temp_storage_root("cache-large-message-collections");
+        let storage = FileStorage::new(&root).unwrap();
+        let swipes = vec![
+            json!({ "id": "m::swipe::0", "messageId": "m", "payload": "x".repeat(20 * 1024 * 1024) }),
+        ];
+        let messages =
+            vec![json!({ "id": "m", "chatId": "c", "payload": "x".repeat(48 * 1024 * 1024) })];
+
+        storage
+            .cache_collection("message-swipes", &swipes, false)
+            .unwrap();
+        storage
+            .cache_collection("messages", &messages, false)
+            .unwrap();
+
+        assert!(storage.is_collection_cached("message-swipes").unwrap());
+        assert!(!storage.is_collection_cached("messages").unwrap());
         fs::remove_dir_all(root).unwrap();
     }
 
