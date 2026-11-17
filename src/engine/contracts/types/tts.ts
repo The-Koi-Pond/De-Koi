@@ -18,7 +18,10 @@ const ttsVoiceAssignmentSchema = z.object({
   characterId: z.string().default(""),
   characterName: z.string().default(""),
   voice: z.string().default(""),
-  /** ElevenLabs only: an audio tag ("strong Russian accent") spoken before every sentence in this voice. */
+  /**
+   * ElevenLabs only: an audio tag ("strong Russian accent") spoken before every sentence in this voice.
+   * Empty uses an accent named on the character's card; "none" sends no tag.
+   */
   deliveryTag: z.string().max(80).default(""),
 });
 export type TTSVoiceAssignment = z.infer<typeof ttsVoiceAssignmentSchema>;
