@@ -2112,8 +2112,44 @@ impl FileStorage {
             return Ok(Some(rows));
         }
         Ok(self
-            .pending_collection_rows("messages", recover_on_fallback)?
+            .full_rows_for_narrow_read("messages", recover_on_fallback)?
             .map(|rows| rows.into_iter().filter(|row| in_chat(row)).collect()))
+    }
+
+    /// Rows a narrow reader filters instead of streaming the file: the journal-applied rows while
+    /// a journal is pending, or, for the message collections, the whole file when it fits their
+    /// cache allowance. Those two are read on every reply, so one full read that fills the cache
+    /// beats streaming the file again on every read until something else happens to fill it.
+    fn full_rows_for_narrow_read(
+        &self,
+        collection: &str,
+        recover_on_fallback: bool,
+    ) -> AppResult<Option<Vec<Value>>> {
+        if let Some(rows) = self.pending_collection_rows(collection, recover_on_fallback)? {
+            return Ok(Some(rows));
+        }
+        if !append_journal::checkpoint_tracks(collection) {
+            return Ok(None);
+        }
+        let path = self.collection_path(collection)?;
+        let max_bytes = max_clean_collection_cache_bytes(collection) as u64;
+        let fits_cache = fs::metadata(&path)
+            .is_ok_and(|metadata| metadata.len() > 0 && metadata.len() <= max_bytes);
+        if !fits_cache {
+            return Ok(None);
+        }
+        // Filling the cache is only a speed-up. If the whole file does not parse, leave recovery
+        // and errors to the streaming reader, which parses only the fields it was asked for.
+        match self.read_collection_no_recovery(collection) {
+            Ok(rows) => Ok(Some(rows)),
+            Err(error) => {
+                eprintln!(
+                    "[storage] {collection} could not be loaded into the cache; streaming it instead: {}",
+                    error.message
+                );
+                Ok(None)
+            }
+        }
     }
 
     fn pending_collection_rows(
@@ -2248,7 +2284,7 @@ impl FileStorage {
             return Ok(rows);
         }
 
-        if let Some(rows) = self.pending_collection_rows(collection, recover_on_fallback)? {
+        if let Some(rows) = self.full_rows_for_narrow_read(collection, recover_on_fallback)? {
             return Ok(rows
                 .into_iter()
                 .filter(|row| row_string_field_matches_in(row, filter_field, filter_values))
@@ -2519,7 +2555,7 @@ impl FileStorage {
             return Ok(rows);
         }
 
-        if let Some(rows) = self.pending_collection_rows(collection, recover_on_fallback)? {
+        if let Some(rows) = self.full_rows_for_narrow_read(collection, recover_on_fallback)? {
             return Ok(rows
                 .into_iter()
                 .filter(|row| row_string_field_matches_in(row, filter_field, filter_values))
@@ -10269,6 +10305,71 @@ mod tests {
                 .unwrap(),
             vec![json!({ "messageId": "message-1", "index": 0 })]
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn first_narrow_message_reads_after_a_restart_fill_the_cache() {
+        // Right after a restart nothing is cached, and per-chat lists streamed the message files
+        // on every reply until some unrelated full read happened to fill the cache.
+        let root = temp_storage_root("narrow-message-reads-fill-cache");
+        let writer = FileStorage::new(&root).unwrap();
+        writer
+            .replace_all(
+                "messages",
+                vec![json!({ "id": "message-1", "chatId": "chat-1", "content": "hi" })],
+            )
+            .unwrap();
+        writer
+            .replace_all(
+                "message-swipes",
+                vec![json!({ "id": "message-1::swipe::0", "messageId": "message-1", "index": 0 })],
+            )
+            .unwrap();
+        writer
+            .replace_all(
+                "characters",
+                vec![json!({ "id": "character-1", "ownerId": "owner-1" })],
+            )
+            .unwrap();
+        let storage = FileStorage::new(&root).unwrap();
+        let fields = ["id", "content"].map(ToOwned::to_owned).to_vec();
+        let message_ids = HashSet::from(["message-1".to_string()]);
+        let swipe_fields = ["messageId", "index"].map(ToOwned::to_owned).to_vec();
+
+        assert_eq!(
+            storage
+                .list_messages_for_chat_projected("chat-1", &fields, &Map::new())
+                .unwrap(),
+            vec![json!({ "id": "message-1", "content": "hi" })]
+        );
+        assert_eq!(
+            storage
+                .list_projected_where_in(
+                    "message-swipes",
+                    "messageId",
+                    &message_ids,
+                    &swipe_fields,
+                    &Map::new()
+                )
+                .unwrap(),
+            vec![json!({ "messageId": "message-1", "index": 0 })]
+        );
+        assert_eq!(
+            storage
+                .list_where_in(
+                    "characters",
+                    "ownerId",
+                    &HashSet::from(["owner-1".to_string()])
+                )
+                .unwrap()
+                .len(),
+            1
+        );
+
+        assert!(storage.is_collection_cached("messages").unwrap());
+        assert!(storage.is_collection_cached("message-swipes").unwrap());
+        assert!(!storage.is_collection_cached("characters").unwrap());
         fs::remove_dir_all(root).unwrap();
     }
 }
