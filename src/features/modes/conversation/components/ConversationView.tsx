@@ -32,6 +32,7 @@ import {
 } from "../lib/conversation-part-reveal";
 import {
   resolveConversationRegenerationDisplay,
+  conversationTypingLabel,
   shouldShowConversationTypingIndicator,
 } from "../lib/conversation-streaming-draft";
 import { getConversationCharacterStatusDetail, getConversationCharacterStatusTitle } from "../status-display";
@@ -212,14 +213,22 @@ function chatMetaString(value: unknown, fallback: string): string {
  * scopes the row to a character in exclusive mode; `data-typing-name` exposes the
  * name(s) for `content: attr(data-typing-name)`.
  */
-function TypingIndicatorRow({ names, cardCssId }: { names: string[]; cardCssId?: string }) {
+function TypingIndicatorRow({
+  names,
+  cardCssId,
+  recordingVoiceNote,
+}: {
+  names: string[];
+  cardCssId?: string;
+  recordingVoiceNote: boolean;
+}) {
   const label = names.join(", ");
-  const verb = label.includes(",") || label.includes(" & ") ? "are" : "is";
   return (
     <div
       className="mari-typing-indicator flex items-center gap-2 px-4 py-1.5 text-[0.8125rem] text-[var(--text-secondary)]"
       data-card-css={cardCssId}
       data-typing-name={label}
+      data-typing-activity={recordingVoiceNote ? "voice-note" : "typing"}
     >
       <span className="mari-typing-dots flex gap-0.5">
         <span
@@ -235,9 +244,7 @@ function TypingIndicatorRow({ names, cardCssId }: { names: string[]; cardCssId?:
           style={{ animationDelay: "300ms" }}
         />
       </span>
-      <span className="mari-typing-text italic">
-        {label} {verb} typing...
-      </span>
+      <span className="mari-typing-text italic">{conversationTypingLabel(label, recordingVoiceNote)}</span>
     </div>
   );
 }
@@ -424,6 +431,7 @@ export function ConversationView({
   const streamingCharacterId = useChatStore((s) => s.streamingCharacterId);
   const typingCharacterName = useChatStore((s) => s.typingCharacterName);
   const delayedCharacterInfo = useChatStore((s) => s.delayedCharacterInfo);
+  const recordingVoiceNote = useChatStore((s) => s.voiceNoteRecordingChatIds.has(chatId));
   const conversationMessageStyle = useUIStore((s) => s.conversationMessageStyle);
   const showTimestamps = useUIStore((s) => s.showTimestamps);
   const inactiveCharacterIdSet = useMemo(
@@ -445,7 +453,6 @@ export function ConversationView({
     if (activeCharacterNames.length > 0) return activeCharacterNames.join(", ");
     return "Character";
   }, [activeCharacterNames, activeChatCharIds, characterMap, streamingCharacterId, typingCharacterName]);
-  const liveTypingVerb = liveTypingName.includes(",") || liveTypingName.includes(" & ") ? "are" : "is";
   const showTypingIndicator = shouldShowConversationTypingIndicator({
     isStreaming,
     hasDelayedCharacterInfo: !!delayedCharacterInfo,
@@ -453,7 +460,7 @@ export function ConversationView({
     activeCharacterCount: activeChatCharIds.length,
     hasSpecificTypingTarget: !!typingCharacterName || !!streamingCharacterId,
   });
-  const liveTypingLabel = `${liveTypingName} ${liveTypingVerb} typing...`;
+  const liveTypingLabel = conversationTypingLabel(liveTypingName, recordingVoiceNote);
 
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Group typing rows ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   // Characters whose card CSS targets the typing indicator (exclusive mode) get their own
@@ -1757,11 +1764,20 @@ export function ConversationView({
               {/* Combined row for characters without typing-targeted CSS (shown first). When no
                 concrete participants resolve, this carries the single live typing label. */}
               {typingPlainNames.length > 0 && (
-                <TypingIndicatorRow names={typingPlainNames} cardCssId={typingPlainCardCssId} />
+                <TypingIndicatorRow
+                  names={typingPlainNames}
+                  cardCssId={typingPlainCardCssId}
+                  recordingVoiceNote={recordingVoiceNote}
+                />
               )}
               {/* One row per character whose card CSS targets the typing indicator (alphabetical). */}
               {typingStyledRows.map((p) => (
-                <TypingIndicatorRow key={p.id} names={[p.name]} cardCssId={p.id} />
+                <TypingIndicatorRow
+                  key={p.id}
+                  names={[p.name]}
+                  cardCssId={p.id}
+                  recordingVoiceNote={recordingVoiceNote}
+                />
               ))}
               <TypingWaitNote chatId={chatId} />
             </>

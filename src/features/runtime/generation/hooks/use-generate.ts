@@ -1669,6 +1669,7 @@ export async function runGenerationWithUi(
     releaseChatGenerationController(chatId, controller);
     state.setAssistantPhase(chatId, "idle");
     clearChatAvailabilityState();
+    state.setVoiceNoteRecording(chatId, false);
     // Clear this chat's own regenerate/streaming-character ids regardless of
     // whether it's the foreground chat, so a background chat's generation
     // doesn't leave stale per-chat ids that leak when it's next opened.
@@ -1783,6 +1784,7 @@ export async function runGenerationWithUi(
           groupTurnActive = true;
           await flushLiveGenerationBuffers();
           resetLiveGenerationBuffers();
+          useChatStore.getState().setVoiceNoteRecording(chatId, false);
           const data = parseMaybeRecord(event.data);
           const characterId = readString(data.characterId).trim();
           const characterName = readString(data.characterName).trim();
@@ -1800,6 +1802,7 @@ export async function runGenerationWithUi(
           const label = characterLabel(eventCharacters(event));
           const state = useChatStore.getState();
           state.setPerChatTyping(chatId, label);
+          state.setVoiceNoteRecording(chatId, parseMaybeRecord(event.data).voiceNote === true);
           state.setPerChatDelayed(chatId, null);
           if (state.activeChatId === chatId) {
             state.setDelayedCharacterInfo(null);

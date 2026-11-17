@@ -159,6 +159,19 @@ describe("voice notes in a Conversation reply", () => {
     ]);
   });
 
+  it("tells the chat the character is recording, not typing, only when the reply is a voice note", async () => {
+    const typingOf = (events: GenerationEvent[]) => events.find((event) => event.type === "typing");
+    const create = vi.fn(async () => savedFile);
+
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const hit = await reply({ available: async () => true, create });
+    expect(typingOf(hit.events)).toEqual({ type: "typing", data: { characters: ["Mira"], voiceNote: true } });
+
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const miss = await reply({ available: async () => true, create });
+    expect(typingOf(miss.events)).toEqual({ type: "typing", data: { characters: ["Mira"] } });
+  });
+
   it("is skipped without Text to Speech or when set to never, and a failed one stays a text that says why", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const create = vi.fn(async () => savedFile);

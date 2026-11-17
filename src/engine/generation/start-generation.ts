@@ -5730,7 +5730,10 @@ async function* startGenerationImpl(
       }
     }
     if (characterNames.length > 0) {
-      yield { type: "typing", data: { characters: characterNames } };
+      yield {
+        type: "typing",
+        data: { characters: characterNames, ...(input.voiceNote === "send" ? { voiceNote: true } : {}) },
+      };
     }
   }
   const prepareContextTiming = generationTimingEvent("prepare-context", prepareContextStartedAt, {

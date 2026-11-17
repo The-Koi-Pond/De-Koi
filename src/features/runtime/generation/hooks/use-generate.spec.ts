@@ -757,6 +757,53 @@ describe("runGenerationWithUi", () => {
     }
   });
 
+  it("shows a voice note as recording until the reply lands, even after its words start streaming", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const chatId = "chat-voice-note";
+    queryClient.setQueryData(chatKeys.detail(chatId), { id: chatId, mode: "conversation", metadata: {} } as Chat);
+    queryClient.setQueryData(chatKeys.messages(chatId), { pages: [[]], pageParams: [undefined] });
+    useChatStore.getState().setActiveChatId(chatId);
+    const recording = () => useChatStore.getState().voiceNoteRecordingChatIds.has(chatId);
+
+    let markStreamed!: () => void;
+    const streamed = new Promise<void>((resolve) => {
+      markStreamed = resolve;
+    });
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    async function* stream(): AsyncGenerator<StreamEvent> {
+      yield { type: "typing", data: { characters: ["Mira"], voiceNote: true } } as StreamEvent;
+      yield { type: "token", data: "omw. save me a seat" } as StreamEvent;
+      markStreamed();
+      await finished;
+      yield {
+        type: "assistant_message",
+        data: { id: "m-voice", chatId, role: "assistant", content: "omw. save me a seat" },
+      } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    }
+
+    const run = runGenerationWithUi(queryClient, { chatId }, stream);
+    try {
+      await streamed;
+      expect(recording()).toBe(true);
+    } finally {
+      finish();
+      await Promise.allSettled([run]);
+    }
+    expect(recording()).toBe(false);
+
+    async function* typed(): AsyncGenerator<StreamEvent> {
+      yield { type: "typing", data: { characters: ["Mira"] } } as StreamEvent;
+      expect(recording()).toBe(false);
+      yield { type: "done" } as StreamEvent;
+    }
+    await runGenerationWithUi(queryClient, { chatId }, typed);
+    queryClient.clear();
+  });
+
   it("records each phase for its own chat and clears it once the reply is released", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const chatId = "chat-phase-text";

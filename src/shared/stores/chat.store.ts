@@ -107,6 +107,8 @@ interface ChatState {
   perChatTyping: Map<string, string>;
   /** Per-chat delayed state so switching chats restores the correct indicator. */
   perChatDelayed: Map<string, { name: string; status: string }>;
+  /** Chats whose reply in progress goes out as a voice note, so the indicator says recording, not typing. */
+  voiceNoteRecordingChatIds: Set<string>;
   /** Durable per-chat provider failure feedback, cleared by retry or explicit dismissal. */
   generationFailures: Map<string, GenerationFailureState>;
   swipeIndex: Map<string, number>; // messageId → active swipe index
@@ -165,6 +167,7 @@ interface ChatState {
   setDelayedCharacterInfo: (info: { name: string; status: string } | null) => void;
   setPerChatTyping: (chatId: string, name: string | null) => void;
   setPerChatDelayed: (chatId: string, info: { name: string; status: string } | null) => void;
+  setVoiceNoteRecording: (chatId: string, recording: boolean) => void;
   setGenerationFailure: (chatId: string, failure: GenerationFailureState | null) => void;
   clearPerChatState: (chatId: string) => void;
   setSwipeIndex: (messageId: string, index: number) => void;
@@ -224,6 +227,7 @@ export const useChatStore = create<ChatState>()(
     delayedCharacterInfo: null,
     perChatTyping: new Map(),
     perChatDelayed: new Map(),
+    voiceNoteRecordingChatIds: new Set(),
     generationFailures: new Map(),
     swipeIndex: new Map(),
     shouldOpenSettings: false,
@@ -502,6 +506,15 @@ export const useChatStore = create<ChatState>()(
         return { perChatDelayed: d, perChatTyping: t };
       }),
 
+    setVoiceNoteRecording: (chatId: string, recording: boolean) =>
+      set((state) => {
+        if (state.voiceNoteRecordingChatIds.has(chatId) === recording) return {};
+        const ids = new Set(state.voiceNoteRecordingChatIds);
+        if (recording) ids.add(chatId);
+        else ids.delete(chatId);
+        return { voiceNoteRecordingChatIds: ids };
+      }),
+
     setGenerationFailure: (chatId, failure) =>
       set((state) => {
         const failures = new Map(state.generationFailures);
@@ -732,6 +745,7 @@ export const useChatStore = create<ChatState>()(
         delayedCharacterInfo: null,
         perChatTyping: new Map(),
         perChatDelayed: new Map(),
+        voiceNoteRecordingChatIds: new Set(),
         generationFailures: new Map(),
         swipeIndex: new Map(),
         shouldOpenSettings: false,
