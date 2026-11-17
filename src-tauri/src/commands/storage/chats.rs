@@ -4670,6 +4670,21 @@ mod tests {
             .expect("story job should seed");
 
         let data_root = state.storage.root().to_path_buf();
+        // Memory creation journals its rows. Fold them into the primaries so
+        // the snapshot below covers those files as well.
+        for collection in [
+            canonical_memory::MEMORY_COLLECTION,
+            canonical_memory::INDEX_COLLECTION,
+        ] {
+            let rows = state
+                .storage
+                .list(collection)
+                .expect("seeded memory rows should list");
+            state
+                .storage
+                .replace_all(collection, rows)
+                .expect("seeded memory rows should materialize");
+        }
         state.storage.flush().expect("seed data should flush");
         let collections = data_root.join("collections");
         let primary_before = [

@@ -61,6 +61,8 @@ The Roleplay Continuity Director is deliberately outside canonical memory. Its e
 
 Retrieval projection rows live in `memory-index-rows`. They are rebuildable and never authoritative. Every row points back to `memoryId` and stores provider/model/dimensions metadata, content and projection hashes, `canonicalUpdatedAt`, and either vector data or lexical fallback payloads.
 
+The collection holds every embedding vector, so it grows to tens of megabytes. Memory creation and semantic vector fills therefore commit their rows to the collection's record-local journal (`memory-index-rows.pending.jsonl`) through the grouped upsert transaction instead of rewriting the file. A vector fill deletes the rows it supersedes for the same memory and embedding identity in the same transaction. The journal folds into the file at the next atomic index update or at startup. Before this, each rewrite held the storage write gate for seconds and stalled the next reply's message save (#1721).
+
 Query behavior always resolves index hits back to canonical memory records. Canonical status wins over an index hit: `deleted`, `superseded`, and `stale` records are excluded by default even if an index row matches. Rows whose `canonicalUpdatedAt` no longer matches the canonical record are treated as stale and ignored.
 
 Canonical edits make provider projections stale through their `canonicalUpdatedAt` and content hash. The next semantic query lazily replaces stale or missing provider vectors for the resolved embedding connection and model. Lexical projection replacement does not delete provider projections. Soft deletion sets status to `deleted` and removes every index row for that memory.

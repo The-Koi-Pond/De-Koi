@@ -320,16 +320,20 @@ pub(crate) fn create_memory_with_edges(
         .entry("updatedAt".to_string())
         .or_insert_with(|| Value::String(now));
     let record = Value::Object(record);
+    // A new memory id has no index rows yet, so its lexical row is a plain
+    // upsert. Journaling it keeps the large index file out of this write; an
+    // atomic rewrite of it held the storage write gate for seconds (#1721).
+    let index_upserts = if memory_is_lexically_indexed(&record) {
+        vec![(INDEX_COLLECTION, vec![lexical_index_row(&record)?])]
+    } else {
+        Vec::new()
+    };
 
-    let created = state.storage.update_collections_atomically(
-        vec![
-            MEMORY_COLLECTION,
-            INDEX_COLLECTION,
-            super::knowledge_edges::COLLECTION,
-        ],
+    let created = state.storage.upsert_many_journaled_with_collections(
+        index_upserts,
+        vec![MEMORY_COLLECTION, super::knowledge_edges::COLLECTION],
         move |collections| {
-            let (memory_collections, remaining_collections) = collections.split_at_mut(1);
-            let (index_collections, edge_collections) = remaining_collections.split_at_mut(1);
+            let (memory_collections, edge_collections) = collections.split_at_mut(1);
             let memories = memory_collections[0].rows_mut();
             if memories
                 .iter()
@@ -341,7 +345,6 @@ pub(crate) fn create_memory_with_edges(
             }
             validate_story_projection_overlap(memories, &record)?;
             memories.push(record.clone());
-            replace_memory_lexical_index(index_collections[0].rows_mut(), &record)?;
             super::knowledge_edges::upsert_edges_for_memory_in_rows(
                 edge_collections[0].rows_mut(),
                 &memory_id,
@@ -1700,6 +1703,45 @@ mod tests {
             std::fs::remove_dir_all(&path).unwrap();
         }
         AppState::from_data_dir(path, Vec::new()).unwrap()
+    }
+
+    #[test]
+    fn memory_create_journals_its_index_row_without_rewriting_the_index_file() {
+        let state = test_state("create-journals-index");
+        seed_memory(&state, "first-memory", "chat", "chat-1", "active");
+        let indexed = state.storage.list(INDEX_COLLECTION).unwrap();
+        state.storage.replace_all(INDEX_COLLECTION, indexed).unwrap();
+        state.storage.flush().unwrap();
+        let collections = state.storage.root().join("collections");
+        let index_path = collections.join(format!("{INDEX_COLLECTION}.json"));
+        let file_before = std::fs::read(&index_path).unwrap();
+
+        seed_memory(&state, "second-memory", "chat", "chat-1", "active");
+
+        // The index file holds every vector; rewriting it held the storage
+        // write gate for seconds and stalled the next message save (#1721).
+        assert!(
+            std::fs::read(&index_path).unwrap() == file_before,
+            "memory create must not rewrite the index file"
+        );
+        let indexed_memory_ids = |state: &AppState| {
+            state
+                .storage
+                .list(INDEX_COLLECTION)
+                .unwrap()
+                .iter()
+                .map(|row| read_string(row.get("memoryId")))
+                .collect::<HashSet<_>>()
+        };
+        assert!(indexed_memory_ids(&state).contains("second-memory"));
+        assert!(get_memory(&state, "second-memory").is_ok());
+
+        let data_dir = state.storage.root().parent().unwrap().to_path_buf();
+        drop(state);
+        let reopened = AppState::from_data_dir(data_dir, Vec::new()).unwrap();
+        assert!(indexed_memory_ids(&reopened).contains("first-memory"));
+        assert!(indexed_memory_ids(&reopened).contains("second-memory"));
+        assert!(get_memory(&reopened, "second-memory").is_ok());
     }
 
     fn ids(rows: &Value) -> Vec<String> {
