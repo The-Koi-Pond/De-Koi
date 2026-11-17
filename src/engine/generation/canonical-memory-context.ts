@@ -19,6 +19,7 @@ import {
   type EpistemicSubject,
 } from "./epistemic-access";
 import { loadEpistemicContext } from "./epistemic-context";
+import { memorySearchQuery } from "./memory-search-words";
 import { isStoryProjectionMemory } from "./story-projections";
 import {
   distinctiveMatch,
@@ -56,6 +57,8 @@ export interface CanonicalMemoryContextInput {
   chat: JsonRecord;
   storedMessages: JsonRecord[];
   latestUserInput: string;
+  /** Memory search words for the keyword match (see memory-search-words.ts). Semantic search keeps the message. */
+  searchWords?: string | null;
   characters: CanonicalMemoryCharacterContext[];
   personaName?: string | null;
   connectionId?: string | null;
@@ -665,7 +668,8 @@ export async function buildCanonicalMemoryContext(
   input: CanonicalMemoryContextInput,
 ): Promise<CanonicalMemoryPromptContext | null> {
   if (!canonicalMemoryEnabled(input.chat) || !input.latestUserInput.trim()) return null;
-  const queryTokens = lexicalTokens(input.latestUserInput);
+  const searchText = memorySearchQuery(input.latestUserInput, input.searchWords);
+  const queryTokens = lexicalTokens(searchText);
   const connectionId = readString(input.connectionId).trim();
   const semanticQuery = storage.querySemanticMemories;
   if (queryTokens.length === 0 && (!semanticQuery || !connectionId)) return null;
@@ -734,7 +738,7 @@ export async function buildCanonicalMemoryContext(
     ...new Map(validRows.map((row) => [row.memory.id, memoryTokens(row.memory)])).values(),
     ...chatWordSets(input.storedMessages, input.latestUserInput),
   ]);
-  const queryFocus = queryTermFocus(input.latestUserInput, lexicalTokens);
+  const queryFocus = queryTermFocus(searchText, lexicalTokens);
   const candidates = validRows.map((row) =>
     scoreCandidate(
       row.memory,

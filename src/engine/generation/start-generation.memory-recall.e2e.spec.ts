@@ -615,6 +615,51 @@ describe("startGeneration Memory Recall preflight", () => {
     ).toContain("jasmine tea");
   });
 
+  // Keyword-only recall can't find a fact that shares no words with the question; the memory search words bridge it.
+  it("finds a fact that shares no words with the question through memory search words", async () => {
+    const question = "What's waiting for me in the kitchen when I come back?";
+    async function lastPrompt(searchWords: string): Promise<{ prompt: string; searchRequests: LlmRequest[] }> {
+      const calls: LlmRequest[] = [];
+      const harness = memoryRecallStorage({ embeddingModel: "" });
+      harness.seedLegacyImportedChat();
+      harness.migrateLegacyImportedChat();
+      const base = memoryAwareLlm(calls);
+      const searchRequests: LlmRequest[] = [];
+      const llm: LlmGateway = {
+        ...base,
+        complete: vi.fn(async (request: LlmRequest) => {
+          if (request.messages.some((message) => message.content.includes("search its saved memories"))) {
+            searchRequests.push(request);
+            return searchWords;
+          }
+          return base.complete(request);
+        }),
+      };
+      await collectEvents(
+        startGeneration(
+          { storage: harness.storage, llm, integrations: {} as IntegrationGateway },
+          { chatId: "chat-1", connectionId: "conn-1", userMessage: question },
+        ),
+      );
+      return {
+        prompt:
+          calls
+            .at(-1)
+            ?.messages.map((message) => message.content)
+            .join("\n") ?? "",
+        searchRequests,
+      };
+    }
+
+    const without = await lastPrompt("");
+    expect(without.searchRequests).toHaveLength(1);
+    expect(without.prompt).not.toContain("jasmine tea");
+
+    const withWords = await lastPrompt("tea, jasmine, drink, patrol, cup");
+    expect(withWords.searchRequests[0]!.messages.at(-1)!.content).toContain(question);
+    expect(withWords.prompt).toContain("jasmine tea");
+  });
+
   // A brand-new chat has no earlier turns to recall, so the notice only covered the first reply on a new user's screen.
   it("holds the local-matching notice until the chat has an earlier turn", async () => {
     const harness = memoryRecallStorage({ embeddingModel: "" });

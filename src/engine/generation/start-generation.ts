@@ -143,6 +143,7 @@ import {
 import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
 import { scheduleHabitScan, type HabitScanMode } from "./habit-scan";
 import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
+import { memorySearchWordsWithin, startMemorySearchWords, type PendingMemorySearchWords } from "./memory-search-words";
 import { createBackgroundJobQueue } from "./background-job-queue";
 import {
   applyCachedContextInjectionsToRegenerateInput,
@@ -496,6 +497,37 @@ function startEarlyRecallEmbedding(
     if (memories.length > 0) source.embed([text]).catch(() => undefined);
     return { configuration, source };
   })().catch(() => null);
+}
+
+/**
+ * Memory search words (memory-search-words.ts), started as the turn starts so the helper call overlaps saving the
+ * message and loading history. Same cases as the early recall embedding: a plain send to one character, where the
+ * memory query is exactly the prepared message. Anything else searches with the message alone.
+ */
+function startTurnMemorySearchWords(
+  deps: GenerationEngineDeps,
+  chat: JsonRecord,
+  input: StartGenerationInput,
+  internalOptions: InternalStartGenerationOptions,
+  prepared: PreparedUserInput,
+  signal?: AbortSignal,
+): PendingMemorySearchWords | null {
+  const text = prepared.content;
+  const chatId = readString(chat.id).trim();
+  if (!chatId || !text.trim()) return null;
+  if (readString(internalOptions.latestUserInput).trim() || internalOptions.groupTurnChild === true) return null;
+  if (input.impersonate === true || input.textsFirst === true) return null;
+  if (readString(input.regenerateMessageId).trim() || readString(input.continueMessageId).trim()) return null;
+  if (activeCharacterIds(chat).length > 1 || !shouldRefreshMemoryRecall(chat)) return null;
+  return startMemorySearchWords({
+    storage: deps.storage,
+    llm: deps.llm,
+    chatId,
+    text,
+    hasMemories: async () => (await deps.storage.listChatMemories<unknown>(chatId, { limit: 1 })).length > 0,
+    replyConnection: () => resolveGenerationConnection(deps.storage, chat, input),
+    signal,
+  });
 }
 
 async function turnEmbeddingSourceFor(
@@ -5486,6 +5518,14 @@ async function* startGenerationImpl(
   yield { type: "phase", data: "Saving message..." };
   const preparedUserInput = await prepareUserInput(deps.storage, input, chat, loadTurnRegexScripts);
   const earlyRecallEmbedding = startEarlyRecallEmbedding(deps, chat, input, internalOptions, preparedUserInput);
+  const pendingMemorySearchWords = startTurnMemorySearchWords(
+    deps,
+    chat,
+    input,
+    internalOptions,
+    preparedUserInput,
+    signal,
+  );
   let savesUserMessage = false;
   let savedUserMessage: unknown | null = null;
   let storedMessages: JsonRecord[] | null = null;
@@ -5701,6 +5741,15 @@ async function* startGenerationImpl(
   const continueAssistantResponse = shouldContinueAssistantResponse(input, preparedUserInput, generationMessages);
   const agentInjectionOverrides = normalizedAgentInjectionOverrides(input);
   const turnEmbeddingSource = await turnEmbeddingSourceFor(deps.llm, embeddingConfiguration, earlyRecallEmbedding);
+  const memorySearch = await memorySearchWordsWithin(pendingMemorySearchWords);
+  throwIfAborted(signal);
+  if (pendingMemorySearchWords) {
+    const memorySearchTiming = generationTimingEvent(
+      memorySearch.late ? "memory-search-words-late" : "memory-search-words",
+      pendingMemorySearchWords.startedAt,
+    );
+    if (memorySearchTiming) yield memorySearchTiming;
+  }
 
   yield { type: "phase", data: "Assembling prompt..." };
   let prompt = directMessages;
@@ -5714,6 +5763,7 @@ async function* startGenerationImpl(
       connection,
       request: input,
       latestUserInput,
+      memorySearchWords: memorySearch.words,
       userRegenerationSourceMessage,
       embeddingSource: turnEmbeddingSource,
       semanticConnectionId: embeddingConfiguration.available ? embeddingConfiguration.semanticConnectionId : null,
@@ -5800,6 +5850,7 @@ async function* startGenerationImpl(
         request: input,
         latestUserInput,
         userRegenerationSourceMessage,
+        memorySearchWords: memorySearch.words,
         agentData: runtime.agentData,
         embeddingSource: turnEmbeddingSource,
         semanticConnectionId: embeddingConfiguration.available ? embeddingConfiguration.semanticConnectionId : null,
