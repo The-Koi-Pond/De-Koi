@@ -445,7 +445,6 @@ pub fn run() {
             storage_commands::memory_commands::memory_capture_memory_create,
             storage_commands::memory_commands::memory_capture_memory_update,
             storage_commands::memory_commands::memory_capture_message_extra_patch,
-            storage_commands::memory_commands::memory_capture_index_rebuild,
             storage_commands::memory_commands::memory_capture_worker_release,
             storage_commands::memory_commands::story_consolidation_job_update,
             storage_commands::background_job_commands::background_job_enqueue,

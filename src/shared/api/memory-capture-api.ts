@@ -2,10 +2,8 @@ import { invokeTauri } from "./tauri-client";
 import type {
   CanonicalMemoryInput,
   CanonicalMemoryPatch,
-  CanonicalMemoryQuery,
   CanonicalMemoryRecord,
   KnowledgeEdgeInput,
-  MemoryLexicalRebuildResult,
 } from "../../engine/contracts/types/memory";
 
 export const memoryCaptureApi = {
@@ -35,8 +33,4 @@ export const memoryCaptureApi = {
     }),
   patchMessageExtra: <T = unknown>(leaseId: string, messageId: string, patch: Record<string, unknown>) =>
     invokeTauri<T>("memory_capture_message_extra_patch", { body: { leaseId, messageId, patch } }),
-  rebuildIndex: (leaseId: string, query?: CanonicalMemoryQuery) =>
-    invokeTauri<MemoryLexicalRebuildResult>("memory_capture_index_rebuild", {
-      body: { leaseId, query: query ?? null },
-    }),
 };

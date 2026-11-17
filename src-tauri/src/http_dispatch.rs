@@ -1096,12 +1096,6 @@ pub(crate) async fn dispatch_for_runtime_owner(
             })
             .await
         }
-        "memory_capture_index_rebuild" => {
-            dispatch_blocking_http_storage(state, &args, |state, args| {
-                memory_capture::rebuild_index(state, optional_value(args, "body"))
-            })
-            .await
-        }
         "memory_index_upsert" => {
             dispatch_blocking_http_storage(state, &args, |state, args| {
                 canonical_memory::upsert_memory_index_row(state, optional_value(args, "row"))
@@ -1829,7 +1823,6 @@ mod tests {
         "memory_capture_memory_create",
         "memory_capture_memory_update",
         "memory_capture_message_extra_patch",
-        "memory_capture_index_rebuild",
         "memory_capture_job_update",
         "memory_capture_worker_release",
         "story_consolidation_job_update",

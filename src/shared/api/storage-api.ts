@@ -362,7 +362,6 @@ export const storageApi: StorageGateway = {
     memoryCaptureApi.updateMemory(leaseId, memoryId, patch, knowledgeEdges),
   patchMemoryCaptureMessageExtra: (leaseId, messageId, patch) =>
     memoryCaptureApi.patchMessageExtra(leaseId, messageId, patch),
-  rebuildMemoryCaptureIndex: (leaseId, body) => memoryCaptureApi.rebuildIndex(leaseId, body),
   createMemory: (body) => canonicalMemoryApi.create(body),
   updateMemory: (memoryId, patch) => canonicalMemoryApi.update(memoryId, patch),
   queryMemories: (body) => canonicalMemoryApi.query(body),
