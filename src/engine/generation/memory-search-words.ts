@@ -1,8 +1,7 @@
 import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
-import { backgroundConnectionRule, resolveBackgroundTextConnection } from "./background-llm-connection";
 import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
-import { readString, type JsonRecord } from "./runtime-records";
+import { readString } from "./runtime-records";
 
 /**
  * Memory search words: before a reply, a small helper call lists the words a saved memory about the user's message
@@ -13,10 +12,11 @@ import { readString, type JsonRecord } from "./runtime-records";
  *
  * The call starts as the turn starts and runs alongside saving the message and loading history. Prompt assembly
  * waits for it only until {@link MEMORY_SEARCH_WORDS_WAIT_MS} after the start; a late answer is dropped and the
- * search uses the message alone, as before. It runs on the Helper Models Memory route, else the connection memory
- * capture uses, and is skipped on Claude Subscription (too slow; see SLOW_PROVIDER). A connection that answers too
- * late several replies in a row is skipped for a while (see LATE_STREAK_TO_SKIP), so a slow helper doesn't cost a
- * cancelled call on every reply.
+ * search uses the message alone, as before. It runs only when the Helper Models Memory route is set: the reply
+ * reaches the memory search about 0.25 s after the turn starts, so the wait is almost all added time, and the usual
+ * fallback (the reply's own connection) answered in 4-5 s on the Pi, never in time (2026-11-17). It is also skipped
+ * on Claude Subscription (too slow; see SLOW_PROVIDER), and a route that answers too late several replies in a row is
+ * skipped for a while (see LATE_STREAK_TO_SKIP), so a slow helper doesn't cost a cancelled call on every reply.
  */
 
 /** Longest the reply waits for the words, counted from when the call started. */
@@ -50,8 +50,6 @@ export interface MemorySearchWordsInput {
   text: string;
   /** False skips the call (a chat with nothing saved yet has nothing to search). */
   hasMemories: () => Promise<boolean>;
-  /** The reply's connection: memory capture's fallback when no Memory route is set. */
-  replyConnection: () => Promise<JsonRecord | null>;
   /** The turn's signal: stopping the reply stops the helper call too. */
   signal?: AbortSignal;
   now?: () => number;
@@ -123,21 +121,15 @@ export function startMemorySearchWords(input: MemorySearchWordsInput): PendingMe
   else input.signal?.addEventListener("abort", () => controller.abort(), { once: true });
   pending.words = (async () => {
     if (!(await input.hasMemories())) return null;
-    const routed = await resolveHelperRoute(input.storage, "memory", { job: JOB, chatId: input.chatId });
-    let connection = routed;
-    let replyConnectionId: string | null = null;
-    if (!connection) {
-      const reply = await input.replyConnection();
-      replyConnectionId = readString(reply?.id).trim() || null;
-      connection = await resolveBackgroundTextConnection(input.storage, replyConnectionId, readString(reply?.model));
-    }
+    const connection = await resolveHelperRoute(input.storage, "memory", { job: JOB, chatId: input.chatId });
+    if (!connection) return null;
     const connectionId = readString(connection.id).trim();
     const model = readString(connection.model).trim();
     const key = `${connectionId}|${model}`;
     const note = (problem?: string) =>
       void noteHelperRun(input.storage, {
         task: "memory",
-        rule: routed ? "route" : backgroundConnectionRule(connection, replyConnectionId),
+        rule: "route",
         connectionId,
         connection,
         job: JOB,
