@@ -526,7 +526,6 @@ function startTurnMemorySearchWords(
     chatId,
     text,
     hasMemories: async () => (await deps.storage.listChatMemories<unknown>(chatId, { limit: 1 })).length > 0,
-    replyConnection: () => resolveGenerationConnection(deps.storage, chat, input),
     signal,
   });
 }

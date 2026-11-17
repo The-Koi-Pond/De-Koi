@@ -29,7 +29,7 @@ import { boolish, readString, type JsonRecord } from "../../../../engine/generat
 
 const TASK_SCOPE: Record<ModelRouteTask, string> = {
   memory:
-    "Search words before each reply (needs a quick API model; skipped on Claude Subscription), saving memories, checking them, and cleanup.",
+    "Search words before each reply (only when this is set, to a quick API model; skipped on Claude Subscription), saving memories, checking them, and cleanup.",
   summaries: "Story recaps, daily chat summaries, and Summarize chat.",
   habitCheck: "Spotting the habits a character's replies keep repeating.",
   judge: "The judge a fic's quality check starts on. A fic with earlier runs keeps its last judge.",

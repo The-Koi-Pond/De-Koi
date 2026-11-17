@@ -620,6 +620,12 @@ describe("startGeneration Memory Recall preflight", () => {
       const harness = memoryRecallStorage({ embeddingModel: "" });
       harness.seedLegacyImportedChat();
       harness.migrateLegacyImportedChat();
+      // Search words only run on a Memory route.
+      const get = harness.storage.get.bind(harness.storage);
+      harness.storage.get = (async (entity: StorageEntity, id: string) =>
+        entity === "app-settings" && id === "model-routing"
+          ? { id: "model-routing", value: { version: 1, routes: { memory: "conn-1" } } }
+          : get(entity, id)) as typeof harness.storage.get;
       const base = memoryAwareLlm(calls);
       const searchRequests: LlmRequest[] = [];
       const llm: LlmGateway = {

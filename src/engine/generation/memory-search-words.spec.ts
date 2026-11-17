@@ -59,7 +59,6 @@ function start(
     chatId: "chat-1",
     text: "Are you staying dry in what I lent you back at the lock?",
     hasMemories: async () => overrides.hasMemories ?? true,
-    replyConnection: async () => CONNECTIONS[0]!,
     signal: overrides.signal,
     now: overrides.now,
   });
@@ -92,29 +91,34 @@ describe("memorySearchQuery", () => {
 });
 
 describe("startMemorySearchWords", () => {
-  it("asks the reply's background connection when no Memory route is set", async () => {
+  // The reply's own connection answered in 4-5 s on the Pi, never inside the wait: without a route it only cost time.
+  it("makes no call when no Memory route is set", async () => {
+    const { llm } = helperLlm(async () => "oilskin, coat");
+    const result = await memorySearchWordsWithin(start(routingStorage(), llm), { waitMs: 1_000 });
+    expect(result).toMatchObject({ words: null, late: false });
+    expect(llm.complete).not.toHaveBeenCalled();
+  });
+
+  it("uses the Memory route when one is set", async () => {
     const { llm, requests } = helperLlm(async () => "oilskin, coat, lock, rain");
-    const pending = start(routingStorage(), llm);
+    const pending = start(routingStorage({ memory: "quick" }), llm);
 
     await expect(memorySearchWordsWithin(pending, { waitMs: 1_000 })).resolves.toMatchObject({
       words: "oilskin, coat, lock, rain",
       late: false,
     });
-    expect(requests[0]).toMatchObject({ connectionId: "reply", model: "big-model" });
-    expect(requests[0]!.messages.at(-1)!.content).toContain("what I lent you back at the lock");
-  });
-
-  it("uses the Memory route when one is set", async () => {
-    const { llm, requests } = helperLlm(async () => "oilskin, coat");
-    await memorySearchWordsWithin(start(routingStorage({ memory: "quick" }), llm), { waitMs: 1_000 });
     expect(requests[0]).toMatchObject({ connectionId: "quick", model: "small-model" });
+    expect(requests[0]!.messages.at(-1)!.content).toContain("what I lent you back at the lock");
   });
 
   it("makes no call for a chat with nothing saved yet", async () => {
     const { llm } = helperLlm(async () => "oilskin, coat");
-    const result = await memorySearchWordsWithin(start(routingStorage(), llm, { hasMemories: false }), {
-      waitMs: 1_000,
-    });
+    const result = await memorySearchWordsWithin(
+      start(routingStorage({ memory: "quick" }), llm, { hasMemories: false }),
+      {
+        waitMs: 1_000,
+      },
+    );
     expect(result.words).toBeNull();
     expect(llm.complete).not.toHaveBeenCalled();
   });
@@ -150,7 +154,7 @@ describe("startMemorySearchWords", () => {
           });
         }),
     );
-    const pending = start(routingStorage(), llm);
+    const pending = start(routingStorage({ memory: "quick" }), llm);
     await vi.waitFor(() => expect(llm.complete).toHaveBeenCalled());
 
     const result = await memorySearchWordsWithin(pending, { waitMs: 30 });
@@ -164,7 +168,7 @@ describe("startMemorySearchWords", () => {
     const { llm } = helperLlm(async () => {
       throw new Error("provider down");
     });
-    const result = await memorySearchWordsWithin(start(routingStorage(), llm), { waitMs: 1_000 });
+    const result = await memorySearchWordsWithin(start(routingStorage({ memory: "quick" }), llm), { waitMs: 1_000 });
     expect(result).toMatchObject({ words: null, late: false });
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
@@ -182,7 +186,7 @@ describe("startMemorySearchWords", () => {
           });
         }),
     );
-    const pending = start(routingStorage(), llm, { signal: controller.signal });
+    const pending = start(routingStorage({ memory: "quick" }), llm, { signal: controller.signal });
     await vi.waitFor(() => expect(llm.complete).toHaveBeenCalled());
     controller.abort();
     await expect(pending.words).resolves.toBeNull();
