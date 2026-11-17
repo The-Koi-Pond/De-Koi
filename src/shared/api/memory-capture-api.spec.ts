@@ -18,8 +18,7 @@ describe("memoryCaptureApi", () => {
       .mockResolvedValueOnce({ id: "job-1", status: "processing" })
       .mockResolvedValueOnce({ id: "memory-1" })
       .mockResolvedValueOnce({ id: "memory-1", content: "updated" })
-      .mockResolvedValueOnce({ id: "message-1", extra: { memoryCapture: { status: "completed" } } })
-      .mockResolvedValueOnce({ rebuilt: 1 });
+      .mockResolvedValueOnce({ id: "message-1", extra: { memoryCapture: { status: "completed" } } });
     const { memoryCaptureApi } = await import("./memory-capture-api");
 
     await expect(memoryCaptureApi.acquireWorker("browser-a")).resolves.toBe("lease-a");
@@ -32,7 +31,6 @@ describe("memoryCaptureApi", () => {
     await memoryCaptureApi.patchMessageExtra("lease-a", "message-1", {
       memoryCapture: { status: "completed" },
     });
-    await memoryCaptureApi.rebuildIndex("lease-a", { scope: { kind: "chat", id: "chat-1" } });
 
     expect(mocks.invokeTauri).toHaveBeenNthCalledWith(1, "memory_capture_worker_acquire", {
       body: { workerId: "browser-a" },
@@ -54,9 +52,6 @@ describe("memoryCaptureApi", () => {
     });
     expect(mocks.invokeTauri).toHaveBeenNthCalledWith(7, "memory_capture_message_extra_patch", {
       body: { leaseId: "lease-a", messageId: "message-1", patch: { memoryCapture: { status: "completed" } } },
-    });
-    expect(mocks.invokeTauri).toHaveBeenNthCalledWith(8, "memory_capture_index_rebuild", {
-      body: { leaseId: "lease-a", query: { scope: { kind: "chat", id: "chat-1" } } },
     });
   });
 });

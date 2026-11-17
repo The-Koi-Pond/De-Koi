@@ -236,18 +236,6 @@ pub(crate) fn patch_message_extra(state: &AppState, body: Value) -> AppResult<Va
     })
 }
 
-pub(crate) fn rebuild_index(state: &AppState, body: Value) -> AppResult<Value> {
-    let lease_id = lease_id(&body)?;
-    let query = body
-        .get("query")
-        .cloned()
-        .filter(|value| !value.is_null())
-        .unwrap_or_else(|| json!({}));
-    state.with_memory_capture_lease(lease_id, || {
-        canonical_memory::rebuild_memory_lexical_index(state, query)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,9 +329,6 @@ mod tests {
         )
         .expect_err("released lease must not patch message status");
         assert_eq!(stale_message.code, "memory_capture_lease_lost");
-        let stale_index = rebuild_index(&state, json!({ "leaseId": lease_id, "query": {} }))
-            .expect_err("released lease must not rebuild the canonical index");
-        assert_eq!(stale_index.code, "memory_capture_lease_lost");
     }
 
     #[test]
@@ -691,5 +676,67 @@ mod tests {
                 .unwrap()["status"],
             json!("active")
         );
+    }
+
+    fn lexical_rows(state: &AppState) -> Vec<Value> {
+        let mut rows = state
+            .storage
+            .list(canonical_memory::INDEX_COLLECTION)
+            .unwrap()
+            .into_iter()
+            .filter(|row| row["provider"] == json!("lexical"))
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|row| row["id"].as_str().unwrap_or_default().to_string());
+        rows
+    }
+
+    #[test]
+    fn capture_writes_leave_nothing_for_a_scope_index_rebuild_to_change() {
+        let state = test_state("capture-index-current");
+        for id in ["message-1", "message-2"] {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({ "id": id, "chatId": "chat-1", "content": "hello", "extra": {} }),
+                )
+                .unwrap();
+        }
+        let lease = acquire_worker(&state, json!({ "workerId": "browser-a" })).unwrap();
+        let lease_id = lease["leaseId"].as_str().unwrap();
+        create_memory(
+            &state,
+            json!({ "leaseId": lease_id, "memory": captured_memory("memory-1", "message-1") }),
+        )
+        .unwrap();
+        let mut second = captured_memory("memory-2", "message-2");
+        second["content"] = json!("Sam keeps a spare key under the blue flowerpot.");
+        create_memory(&state, json!({ "leaseId": lease_id, "memory": second })).unwrap();
+        update_memory(
+            &state,
+            json!({
+                "leaseId": lease_id,
+                "memoryId": "memory-1",
+                "patch": { "content": "Sam changed the locker code to 9021." }
+            }),
+        )
+        .unwrap();
+
+        let after_capture = lexical_rows(&state);
+        assert_eq!(after_capture.len(), 2);
+        assert!(after_capture
+            .iter()
+            .any(|row| row["memoryId"] == json!("memory-1")
+                && row["lexicalTokens"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("9021"))));
+
+        canonical_memory::rebuild_memory_lexical_index(
+            &state,
+            json!({ "scope": { "kind": "character", "id": "character-1" } }),
+        )
+        .unwrap();
+        assert_eq!(lexical_rows(&state), after_capture);
     }
 }

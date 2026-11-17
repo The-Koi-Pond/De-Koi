@@ -303,13 +303,6 @@ function queueStorage(
       if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
       return storage.patchChatMessageExtra(messageId, patch);
     },
-    async rebuildMemoryCaptureIndex(
-      leaseId: string,
-      body?: Parameters<NonNullable<StorageGateway["rebuildMemoryIndex"]>>[0],
-    ) {
-      if (captureLease?.leaseId !== leaseId) throw { code: "memory_capture_lease_lost" };
-      return storage.rebuildMemoryIndex!(body);
-    },
   });
 
   async function enqueue() {
@@ -424,7 +417,6 @@ describe("automatic memory capture queue", () => {
       harness.storage.createMemoryCaptureMemory = undefined;
       harness.storage.updateMemoryCaptureMemory = undefined;
       harness.storage.patchMemoryCaptureMessageExtra = undefined;
-      harness.storage.rebuildMemoryCaptureIndex = undefined;
 
       scheduleAutomaticMemoryCaptureQueueProcessing(harness.dependencies);
       await vi.advanceTimersByTimeAsync(60_000);

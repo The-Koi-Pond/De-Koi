@@ -550,8 +550,7 @@ export async function processAutomaticMemoryCaptureQueue(
     !storage.updateMemoryCaptureJob ||
     !storage.createMemoryCaptureMemory ||
     !storage.updateMemoryCaptureMemory ||
-    !storage.patchMemoryCaptureMessageExtra ||
-    !storage.rebuildMemoryCaptureIndex
+    !storage.patchMemoryCaptureMessageExtra
   ) {
     return result;
   }
@@ -730,23 +729,8 @@ export async function processAutomaticMemoryCaptureQueue(
           updateMemory: (memoryId, patch, knowledgeEdges) =>
             storage.updateMemoryCaptureMemory!(leaseId, memoryId, patch, knowledgeEdges),
         });
+        // Capture's create and update keep each memory's lexical index row current, so no scope rebuild follows.
         const consequences: PersistedCanonicalConsequence[] = persisted.affected;
-        if (consequences.length > 0) {
-          try {
-            await storage.rebuildMemoryCaptureIndex(leaseId, { scope: extracted.scope });
-          } catch (error) {
-            await updateJob(
-              storage,
-              id,
-              {
-                canonicalIndexError: errorMessage(error),
-                canonicalIndexFailedAt: now,
-                updatedAt: now,
-              },
-              leaseId,
-            );
-          }
-        }
         await requireLease();
         const committedCapture = valueGate.acceptTranscriptCandidate
           ? await storage.commitChatMemoryCapture({
@@ -985,8 +969,7 @@ export function scheduleAutomaticMemoryCaptureQueueProcessing(
     !storage.updateMemoryCaptureJob ||
     !storage.createMemoryCaptureMemory ||
     !storage.updateMemoryCaptureMemory ||
-    !storage.patchMemoryCaptureMessageExtra ||
-    !storage.rebuildMemoryCaptureIndex
+    !storage.patchMemoryCaptureMessageExtra
   ) {
     return;
   }

@@ -232,7 +232,6 @@ export interface StorageGateway extends GenericStorageGateway, ChatTranscriptPor
     messageId: string,
     patch: Record<string, unknown>,
   ): Promise<T>;
-  rebuildMemoryCaptureIndex?(leaseId: string, body?: CanonicalMemoryQuery): Promise<MemoryLexicalRebuildResult>;
   createMemory?(body: CanonicalMemoryInput): Promise<CanonicalMemoryRecord>;
   updateMemory?(memoryId: string, patch: CanonicalMemoryPatch): Promise<CanonicalMemoryRecord>;
   queryMemories?(body?: CanonicalMemoryQuery): Promise<CanonicalMemoryRecord[]>;

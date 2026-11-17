@@ -171,13 +171,6 @@ function attachMemoryCaptureLease(storage: StorageGateway, jobs: Map<string, Rec
       if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
       return storage.patchChatMessageExtra(messageId, patch);
     },
-    async rebuildMemoryCaptureIndex(
-      leaseId: string,
-      body?: Parameters<NonNullable<StorageGateway["rebuildMemoryIndex"]>>[0],
-    ) {
-      if (lease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
-      return storage.rebuildMemoryIndex!(body);
-    },
   });
 }
 

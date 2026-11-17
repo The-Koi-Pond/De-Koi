@@ -165,10 +165,6 @@ function memoryRecallStorage(
       if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
       return storage.patchChatMessageExtra(messageId, patch);
     },
-    async rebuildMemoryCaptureIndex(leaseId, body) {
-      if (memoryCaptureLease?.leaseId !== leaseId) throw new Error("stale memory capture lease");
-      return storage.rebuildMemoryIndex!(body);
-    },
     async list<T = unknown>(entity: StorageEntity): Promise<T[]> {
       if (entity === "connections") return [records["conn-1"]] as T[];
       if (entity === "personas") return [] as T[];

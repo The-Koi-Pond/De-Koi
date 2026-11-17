@@ -215,14 +215,6 @@ pub fn memory_capture_message_extra_patch(
 }
 
 #[tauri::command]
-pub fn memory_capture_index_rebuild(
-    state: State<'_, AppState>,
-    body: Value,
-) -> Result<Value, AppError> {
-    memory_capture::rebuild_index(&state, body)
-}
-
-#[tauri::command]
 pub fn memory_cleanup_undo(state: State<'_, AppState>, body: Value) -> Result<Value, AppError> {
     memory_maintenance::undo_memory_cleanup(&state, body)
 }

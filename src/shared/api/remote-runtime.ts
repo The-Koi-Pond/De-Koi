@@ -175,7 +175,6 @@ const REMOTE_COMMANDS = new Set([
   "memory_capture_memory_create",
   "memory_capture_memory_update",
   "memory_capture_message_extra_patch",
-  "memory_capture_index_rebuild",
   "memory_capture_job_update",
   "memory_capture_worker_release",
   "story_consolidation_job_update",
