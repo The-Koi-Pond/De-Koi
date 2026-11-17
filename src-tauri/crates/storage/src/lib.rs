@@ -1429,6 +1429,37 @@ impl FileStorage {
         self.upsert_many_journaled_locked(upserts)
     }
 
+    /// Durably upserts and deletes rows of one large collection through its
+    /// record-local journal, without reading or rewriting the collection file.
+    /// Both changes commit together; `delete_ids` must not name an upserted id.
+    pub fn upsert_and_delete_journaled(
+        &self,
+        collection: &str,
+        upserts: Vec<Value>,
+        delete_ids: Vec<String>,
+    ) -> AppResult<()> {
+        validate_collection_name(collection)?;
+        let upserts = if upserts.is_empty() {
+            Vec::new()
+        } else {
+            vec![(collection, upserts)]
+        };
+        let deletes = if delete_ids.is_empty() {
+            Vec::new()
+        } else {
+            vec![(collection, delete_ids)]
+        };
+        if upserts.is_empty() && deletes.is_empty() {
+            return Ok(());
+        }
+        let _write_permit = self.write_gate.begin_write()?;
+        let _guard = self
+            .lock
+            .write()
+            .map_err(|_| AppError::new("lock_error", "Storage lock poisoned"))?;
+        self.upsert_and_delete_many_journaled_locked(upserts, deletes)
+    }
+
     /// Durably groups record-local upserts with updates to small related
     /// collections without checkpointing the large message primaries.
     pub fn upsert_many_journaled_with_collections<'a, F, T>(
@@ -1860,7 +1891,53 @@ impl FileStorage {
         Ok(())
     }
 
-    fn upsert_cached_collection_rows(cache: &mut StorageCache, upserts: &[(&str, Vec<Value>)]) {
+    fn upsert_cached_collection_rows(
+        cache: &mut StorageCache,
+        upserts: &[(&str, Vec<Value>)],
+        deletes: &[(&str, Vec<String>)],
+    ) {
+        for (collection, ids) in deletes {
+            cache.id_indexes.remove(*collection);
+            cache
+                .projected_lists
+                .retain(|key, _| key.collection != *collection);
+            let Some(is_dirty) = cache
+                .collections
+                .get(*collection)
+                .map(|cached| cached.dirty)
+            else {
+                continue;
+            };
+            if !is_dirty {
+                cache.collections.remove(*collection);
+                continue;
+            }
+            let cached = cache
+                .collections
+                .get_mut(*collection)
+                .expect("dirty cached collection should still exist");
+            let ids = ids.iter().map(String::as_str).collect::<HashSet<_>>();
+            if !ids
+                .iter()
+                .any(|id| cached.row_indices_by_id.contains_key(*id))
+            {
+                continue;
+            }
+            let cached_rows = Arc::make_mut(&mut cached.rows);
+            let mut removed_bytes = 0usize;
+            cached_rows.retain(|row| {
+                let deleted = row
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| ids.contains(id));
+                if deleted {
+                    removed_bytes = removed_bytes.saturating_add(approximate_json_bytes(row));
+                }
+                !deleted
+            });
+            cached.approx_bytes = cached.approx_bytes.saturating_sub(removed_bytes);
+            cached.row_indices_by_id = row_indices_by_id(cached_rows);
+        }
         for (collection, rows) in upserts {
             cache.id_indexes.remove(*collection);
             cache
@@ -3578,17 +3655,31 @@ impl FileStorage {
     }
 
     fn upsert_many_journaled_locked(&self, upserts: Vec<(&str, Vec<Value>)>) -> AppResult<()> {
-        if upserts.iter().any(|(collection, _)| {
-            !matches!(
-                *collection,
-                "messages"
-                    | "message-swipes"
-                    | "chats"
-                    | "canonical-memories"
-                    | "story-consolidation-jobs"
-                    | "memory-knowledge-edges"
-            )
-        }) {
+        self.upsert_and_delete_many_journaled_locked(upserts, Vec::new())
+    }
+
+    fn upsert_and_delete_many_journaled_locked(
+        &self,
+        upserts: Vec<(&str, Vec<Value>)>,
+        deletes: Vec<(&str, Vec<String>)>,
+    ) -> AppResult<()> {
+        if upserts
+            .iter()
+            .map(|(collection, _)| collection)
+            .chain(deletes.iter().map(|(collection, _)| collection))
+            .any(|collection| {
+                !matches!(
+                    *collection,
+                    "messages"
+                        | "message-swipes"
+                        | "chats"
+                        | "canonical-memories"
+                        | "story-consolidation-jobs"
+                        | "memory-knowledge-edges"
+                        | "memory-index-rows"
+                )
+            })
+        {
             return Err(AppError::invalid_input(
                 "Journaled atomic upserts require checkpoint-tracked collections",
             ));
@@ -3613,7 +3704,7 @@ impl FileStorage {
             .map_err(|_| AppError::new("lock_error", "Storage cache lock poisoned"))?;
 
         let collections_dir = self.root.join("collections");
-        if let Err(error) = upsert_transaction::commit(&collections_dir, &upserts) {
+        if let Err(error) = upsert_transaction::commit(&collections_dir, &upserts, &deletes) {
             if error.code != "invalid_input" {
                 self.write_gate.mark_recovery_required()?;
             }
@@ -3624,7 +3715,7 @@ impl FileStorage {
             return Err(error);
         }
 
-        Self::upsert_cached_collection_rows(&mut cache, &upserts);
+        Self::upsert_cached_collection_rows(&mut cache, &upserts, &deletes);
         drop(cache);
         for (collection, rows) in &upserts {
             if *collection != "chats" {
@@ -4317,6 +4408,81 @@ mod tests {
                     .to_string_lossy()
                     .starts_with(".collection-transaction-")
             }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journaled_index_deletes_and_upserts_skip_the_file_and_survive_restart() {
+        let root = temp_storage_root("journaled-index-deletes");
+        let collections = root.join("collections");
+        let index_path = collections.join("memory-index-rows.json");
+        write_test_collection(
+            &index_path,
+            vec![
+                json!({ "id": "legacy", "memoryId": "memory-1" }),
+                json!({ "id": "kept", "memoryId": "memory-2" }),
+            ],
+        );
+        let file_before = fs::read(&index_path).unwrap();
+        let ids = |storage: &FileStorage| -> Vec<String> {
+            let mut ids = storage
+                .list("memory-index-rows")
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>();
+            ids.sort();
+            ids
+        };
+
+        let storage = FileStorage::new(&root).unwrap();
+        storage
+            .upsert_and_delete_journaled(
+                "memory-index-rows",
+                vec![json!({ "id": "replacement", "memoryId": "memory-1" })],
+                vec!["legacy".to_string()],
+            )
+            .unwrap();
+
+        assert_eq!(
+            fs::read(&index_path).unwrap(),
+            file_before,
+            "the cold index file must not be rewritten"
+        );
+        assert!(collections.join("memory-index-rows.pending.jsonl").exists());
+        assert_eq!(ids(&storage), vec!["kept", "replacement"]);
+
+        // A dirty cached collection must drop deleted rows from the cache too.
+        storage
+            .upsert_with_id(
+                "memory-index-rows",
+                "dirty",
+                json!({ "id": "dirty", "memoryId": "memory-3" }),
+            )
+            .unwrap();
+        assert!(
+            storage
+                .cache
+                .read()
+                .unwrap()
+                .collections
+                .get("memory-index-rows")
+                .is_some_and(|cached| cached.dirty),
+            "the second write under test needs a dirty cached index"
+        );
+        storage
+            .upsert_and_delete_journaled(
+                "memory-index-rows",
+                vec![json!({ "id": "after-dirty", "memoryId": "memory-3" })],
+                vec!["dirty".to_string(), "kept".to_string()],
+            )
+            .unwrap();
+        assert_eq!(ids(&storage), vec!["after-dirty", "replacement"]);
+        drop(storage);
+
+        let reopened = FileStorage::new(&root).unwrap();
+        assert_eq!(ids(&reopened), vec!["after-dirty", "replacement"]);
+        drop(reopened);
         fs::remove_dir_all(root).unwrap();
     }
 

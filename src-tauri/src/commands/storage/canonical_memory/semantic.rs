@@ -277,29 +277,49 @@ fn select_semantic_candidates(mut memories: Vec<Value>) -> Vec<Value> {
     memories
 }
 
+/// Ids of `existing` rows that `rows` supersede: other rows for the same memory
+/// and embedding identity, such as rows written under an older id scheme.
+fn superseded_semantic_row_ids(
+    existing: &[Value],
+    rows: &[Value],
+    identity: &SemanticIndexIdentity,
+) -> Vec<String> {
+    let replaced_memory_ids = rows
+        .iter()
+        .map(|row| read_string(row.get("memoryId")))
+        .collect::<HashSet<_>>();
+    let new_ids = rows
+        .iter()
+        .map(|row| read_string(row.get("id")))
+        .collect::<HashSet<_>>();
+    let mut superseded = existing
+        .iter()
+        .filter(|row| semantic_row_matches_identity(row, identity))
+        .filter(|row| replaced_memory_ids.contains(&read_string(row.get("memoryId"))))
+        .map(|row| read_string(row.get("id")))
+        .filter(|id| !id.is_empty() && !new_ids.contains(id))
+        .collect::<Vec<_>>();
+    superseded.sort();
+    superseded.dedup();
+    superseded
+}
+
+/// Stores `rows` and removes the rows they supersede through the index journal.
+/// The index holds every vector, so an atomic rewrite of it held the storage
+/// write gate for seconds and stalled the next reply's message save (#1721).
 fn replace_semantic_index_rows(
     state: &AppState,
     identity: &SemanticIndexIdentity,
+    existing: &[Value],
     rows: Vec<Value>,
 ) -> AppResult<()> {
     if rows.is_empty() {
         return Ok(());
     }
-    let identity = identity.clone();
+    let superseded = superseded_semantic_row_ids(existing, &rows, identity);
     state
         .storage
-        .update_collections_atomically(vec![INDEX_COLLECTION], move |collections| {
-            let stored = collections[0].rows_mut();
-            for row in &rows {
-                let memory_id = read_string(row.get("memoryId"));
-                stored.retain(|candidate| {
-                    read_string(candidate.get("memoryId")) != memory_id
-                        || !semantic_row_matches_identity(candidate, &identity)
-                });
-                stored.push(row.clone());
-            }
-            Ok(())
-        })
+        .upsert_and_delete_journaled(INDEX_COLLECTION, rows, superseded)
 }
 
 pub(crate) async fn query_memories_semantic(state: &AppState, body: Value) -> AppResult<Value> {
@@ -481,7 +501,7 @@ async fn fill_semantic_vectors(
         new_rows.push(semantic_index_row(memory, identity, vector.clone())?);
         vectors.insert(memory_id, vector);
     }
-    replace_semantic_index_rows(state, identity, new_rows)?;
+    replace_semantic_index_rows(state, identity, &index_rows, new_rows)?;
     remember_semantic_vectors(state, memories, &vectors, identity)?;
     Ok(vectors)
 }
@@ -667,6 +687,100 @@ mod tests {
         assert_eq!(plan.cached_vectors.len(), 1);
         assert_eq!(plan.cached_vectors["candidate"], vec![1.0, 0.0]);
         assert!(plan.missing_memory_ids.is_empty());
+    }
+
+    #[test]
+    fn vector_fill_journals_rows_and_drops_superseded_rows_without_rewriting_the_index() {
+        let (state, path) = semantic_test_state("fill-journals");
+        let identity = SemanticIndexIdentity {
+            connection_id: "embedding-connection".to_string(),
+            provider: "openai".to_string(),
+            model: "text-embedding-3-small".to_string(),
+        };
+        let memory = json!({
+            "id": "candidate",
+            "content": "Candidate fact",
+            "updatedAt": "2026-08-05T10:00:00Z"
+        });
+        let semantic_row = |id: &str, memory_id: &str, connection_id: &str| {
+            json!({
+                "id": id,
+                "memoryId": memory_id,
+                "connectionId": connection_id,
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "canonicalUpdatedAt": "2026-07-01T10:00:00Z",
+                "contentHash": "stale",
+                "vector": [0.0, 1.0]
+            })
+        };
+        state
+            .storage
+            .replace_all(
+                INDEX_COLLECTION,
+                vec![
+                    // Written under the older 16-hex id scheme for the same identity.
+                    semantic_row(
+                        "candidate:semantic:529513b7f89a4519",
+                        "candidate",
+                        "embedding-connection",
+                    ),
+                    semantic_row(
+                        "candidate:semantic:other-connection",
+                        "candidate",
+                        "other-connection",
+                    ),
+                    semantic_row(
+                        "unrelated:semantic:row",
+                        "unrelated",
+                        "embedding-connection",
+                    ),
+                ],
+            )
+            .unwrap();
+        state.storage.flush().unwrap();
+        let index_path = state
+            .storage
+            .root()
+            .join("collections")
+            .join(format!("{INDEX_COLLECTION}.json"));
+        let file_before = std::fs::read(&index_path).unwrap();
+
+        let existing =
+            semantic_index_rows_for_candidates(&state, std::slice::from_ref(&memory), &identity)
+                .unwrap();
+        let row = semantic_index_row(&memory, &identity, vec![1.0, 0.0]).unwrap();
+        let row_id = read_string(row.get("id"));
+        replace_semantic_index_rows(&state, &identity, &existing, vec![row]).unwrap();
+
+        assert!(
+            std::fs::read(&index_path).unwrap() == file_before,
+            "the vector fill must not rewrite the index file"
+        );
+        let stored_ids = |state: &AppState| {
+            let mut ids = state
+                .storage
+                .list(INDEX_COLLECTION)
+                .unwrap()
+                .iter()
+                .map(|row| read_string(row.get("id")))
+                .collect::<Vec<_>>();
+            ids.sort();
+            ids
+        };
+        let mut expected = vec![
+            row_id,
+            "candidate:semantic:other-connection".to_string(),
+            "unrelated:semantic:row".to_string(),
+        ];
+        expected.sort();
+        assert_eq!(stored_ids(&state), expected);
+
+        drop(state);
+        let reopened = AppState::from_data_dir(path.clone(), Vec::new()).unwrap();
+        assert_eq!(stored_ids(&reopened), expected);
+        drop(reopened);
+        std::fs::remove_dir_all(path).unwrap();
     }
 
     #[test]
