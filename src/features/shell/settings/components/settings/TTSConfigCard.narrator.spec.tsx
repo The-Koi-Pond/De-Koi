@@ -109,4 +109,43 @@ describe("TTSConfigCard narrator voice", () => {
 
     expect(toggle("Split quoted dialogue from narration")).toBeTruthy();
   });
+
+  it("saves a per-character ElevenLabs tag on that character's voice row", () => {
+    vi.useFakeTimers();
+    try {
+      mocks.config = baseConfig({ voiceMode: "per-character" });
+      renderExpanded();
+
+      const tagInput = container.querySelector<HTMLInputElement>(
+        'input[aria-label="Tag before every sentence for Pierrot"]',
+      );
+      expect(tagInput).not.toBeNull();
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+          tagInput,
+          "strong Russian accent",
+        );
+        tagInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      act(() => vi.runOnlyPendingTimers());
+
+      const saved = mocks.mutateAsync.mock.calls.at(-1)?.[0] as TTSConfig | undefined;
+      expect(saved?.voiceAssignments).toEqual([
+        expect.objectContaining({
+          characterId: "pierrot",
+          voice: "pierrot-voice",
+          deliveryTag: "strong Russian accent",
+        }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hides the tag field for providers that would ignore it", () => {
+    mocks.config = baseConfig({ voiceMode: "per-character", source: "openai" });
+    renderExpanded();
+
+    expect(container.querySelector('input[aria-label^="Tag before every sentence"]')).toBeNull();
+  });
 });

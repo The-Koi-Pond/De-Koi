@@ -910,7 +910,7 @@
     "id": "tts",
     "title": "Text-to-Speech",
     "category": "Media",
-    "summary": "Configure voice providers and let chats, narration, or characters speak with assigned voices. Replay any message with its speaker button, in Conversation and Roleplay.",
+    "summary": "Configure voice providers and let chats, narration, or characters speak with assigned voices. With ElevenLabs, a character's voice can also get a tag like \"strong Russian accent\" that is sent before every sentence it speaks, to keep an accent or delivery the voice alone loses. Replay any message with its speaker button, in Conversation and Roleplay.",
     "keywords": [
       "voice",
       "tts",
@@ -924,7 +924,9 @@
       "elevenlabs",
       "openai",
       "timeout",
-      "self-hosted tts"
+      "self-hosted tts",
+      "accent",
+      "voice tag"
     ],
     "audience": "Users who want voiced messages, narration, or more immersive scenes.",
     "where": "Connections > Text to Speech for the provider, voices and auto-play; the speaker button in each message's actions to play that message.",

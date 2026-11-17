@@ -100,6 +100,8 @@ const NANOGPT_ELEVENLABS_VOICES: &[&str] = &[
     "Will",
 ];
 
+#[path = "tts_delivery_tag.rs"]
+mod delivery_tag;
 #[path = "tts_transcribe.rs"]
 mod transcribe;
 #[path = "tts_voice_note.rs"]
@@ -432,7 +434,12 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
         .build()
         .map_err(|error| AppError::new("tts_client_error", error.to_string()))?;
     let provider_text = if source == "elevenlabs" {
-        build_elevenlabs_text_input(text, tone)
+        match delivery_tag::delivery_tag_for_voice(&config, voice) {
+            Some(tag) => {
+                build_elevenlabs_text_input(&delivery_tag::tag_each_sentence(text, &tag), tone)
+            }
+            None => build_elevenlabs_text_input(text, tone),
+        }
     } else {
         text.to_string()
     };
