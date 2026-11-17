@@ -5,10 +5,12 @@ all-features = true
 version = 2
 yanked = "warn"
 unmaintained = "workspace"
-# No advisory waivers. tauri-plugin-devtools 2.2 no longer pulls in h2 0.3.27
-# (RUSTSEC-2026-0258) or ringbuf < 0.5.2 (RUSTSEC-2026-0293);
-# scripts/check-rust-advisory-boundaries.mjs keeps both out of every build graph.
-ignore = []
+# tauri-plugin-devtools 2.2 no longer pulls in h2 0.3.27 (RUSTSEC-2026-0258) or
+# ringbuf < 0.5.2 (RUSTSEC-2026-0293); scripts/check-rust-advisory-boundaries.mjs
+# keeps both out of every build graph.
+# Temporary: RUSTSEC-2026-0543 says chrono is unmaintained (no vulnerability, no
+# safe upgrade). Remove this waiver when #1719 replaces chrono.
+ignore = ["RUSTSEC-2026-0543"]
 
 [bans]
 multiple-versions = "warn"
