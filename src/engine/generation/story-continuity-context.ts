@@ -3,6 +3,7 @@ import type { GenerationContextAttributionItem } from "../contracts/types/chat";
 import type { CanonicalMemoryRecord, StoryOpenThread, StoryProjectionPayload } from "../contracts/types/memory";
 import { parseRecord, readNumber, readString, type JsonRecord } from "./runtime-records";
 import { getEffectiveMemoryRecallEnabled } from "../contracts/types/chat";
+import { memorySearchQuery } from "./memory-search-words";
 import { isStoryProjectionMemory } from "./story-projections";
 import { resolveEpistemicAccess, type EpistemicAccessResult, type EpistemicSubject } from "./epistemic-access";
 import { loadEpistemicContext } from "./epistemic-context";
@@ -12,6 +13,8 @@ export interface StoryContinuityContextInput {
   storedMessages: JsonRecord[];
   retainedRawMessageIds?: string[];
   latestUserInput: string;
+  /** Memory search words added to the older-episode match (see memory-search-words.ts). */
+  searchWords?: string | null;
   representedText?: string[];
   maxContext?: number | null;
   epistemicSubjects?: EpistemicSubject[];
@@ -202,7 +205,7 @@ export async function buildStoryContinuityContext(
 
   const episodes = rows.filter((entry) => entry.payload.level === "episode");
   const arcs = rows.filter((entry) => entry.payload.level === "arc");
-  const query = words(input.latestUserInput);
+  const query = words(memorySearchQuery(input.latestUserInput, input.searchWords));
   const recentEpisode = [...episodes].sort((left, right) => timestamp(right.memory) - timestamp(left.memory))[0];
   const olderEpisode = episodes
     .filter((entry) => entry !== recentEpisode)

@@ -67,6 +67,7 @@ import { fingerprintChatSummary } from "../shared/text/chat-summary-fingerprint"
 import { activeCharacterIds } from "./active-characters";
 import { buildCanonicalMemoryContext } from "./canonical-memory-context";
 import { buildStoryContinuityContext } from "./story-continuity-context";
+import { memorySearchQuery } from "./memory-search-words";
 import { distinctiveMatch, distinctiveTermWeights, queryTermFocus } from "./distinctive-terms";
 import { epistemicSubjectsForGeneration } from "./epistemic-context";
 import {
@@ -206,6 +207,8 @@ export interface PromptAssemblyInput {
   connection: JsonRecord;
   request: JsonRecord;
   latestUserInput: string;
+  /** Memory search words for the keyword side of memory lookups (see memory-search-words.ts). */
+  memorySearchWords?: string | null;
   userRegenerationSourceMessage?: ChatMLMessage | null;
   agentData?: Record<string, string>;
   embeddingSource?: {
@@ -2475,6 +2478,7 @@ async function buildMemoryRecallBlock(
   characterMemoryLines: string[] = [],
   visibleHistoryMessages: JsonRecord[] = [],
   personaName?: string | null,
+  searchWords?: string | null,
 ): Promise<MemoryRecallPromptContext | null> {
   if (!memoryRecallEnabled(chat) || !latestUserInput.trim()) return null;
   const chatId = readString(chat.id).trim();
@@ -2503,8 +2507,10 @@ async function buildMemoryRecallBlock(
   } catch {
     semanticQueryVector = null;
   }
-  const queryVector = lexicalMemoryEmbedding(latestUserInput);
-  const queryTokens = memoryRecallQueryTokens(latestUserInput);
+  // Semantic search embeds the message alone (the turn may have embedded it early); the keyword side adds the words.
+  const searchText = memorySearchQuery(latestUserInput, searchWords);
+  const queryVector = lexicalMemoryEmbedding(searchText);
+  const queryTokens = memoryRecallQueryTokens(searchText);
   const candidates = memories.filter(memoryRecallRetrievable).flatMap((memory) => {
     const rawContent = readString(memory.content);
     const sourceContent = prepareMemoryPromptContent(rawContent);
@@ -2513,7 +2519,7 @@ async function buildMemoryRecallBlock(
     if (!content) return [];
     return [{ memory, content, sourceContent, tokens: memoryRecallTokenSet(content) }];
   });
-  const queryFocus = queryTermFocus(latestUserInput, memoryRecallQueryTokens);
+  const queryFocus = queryTermFocus(searchText, memoryRecallQueryTokens);
   const latestInput = latestUserInput.trim();
   const termWeights = distinctiveTermWeights([
     ...candidates.map((candidate) => candidate.tokens),
@@ -4596,6 +4602,7 @@ export async function assembleGenerationPrompt(
             characters.flatMap((character) => character.memories ?? []),
             historySelection.sourceMessages,
             persona?.name ?? null,
+            input.memorySearchWords,
           ),
       canReuseSourceSensitiveContext && reusableContext
         ? Promise.resolve({
@@ -4608,6 +4615,7 @@ export async function assembleGenerationPrompt(
             chat: input.chat,
             storedMessages: input.storedMessages,
             latestUserInput: input.latestUserInput,
+            searchWords: input.memorySearchWords,
             characters: canonicalMemoryCharacters.map((character) => ({
               id: character.id,
               name: character.name,
@@ -4655,6 +4663,7 @@ export async function assembleGenerationPrompt(
             .map((message) => readString(message.id).trim())
             .filter(Boolean),
           latestUserInput: input.latestUserInput,
+          searchWords: input.memorySearchWords,
           representedText: [
             summary ?? "",
             ...(memoryRecallContext?.attributionItems ?? []).map((item) => readString(item.snippet)),
