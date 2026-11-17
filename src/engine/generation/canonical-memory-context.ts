@@ -20,6 +20,7 @@ import {
 } from "./epistemic-access";
 import { loadEpistemicContext } from "./epistemic-context";
 import { memorySearchQuery } from "./memory-search-words";
+import { settleByDeadline } from "./semantic-recall-deadline";
 import { isStoryProjectionMemory } from "./story-projections";
 import {
   distinctiveMatch,
@@ -64,6 +65,8 @@ export interface CanonicalMemoryContextInput {
   connectionId?: string | null;
   maxContext?: number | null;
   epistemicSubjects?: EpistemicSubject[];
+  /** Epoch ms after which the reply stops waiting for meaning-based search (see semantic-recall-deadline.ts). */
+  semanticDeadlineAt?: number | null;
 }
 
 export interface CanonicalMemoryPromptContext {
@@ -678,19 +681,23 @@ export async function buildCanonicalMemoryContext(
   const queries = scopeQueries(input, epistemic.enabled);
   const semanticResultPromise =
     semanticQuery && connectionId
-      ? semanticQuery({
-          queryText: input.latestUserInput,
-          queries,
-          connectionId,
-          limit: SEMANTIC_CANDIDATE_LIMIT,
-          similarityThreshold: SEMANTIC_SIMILARITY_THRESHOLD,
-          ...(epistemic.enabled ? { epistemicPolicyVersion: 1 as const } : {}),
-        })
-          .then((matches) => ({ matches, fallback: undefined as string | undefined }))
-          .catch((error: unknown) => ({
-            matches: [] as CanonicalMemorySemanticMatch[],
-            fallback: semanticFallbackCode(error),
-          }))
+      ? settleByDeadline(
+          semanticQuery({
+            queryText: input.latestUserInput,
+            queries,
+            connectionId,
+            limit: SEMANTIC_CANDIDATE_LIMIT,
+            similarityThreshold: SEMANTIC_SIMILARITY_THRESHOLD,
+            ...(epistemic.enabled ? { epistemicPolicyVersion: 1 as const } : {}),
+          })
+            .then((matches) => ({ matches, fallback: undefined as string | undefined }))
+            .catch((error: unknown) => ({
+              matches: [] as CanonicalMemorySemanticMatch[],
+              fallback: semanticFallbackCode(error),
+            })),
+          input.semanticDeadlineAt,
+          () => ({ matches: [], fallback: "semantic_late" }),
+        )
       : Promise.resolve({ matches: [] as CanonicalMemorySemanticMatch[], fallback: undefined as string | undefined });
   const [collectedRows, semanticResult] = await Promise.all([
     collectMemoryRows(storage, queries),

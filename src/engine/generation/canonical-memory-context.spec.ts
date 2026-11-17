@@ -823,6 +823,32 @@ describe("canonical memory context", () => {
     });
   });
 
+  it("stops waiting for a slow semantic search at the deadline and keeps lexical recall", async () => {
+    const storage = storageWithMemories({
+      indexed: [memory({ id: "memory-late", content: "The obsidian compass points toward the archive." })],
+      semantic: [],
+    });
+    storage.querySemanticMemories = vi.fn(() => new Promise<never>(() => undefined));
+    const startedAt = Date.now();
+
+    const result = await buildCanonicalMemoryContext(storage, {
+      chat: { id: "chat-1", mode: "conversation", metadata: { enableCanonicalMemoryRecall: true } },
+      storedMessages: [],
+      latestUserInput: "Where does the obsidian compass point?",
+      characters: [],
+      connectionId: "generation-connection",
+      maxContext: 4096,
+      semanticDeadlineAt: startedAt + 50,
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(result?.block).toContain("obsidian compass");
+    expect(result?.attributionItems[0]?.metadata).toMatchObject({
+      retrievalSource: "lexical-fallback",
+      semanticFallback: "semantic_late",
+    });
+  });
+
   it("merges durable canonical rows when the index covers only part of a scope", async () => {
     const indexedMemory = memory({
       id: "memory-indexed",

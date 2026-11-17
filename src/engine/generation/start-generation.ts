@@ -144,6 +144,7 @@ import { scheduleLorebookKeeperBackfill } from "./lorebook-keeper-background";
 import { scheduleHabitScan, type HabitScanMode } from "./habit-scan";
 import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
 import { memorySearchWordsWithin, startMemorySearchWords, type PendingMemorySearchWords } from "./memory-search-words";
+import { SEMANTIC_RECALL_WAIT_MS } from "./semantic-recall-deadline";
 import { createBackgroundJobQueue } from "./background-job-queue";
 import {
   applyCachedContextInjectionsToRegenerateInput,
@@ -5518,6 +5519,7 @@ async function* startGenerationImpl(
   yield { type: "phase", data: "Saving message..." };
   const preparedUserInput = await prepareUserInput(deps.storage, input, chat, loadTurnRegexScripts);
   const earlyRecallEmbedding = startEarlyRecallEmbedding(deps, chat, input, internalOptions, preparedUserInput);
+  const earlyRecallStartedAt = earlyRecallEmbedding ? Date.now() : null;
   const pendingMemorySearchWords = startTurnMemorySearchWords(
     deps,
     chat,
@@ -5754,6 +5756,8 @@ async function* startGenerationImpl(
   yield { type: "phase", data: "Assembling prompt..." };
   let prompt = directMessages;
   const assemblePromptStartedAt = generationTimingStartedAt();
+  // Counted from when the turn's embedding started: early at turn start, or with assembly when there is none.
+  const semanticRecallDeadlineAt = (earlyRecallStartedAt ?? assemblePromptStartedAt) + SEMANTIC_RECALL_WAIT_MS;
   const offerSpotifyCommand = await spotifyCommandAvailable(chatForGeneration, deps.integrations);
   let assembly: Awaited<ReturnType<typeof assembleGenerationPrompt>>;
   try {
@@ -5767,6 +5771,7 @@ async function* startGenerationImpl(
       userRegenerationSourceMessage,
       embeddingSource: turnEmbeddingSource,
       semanticConnectionId: embeddingConfiguration.available ? embeddingConfiguration.semanticConnectionId : null,
+      semanticRecallDeadlineAt,
       visuals: deps.visuals,
       persistPromptVariables: true,
       regexScripts: await loadTurnRegexScripts(),
@@ -5854,6 +5859,7 @@ async function* startGenerationImpl(
         agentData: runtime.agentData,
         embeddingSource: turnEmbeddingSource,
         semanticConnectionId: embeddingConfiguration.available ? embeddingConfiguration.semanticConnectionId : null,
+        semanticRecallDeadlineAt,
         visuals: deps.visuals,
         persistPromptVariables: true,
         reusableContext: assembly.reusableContext,
