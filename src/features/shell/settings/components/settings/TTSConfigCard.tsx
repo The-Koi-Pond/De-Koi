@@ -1236,9 +1236,9 @@ export function TTSConfigCard() {
                         value={assignment.deliveryTag ?? ""}
                         maxLength={80}
                         onChange={(e) => handleVoiceAssignmentDeliveryTagChange(index, e.target.value)}
-                        placeholder="Tag before every sentence, e.g. strong Russian accent"
+                        placeholder="Tag before every sentence (empty: the card's accent, if it names one)"
                         aria-label={`Tag before every sentence for ${assignment.characterName || "this character"}`}
-                        title="Sent as [tag] before each sentence this voice speaks. Chat text is not changed."
+                        title="Sent as [tag] before each sentence this voice speaks, e.g. strong Russian accent. Left empty, an accent named on the character's card is used. Type none to send no tag. Chat text is not changed."
                         className={cn(INPUT_CLS, "py-2 text-xs sm:col-span-3")}
                       />
                     )}

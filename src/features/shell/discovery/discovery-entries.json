@@ -910,7 +910,7 @@
     "id": "tts",
     "title": "Text-to-Speech",
     "category": "Media",
-    "summary": "Configure voice providers and let chats, narration, or characters speak with assigned voices. With ElevenLabs, a character's voice can also get a tag like \"strong Russian accent\" that is sent before every sentence it speaks, to keep an accent or delivery the voice alone loses. Replay any message with its speaker button, in Conversation and Roleplay.",
+    "summary": "Configure voice providers and let chats, narration, or characters speak with assigned voices. With ElevenLabs, a character's voice can also get a tag like \"strong Russian accent\" that is sent before every sentence it speaks, to keep an accent or delivery the voice alone loses. If the character's card names an accent (\"speaks with a thick Scottish accent\"), that tag is used automatically unless you type your own or none. Replay any message with its speaker button, in Conversation and Roleplay.",
     "keywords": [
       "voice",
       "tts",

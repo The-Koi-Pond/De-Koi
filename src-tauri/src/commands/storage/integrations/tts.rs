@@ -434,7 +434,8 @@ async fn speak(state: &AppState, body: Value) -> AppResult<Value> {
         .build()
         .map_err(|error| AppError::new("tts_client_error", error.to_string()))?;
     let provider_text = if source == "elevenlabs" {
-        match delivery_tag::delivery_tag_for_voice(&config, voice) {
+        let card_for = |id: &str| state.storage.get("characters", id).ok().flatten();
+        match delivery_tag::delivery_tag_for_voice(&config, voice, card_for) {
             Some(tag) => {
                 build_elevenlabs_text_input(&delivery_tag::tag_each_sentence(text, &tag), tone)
             }
