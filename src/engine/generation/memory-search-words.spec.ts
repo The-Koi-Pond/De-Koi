@@ -14,6 +14,7 @@ const CONNECTIONS: JsonRecord[] = [
   { id: "reply", name: "Reply", provider: "anthropic", model: "big-model" },
   { id: "quick", name: "Quick", provider: "openai", model: "small-model" },
   { id: "sub", name: "Subscription", provider: "claude_subscription", model: "haiku" },
+  { id: "slow", name: "Slow", provider: "openai", model: "slow-model" },
 ];
 
 function routingStorage(routes: Record<string, string> = {}): StorageGateway {
@@ -50,7 +51,7 @@ function helperLlm(answer: (request: LlmRequest, signal?: AbortSignal) => Promis
 function start(
   storage: StorageGateway,
   llm: LlmGateway,
-  overrides: { hasMemories?: boolean; signal?: AbortSignal } = {},
+  overrides: { hasMemories?: boolean; signal?: AbortSignal; now?: () => number } = {},
 ) {
   return startMemorySearchWords({
     storage,
@@ -60,6 +61,7 @@ function start(
     hasMemories: async () => overrides.hasMemories ?? true,
     replyConnection: async () => CONNECTIONS[0]!,
     signal: overrides.signal,
+    now: overrides.now,
   });
 }
 
@@ -185,5 +187,46 @@ describe("startMemorySearchWords", () => {
     controller.abort();
     await expect(pending.words).resolves.toBeNull();
     expect(aborted).toBe(true);
+  });
+
+  // A Pi on a 3-5 s helper made a cancelled call on every reply.
+  it("skips a connection that answered late three replies in a row, then tries it again later", async () => {
+    let clock = 1_000_000;
+    const now = () => clock;
+    const storage = routingStorage({ memory: "slow" });
+    const { llm } = helperLlm(
+      (_request, signal) =>
+        new Promise<string>((_resolve, reject) =>
+          signal?.addEventListener("abort", () => reject(new Error("aborted"))),
+        ),
+    );
+    for (let reply = 0; reply < 3; reply += 1) {
+      const pending = start(storage, llm, { now });
+      await vi.waitFor(() => expect(llm.complete).toHaveBeenCalledTimes(reply + 1));
+      clock += 2_500;
+      await expect(memorySearchWordsWithin(pending, { waitMs: 2_000, now })).resolves.toMatchObject({ late: true });
+    }
+
+    const skipped = await memorySearchWordsWithin(start(storage, llm, { now }), { waitMs: 2_000, now });
+    expect(skipped.words).toBeNull();
+    expect(llm.complete).toHaveBeenCalledTimes(3);
+    await vi.waitFor(() =>
+      expect(vi.mocked(storage.create).mock.calls.at(-1)?.[1]).toMatchObject({
+        value: {
+          runs: [expect.objectContaining({ job: "memory search", problem: expect.stringContaining("too late") })],
+        },
+      }),
+    );
+
+    clock += 31 * 60_000;
+    const retry = start(storage, llm, { now });
+    await vi.waitFor(() => expect(llm.complete).toHaveBeenCalledTimes(4));
+    retry.cancel();
+  });
+
+  it("gives thinking models room to finish the list", async () => {
+    const { llm, requests } = helperLlm(async () => "oilskin, coat");
+    await memorySearchWordsWithin(start(routingStorage({ memory: "quick" }), llm), { waitMs: 1_000 });
+    expect(requests[0]!.parameters).toMatchObject({ maxTokens: 600 });
   });
 });
