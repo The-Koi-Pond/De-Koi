@@ -669,6 +669,13 @@ export function TTSConfigCard() {
     updateVoiceAssignments(nextAssignments);
   };
 
+  const handleVoiceAssignmentDeliveryTagChange = (index: number, deliveryTag: string) => {
+    const nextAssignments = voiceAssignments.map((assignment, assignmentIndex) =>
+      assignmentIndex === index ? { ...assignment, deliveryTag } : assignment,
+    );
+    updateVoiceAssignments(nextAssignments);
+  };
+
   const handleAddVoiceAssignment = () => {
     const nextCharacter =
       characterOptions.find((option) => !assignedCharacterIds.has(option.id)) ?? characterOptions[0] ?? null;
@@ -676,6 +683,7 @@ export function TTSConfigCard() {
       characterId: nextCharacter?.id ?? "",
       characterName: nextCharacter?.name ?? "",
       voice: voiceOptions[0]?.id ?? voice,
+      deliveryTag: "",
     };
     updateVoiceAssignments([...voiceAssignments, nextAssignment]);
   };
@@ -1221,6 +1229,19 @@ export function TTSConfigCard() {
                     >
                       <X size="0.75rem" />
                     </button>
+                    {source === "elevenlabs" && (
+                      <input
+                        id={`tts-voice-delivery-tag-${index}`}
+                        type="text"
+                        value={assignment.deliveryTag ?? ""}
+                        maxLength={80}
+                        onChange={(e) => handleVoiceAssignmentDeliveryTagChange(index, e.target.value)}
+                        placeholder="Tag before every sentence, e.g. strong Russian accent"
+                        aria-label={`Tag before every sentence for ${assignment.characterName || "this character"}`}
+                        title="Sent as [tag] before each sentence this voice speaks. Chat text is not changed."
+                        className={cn(INPUT_CLS, "py-2 text-xs sm:col-span-3")}
+                      />
+                    )}
                   </div>
                 ))}
                 <button
