@@ -14,7 +14,9 @@ import { readString, type JsonRecord } from "./runtime-records";
  * The call starts as the turn starts and runs alongside saving the message and loading history. Prompt assembly
  * waits for it only until {@link MEMORY_SEARCH_WORDS_WAIT_MS} after the start; a late answer is dropped and the
  * search uses the message alone, as before. It runs on the Helper Models Memory route, else the connection memory
- * capture uses, and is skipped on Claude Subscription (too slow; see SLOW_PROVIDER).
+ * capture uses, and is skipped on Claude Subscription (too slow; see SLOW_PROVIDER). A connection that answers too
+ * late several replies in a row is skipped for a while (see LATE_STREAK_TO_SKIP), so a slow helper doesn't cost a
+ * cancelled call on every reply.
  */
 
 /** Longest the reply waits for the words, counted from when the call started. */
@@ -24,6 +26,12 @@ const MEMORY_SEARCH_WORDS_WAIT_MS = 2_000;
 const SLOW_PROVIDER = "claude_subscription";
 const SLOW_PROVIDER_PROBLEM =
   "Claude Subscription is too slow for it (it starts the Claude app for each call). Route Memory to a quick API model, such as a small OpenRouter or NanoGPT one.";
+// After this many late answers in a row from one connection and model, stop calling it for SKIP_LATE_FOR_MS. After
+// that one call is tried again: late again skips again at once, on time starts over.
+const LATE_STREAK_TO_SKIP = 3;
+const SKIP_LATE_FOR_MS = 30 * 60_000;
+// Thinking models (Gemini Flash) spend their first tokens thinking; a small limit cut the list off.
+const MAX_OUTPUT_TOKENS = 600;
 const MAX_INPUT_CHARS = 1_200;
 const MAX_WORDS_CHARS = 240;
 const JOB = "memory search";
@@ -51,6 +59,8 @@ export interface MemorySearchWordsInput {
 
 export interface PendingMemorySearchWords {
   startedAt: number;
+  /** The connection and model the call went to, once known (lateness is kept per connection). */
+  connectionKey: string | null;
   /** Resolves to the words, or null when the helper is unavailable or failed. Never rejects. */
   words: Promise<string | null>;
   /** Stops the helper call (a late answer is not used). */
@@ -85,13 +95,33 @@ export function memorySearchQuery(text: string, words: string | null | undefined
   return extra ? `${text}\n${extra}` : text;
 }
 
+/** Late answers in a row, per connection and model, in this runtime. */
+const lateness = new Map<string, { streak: number; skipUntil: number }>();
+
+function recordTiming(key: string | null, late: boolean, now: number): void {
+  if (!key) return;
+  if (!late) {
+    lateness.delete(key);
+    return;
+  }
+  const streak = (lateness.get(key)?.streak ?? 0) + 1;
+  lateness.set(key, { streak, skipUntil: streak >= LATE_STREAK_TO_SKIP ? now + SKIP_LATE_FOR_MS : 0 });
+}
+
 /** Starts the helper call. Failures are logged and resolve to null: the search then uses the message alone. */
 export function startMemorySearchWords(input: MemorySearchWordsInput): PendingMemorySearchWords {
   const controller = new AbortController();
-  const startedAt = (input.now ?? Date.now)();
+  const now = input.now ?? Date.now;
+  const startedAt = now();
+  const pending: PendingMemorySearchWords = {
+    startedAt,
+    connectionKey: null,
+    words: Promise.resolve(null),
+    cancel: () => controller.abort(),
+  };
   if (input.signal?.aborted) controller.abort();
   else input.signal?.addEventListener("abort", () => controller.abort(), { once: true });
-  const words = (async () => {
+  pending.words = (async () => {
     if (!(await input.hasMemories())) return null;
     const routed = await resolveHelperRoute(input.storage, "memory", { job: JOB, chatId: input.chatId });
     let connection = routed;
@@ -102,7 +132,9 @@ export function startMemorySearchWords(input: MemorySearchWordsInput): PendingMe
       connection = await resolveBackgroundTextConnection(input.storage, replyConnectionId, readString(reply?.model));
     }
     const connectionId = readString(connection.id).trim();
-    if (readString(connection.provider).trim() === SLOW_PROVIDER) {
+    const model = readString(connection.model).trim();
+    const key = `${connectionId}|${model}`;
+    const note = (problem?: string) =>
       void noteHelperRun(input.storage, {
         task: "memory",
         rule: routed ? "route" : backgroundConnectionRule(connection, replyConnectionId),
@@ -110,18 +142,21 @@ export function startMemorySearchWords(input: MemorySearchWordsInput): PendingMe
         connection,
         job: JOB,
         chatId: input.chatId,
-        problem: SLOW_PROVIDER_PROBLEM,
+        problem,
       });
+    if (readString(connection.provider).trim() === SLOW_PROVIDER) {
+      note(SLOW_PROVIDER_PROBLEM);
       return null;
     }
-    void noteHelperRun(input.storage, {
-      task: "memory",
-      rule: routed ? "route" : backgroundConnectionRule(connection, replyConnectionId),
-      connectionId,
-      connection,
-      job: JOB,
-      chatId: input.chatId,
-    });
+    if ((lateness.get(key)?.skipUntil ?? 0) > now()) {
+      const name = readString(connection.name).trim() || "This connection";
+      note(
+        `${name} answered too late for ${LATE_STREAK_TO_SKIP} replies in a row, so it's skipped for ${SKIP_LATE_FOR_MS / 60_000} minutes. Route Memory to a quicker API model.`,
+      );
+      return null;
+    }
+    pending.connectionKey = key;
+    note();
     const messages: LlmMessage[] = [
       { role: "system", content: INSTRUCTIONS },
       { role: "user", content: `Message: ${input.text.trim().slice(0, MAX_INPUT_CHARS)}` },
@@ -129,9 +164,9 @@ export function startMemorySearchWords(input: MemorySearchWordsInput): PendingMe
     const raw = await input.llm.complete(
       {
         connectionId,
-        model: readString(connection.model).trim() || null,
+        model: model || null,
         messages,
-        parameters: { temperature: 0, maxTokens: 120, reasoningEffort: "low" },
+        parameters: { temperature: 0, maxTokens: MAX_OUTPUT_TOKENS, reasoningEffort: "low" },
       },
       controller.signal,
     );
@@ -142,7 +177,7 @@ export function startMemorySearchWords(input: MemorySearchWordsInput): PendingMe
     }
     return null;
   });
-  return { startedAt, words, cancel: () => controller.abort() };
+  return pending;
 }
 
 /**
@@ -165,7 +200,10 @@ export async function memorySearchWordsWithin(
   const elapsedMs = Math.max(0, now() - pending.startedAt);
   if (result === "late") {
     pending.cancel();
+    recordTiming(pending.connectionKey, true, now());
     return { words: null, late: true, elapsedMs };
   }
+  // A failed call (null) says nothing about speed.
+  if (result !== null) recordTiming(pending.connectionKey, false, now());
   return { words: result, late: false, elapsedMs };
 }
