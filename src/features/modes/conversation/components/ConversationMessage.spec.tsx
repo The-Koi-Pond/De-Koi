@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GenerationPromptSnapshot, Message } from "../../../../engine/contracts/types/chat";
+import type { TTSConfig } from "../../../../engine/contracts/types/tts";
+import { ttsService } from "../../../../shared/lib/tts-service";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { ConversationMessage } from "./ConversationMessage";
@@ -249,6 +251,63 @@ describe("ConversationMessage memo subscriptions", () => {
     });
 
     expect(container!.textContent).toContain("\u201chello\u201d");
+  });
+
+  it("reads a posted reply aloud from its speaker button when Text to Speech is on", async () => {
+    queryClient!.setQueryData(["tts", "config"], {
+      enabled: true,
+      source: "elevenlabs",
+      voice: "default-voice",
+      voiceMode: "single",
+      voiceAssignments: [],
+      narratorVoiceEnabled: false,
+      dialogueOnly: false,
+      speed: 1,
+    } as unknown as TTSConfig);
+    const speakSequence = vi.spyOn(ttsService, "speakSequence").mockResolvedValue(undefined);
+    const reply: Message = {
+      ...message,
+      content: "Hey you. Miss me?",
+      extra: { ...message.extra, hiddenFromAI: false },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage message={reply} characterMap={characterMap} chatCharacterIds={["character-1"]} />
+        </QueryClientProvider>,
+      );
+    });
+
+    const speakButton = container!.querySelector<HTMLButtonElement>('button[title="Speak"]');
+    expect(speakButton).not.toBeNull();
+    expect(speakButton!.disabled).toBe(false);
+
+    await act(async () => {
+      speakButton!.click();
+      await Promise.resolve();
+    });
+
+    expect(speakSequence).toHaveBeenCalledWith(
+      [expect.objectContaining({ text: expect.stringContaining("Hey you. Miss me?") })],
+      "message-1",
+      expect.any(Object),
+    );
+    speakSequence.mockRestore();
+  });
+
+  it("has no speaker button while Text to Speech is off", () => {
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage message={message} characterMap={characterMap} chatCharacterIds={["character-1"]} />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container!.querySelector('button[title="Speak"]')).toBeNull();
   });
 
   it("opens the character profile from the assistant name", () => {

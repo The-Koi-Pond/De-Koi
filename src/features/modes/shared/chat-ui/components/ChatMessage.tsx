@@ -51,14 +51,7 @@ import { useApplyRegex } from "../../../../catalog/regex-scripts/regex-applicati
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { playTextBlip } from "../../../../../shared/lib/text-blip-sound";
 import { useTranslate } from "../../../../../shared/hooks/use-translate";
-import { ttsService } from "../../../../../shared/lib/tts-service";
-import { useCachedTTSConfig } from "../../../../../shared/hooks/use-tts";
-import { isStreamingTTSActive, stopStreamingTTS, subscribeStreamingTTSActive } from "../hooks/use-streaming-tts";
-import {
-  buildTTSVoiceRequests,
-  clientSidePlaybackRate,
-  withTTSVoiceRequestCacheKeys,
-} from "../../../../../shared/lib/tts-dialogue";
+import { useMessageSpeech } from "../hooks/use-message-speech";
 import { formatTextQuotes, type QuoteFormat } from "../../../../../shared/lib/dialogue-quotes";
 import DOMPurify from "dompurify";
 import type {
@@ -955,75 +948,23 @@ export const ChatMessage = memo(function ChatMessage({
   const isTranslating = !!translating[message.id];
 
   // TTS
-  const { data: ttsConfig } = useCachedTTSConfig();
-  const ttsEnabled = ttsConfig?.enabled ?? false;
-  const ttsSpeakerName = message.characterId ? characterMap?.get(message.characterId)?.name : undefined;
-  const ttsVoiceRequests = useMemo(
-    () =>
-      ttsConfig
-        ? withTTSVoiceRequestCacheKeys(
-            buildTTSVoiceRequests(message.content, ttsConfig, ttsSpeakerName, message.characterId).filter((request) =>
-              request.text.trim(),
-            ),
-            ttsConfig,
-            message.id,
-          )
-        : [],
-    [message.characterId, message.content, message.id, ttsConfig, ttsSpeakerName],
-  );
-  const hasTTSContent = ttsVoiceRequests.length > 0;
-  const [ttsState, setTTSState] = useState(ttsService.getState());
-  const [ttsActiveId, setTTSActiveId] = useState<string | null>(ttsService.getActiveId());
-  useEffect(
-    () =>
-      ttsService.subscribe((state, id) => {
-        setTTSState(state);
-        setTTSActiveId(id);
-      }),
-    [],
-  );
-  const ttsBusy = ttsState === "loading" || ttsState === "playing" || ttsState === "paused";
-  const isSpeakingThis = ttsActiveId === message.id;
-  const isLoadingThis = isSpeakingThis && ttsState === "loading";
-  const isPausedThis = isSpeakingThis && ttsState === "paused";
-  const [streamingTTSActive, setStreamingTTSActive] = useState<boolean>(() => isStreamingTTSActive());
-  useEffect(() => subscribeStreamingTTSActive(setStreamingTTSActive), []);
-
-  const handleSpeak = useCallback(() => {
-    if (isStreamingTTSActive()) {
-      stopStreamingTTS();
-      return;
-    }
-    // Read directly from the singleton so we never act on stale React state
-    const liveState = ttsService.getState();
-    const liveActiveId = ttsService.getActiveId();
-    const liveBusy = liveState === "loading" || liveState === "playing" || liveState === "paused";
-    const liveIsThis = liveActiveId === message.id;
-    if (liveBusy && !liveIsThis) return;
-    if (liveIsThis) {
-      ttsService.stop();
-    } else {
-      if (!hasTTSContent) return;
-      void ttsService.speakSequence(ttsVoiceRequests, message.id, {
-        playbackRate: clientSidePlaybackRate(ttsConfig),
-      });
-    }
-  }, [hasTTSContent, message.id, ttsConfig, ttsVoiceRequests]);
-
-  const handlePauseResumeTTS = useCallback(() => {
-    if (ttsService.getActiveId() !== message.id) return;
-    if (ttsService.getState() === "paused") {
-      ttsService.resume();
-    } else {
-      ttsService.pause();
-    }
-  }, [message.id]);
-
-  const handleRestartTTS = useCallback(() => {
-    if (ttsService.getActiveId() === message.id) {
-      ttsService.restart();
-    }
-  }, [message.id]);
+  const {
+    enabled: ttsEnabled,
+    hasContent: hasTTSContent,
+    busy: ttsBusy,
+    speakingThis: isSpeakingThis,
+    loadingThis: isLoadingThis,
+    pausedThis: isPausedThis,
+    streamingActive: streamingTTSActive,
+    toggle: handleSpeak,
+    pauseOrResume: handlePauseResumeTTS,
+    restart: handleRestartTTS,
+  } = useMessageSpeech({
+    messageId: message.id,
+    content: message.content,
+    characterId: message.characterId,
+    speakerName: message.characterId ? characterMap?.get(message.characterId)?.name : undefined,
+  });
 
   // Dismiss actions when tapping outside on mobile
   useEffect(() => {

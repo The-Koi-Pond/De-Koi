@@ -910,7 +910,7 @@
     "id": "tts",
     "title": "Text-to-Speech",
     "category": "Media",
-    "summary": "Configure voice providers and let chats, narration, or characters speak with assigned voices.",
+    "summary": "Configure voice providers and let chats, narration, or characters speak with assigned voices. Replay any message with its speaker button, in Conversation and Roleplay.",
     "keywords": [
       "voice",
       "tts",
@@ -918,18 +918,21 @@
       "audio",
       "narrator",
       "character voices",
+      "read aloud",
+      "speak message",
+      "replay message",
       "elevenlabs",
       "openai",
       "timeout",
       "self-hosted tts"
     ],
     "audience": "Users who want voiced messages, narration, or more immersive scenes.",
-    "where": "Settings and connection/provider configuration, with chat-specific voice options where available.",
+    "where": "Connections > Text to Speech for the provider, voices and auto-play; the speaker button in each message's actions to play that message.",
     "actions": [
       {
         "type": "open-panel",
-        "panel": "settings",
-        "label": "Open Settings"
+        "panel": "connections",
+        "label": "Open Connections"
       }
     ],
     "coverage": "advanced"

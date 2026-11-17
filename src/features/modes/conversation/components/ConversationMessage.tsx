@@ -11,6 +11,7 @@ import {
   messageAttachmentsFromExtra,
   readStoredThinking,
   resolvePromptSnapshotFromExtra,
+  useMessageSpeech,
 } from "../../shared/chat-ui/index";
 import { USER_REACTOR } from "../../../../engine/modes/chat/core/message-reactions";
 import { ConversationMessageBubble } from "./ConversationMessageBubble";
@@ -297,6 +298,12 @@ export const ConversationMessage = memo(function ConversationMessage({
     [macroContext, message.content],
   );
   const copiedContent = useMemo(() => formatTextQuotes(renderedContent, quoteFormat), [quoteFormat, renderedContent]);
+  const speech = useMessageSpeech({
+    messageId: message.id,
+    content: renderedContent,
+    characterId: message.characterId,
+    speakerName: message.characterId ? primaryCharInfo?.name : undefined,
+  });
   const renderedContentParts = useMemo(() => {
     if (!contentParts?.length) return null;
     const count = Math.max(1, Math.min(visiblePartCount ?? contentParts.length, contentParts.length));
@@ -636,6 +643,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     characterWebResearchSources: extra.characterWebResearchSources ?? null,
     activePromptSnapshot,
     copied,
+    speech,
     handleMessageClick,
     handleMessageDoubleClick,
     handleMessageKeyDown,
