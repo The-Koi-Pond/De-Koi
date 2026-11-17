@@ -1710,7 +1710,10 @@ mod tests {
         let state = test_state("create-journals-index");
         seed_memory(&state, "first-memory", "chat", "chat-1", "active");
         let indexed = state.storage.list(INDEX_COLLECTION).unwrap();
-        state.storage.replace_all(INDEX_COLLECTION, indexed).unwrap();
+        state
+            .storage
+            .replace_all(INDEX_COLLECTION, indexed)
+            .unwrap();
         state.storage.flush().unwrap();
         let collections = state.storage.root().join("collections");
         let index_path = collections.join(format!("{INDEX_COLLECTION}.json"));

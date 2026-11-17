@@ -294,7 +294,10 @@ mod tests {
                     vec![json!({ "id": "message-1", "content": "after" })],
                 ),
             ],
-            &[("memory-index-rows", vec!["memory-1:semantic:old".to_string()])],
+            &[(
+                "memory-index-rows",
+                vec!["memory-1:semantic:old".to_string()],
+            )],
         )
         .unwrap();
         let blocked_journal = collections.join("messages.pending.jsonl");

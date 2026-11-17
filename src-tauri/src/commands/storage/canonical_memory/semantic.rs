@@ -720,9 +720,21 @@ mod tests {
                 INDEX_COLLECTION,
                 vec![
                     // Written under the older 16-hex id scheme for the same identity.
-                    semantic_row("candidate:semantic:529513b7f89a4519", "candidate", "embedding-connection"),
-                    semantic_row("candidate:semantic:other-connection", "candidate", "other-connection"),
-                    semantic_row("unrelated:semantic:row", "unrelated", "embedding-connection"),
+                    semantic_row(
+                        "candidate:semantic:529513b7f89a4519",
+                        "candidate",
+                        "embedding-connection",
+                    ),
+                    semantic_row(
+                        "candidate:semantic:other-connection",
+                        "candidate",
+                        "other-connection",
+                    ),
+                    semantic_row(
+                        "unrelated:semantic:row",
+                        "unrelated",
+                        "embedding-connection",
+                    ),
                 ],
             )
             .unwrap();
