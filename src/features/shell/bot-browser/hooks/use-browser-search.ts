@@ -14,8 +14,8 @@ export interface BrowserSearchState {
 
 /**
  * Runs the provider's search whenever the criteria change (after a short wait while there is search text, at once
- * otherwise) or `refreshKey` moves. Only the newest search counts: a reply for criteria that are no longer current
- * changes nothing.
+ * otherwise) or, at once, when `refreshKey` moves. Only the newest search counts: a reply for criteria that are no
+ * longer current changes nothing.
  */
 export function useBrowserSearch(provider: BrowserProvider, criteria: SearchCriteria, refreshKey: number) {
   const [state, setState] = useState<BrowserSearchState>({ loading: true, error: null, result: null });
@@ -28,9 +28,14 @@ export function useBrowserSearch(provider: BrowserProvider, criteria: SearchCrit
     setState({ loading: true, error: null, result: null });
   }, [provider]);
 
+  // Refresh and Retry search again at once, even while there is search text.
+  const lastCriteria = useRef<{ provider: BrowserProvider; key: string } | null>(null);
+
   useEffect(() => {
     const run = ++latestRun.current;
     const current = criteriaRef.current;
+    const refreshOnly = lastCriteria.current?.provider === provider && lastCriteria.current.key === criteriaKey;
+    lastCriteria.current = { provider, key: criteriaKey };
     setState((previous) => ({ ...previous, loading: true, error: null }));
     const start = () => {
       provider.search(current).then(
@@ -42,7 +47,7 @@ export function useBrowserSearch(provider: BrowserProvider, criteria: SearchCrit
         },
       );
     };
-    if (!hasSearchText(current)) {
+    if (refreshOnly || !hasSearchText(current)) {
       start();
       return;
     }

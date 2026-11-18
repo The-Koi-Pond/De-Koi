@@ -212,6 +212,20 @@ describe("Bot Browser screen", () => {
     expect(document.body.textContent).toContain("No characters found");
   });
 
+  it("waits while typing but refreshes at once", async () => {
+    await openBrowser();
+    const before = searches().length;
+    await changeValue(byPlaceholder("Search characters"), "elf");
+    await settle(25);
+    expect(searches()).toHaveLength(before);
+    await settle(150);
+    expect(searches()).toHaveLength(before + 1);
+    await click(getByRole("button", "Refresh"));
+    await settle(10);
+    expect(searches()).toHaveLength(before + 2);
+    expect(searches().at(-1)).toContain("q=elf");
+  });
+
   it("goes back to page 1 when the search is cleared (decision 9)", async () => {
     await openBrowser();
     await changeValue(byPlaceholder("Search characters"), "elf");
