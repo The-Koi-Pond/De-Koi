@@ -147,8 +147,10 @@ One card, titled "New conversation" with a message icon and a close button.
   on open). Empty text: "No characters yet. Create or import one before
   starting a conversation." / "All characters added."
 - **Auto-naming:** until the name is edited, adding or removing a character
-  renames the chat to the selected names joined by ", " ("New conversation"
-  with none). Conversation adds no greeting messages.
+  renames the chat with the app's title rule (`deriveChatTitle`): the selected
+  names joined by ", ", or "New Conversation" with none. That blank name is
+  stored data other code recognizes, so it keeps its case (decision 9 doesn't
+  apply to it). Conversation adds no greeting messages.
 - **Autonomous messages** switch (off): "Characters can message you first when
   you're inactive". When on, a **Generate schedule** switch (off): "Optional
   routines for availability and delayed replies".
@@ -219,9 +221,8 @@ characters step (and in Quick setup).
 
 ### Adding characters
 
-- **Auto-naming:** adding or removing a character renames the chat to the
-  selected names joined by ", " ("New roleplay" with none). The wizard has no
-  name box.
+- **Auto-naming:** adding or removing a character renames the chat with the
+  same title rule ("New Roleplay" with none). The wizard has no name box.
 - **Greeting:** after adding a character is saved, setup reads the full card;
   if it has a first message (`data.first_mes`), it adds an assistant message
   with that text for the character, then each non-empty alternate greeting
