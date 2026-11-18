@@ -115,6 +115,43 @@ stays as it is.
 The specs stay in the repository. They're the record of how each replacement was
 written.
 
+## Safety
+
+Agreed 2026-11-18: do this as safely as possible. A rebuild must never lose or
+quietly change anyone's chats, characters or memories. These rules apply to
+every module, on top of the steps above.
+
+1. **Order by risk, not size.** Delete code that's proven unused first: no
+   imports, no routes, no commands, no stored data that needs it. Then
+   rebuild modules that only touch the screen. Leave modules that read or
+   write stored data or carry every reply for last: Rust storage, `chats.rs`,
+   `entities.rs`, and connections and provider transport.
+2. **Record the old behavior before deleting it.** For a module that touches
+   stored data or provider requests, someone other than the builder runs the
+   old code as a black box on a set of inputs and records what it does: what
+   it reads and writes, what it sends, what it returns. The recordings become
+   tests the new module must pass, except where the spec's decisions change
+   the behavior on purpose. The builder sees the recordings, never the old
+   code.
+3. **Test against real data, safely.** Before merging, run the rebuilt module
+   against a throwaway server that uses a copy of real user data, with the
+   owner's permission, and check that existing chats, characters and memories
+   load and work. The copy stays on the tester's machine, is never the live
+   install, and is deleted afterwards.
+4. **Rebuild first, fix after.** For a module that touches stored data or
+   carries every reply, the rebuild keeps today's behavior exactly. Fixes go in
+   their own small pull request after it, so a regression points at one
+   change.
+5. **Independent checks.** For those same modules, besides the spec writer's
+   review, get independent checks before merging: someone runs the tests and
+   checks they really cover the change, someone checks every spec item is met
+   and nothing unasked was added, and someone tries to break it with odd input
+   and bad state.
+6. **Careful rollout.** Back up data before updating a live install, note the
+   previous version so it can be rolled back, ship one rebuilt module per
+   update, and let it run in real use for a day or two before the next.
+7. **One module at a time.** Don't overlap rebuilds.
+
 ## About the existing tests
 
 Many tests from the months after the split check where code lives or how it's
