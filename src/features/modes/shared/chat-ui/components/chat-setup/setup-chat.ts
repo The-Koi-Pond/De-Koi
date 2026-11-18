@@ -1,4 +1,5 @@
 import type { Chat } from "../../../../../../engine/contracts/types/chat";
+import { deriveChatTitle } from "../../../../../../engine/entities/chat-title";
 import { normalizeChatCharacterIds, parseChatMetadata } from "../../../../../../shared/lib/chat-display";
 import { isConnectionReadyToReply } from "../../../../../../shared/lib/connection-filters";
 
@@ -29,10 +30,12 @@ export function readSetupChat(chat: Chat): SetupChatFields {
   };
 }
 
-/** The name setup gives a chat while it names itself: the picked characters, or the mode's blank name. */
+/**
+ * The name setup gives a chat while it names itself: the picked characters, or the mode's blank name. It's the app's
+ * own title rule, so later automatic retitles still recognize the name as automatic.
+ */
 export function setupChatName(isConversation: boolean, names: readonly string[]): string {
-  if (names.length > 0) return names.join(", ");
-  return isConversation ? "New conversation" : "New roleplay";
+  return deriveChatTitle(isConversation ? "conversation" : "roleplay", names);
 }
 
 /** Storage keeps some flags as booleans and some as "true" strings, under a new and a legacy name. */

@@ -630,7 +630,7 @@ describe("Roleplay wizard steps", () => {
     await clickAsync(container, "Remove Mira");
 
     expect(mocks.deleteMessage).toHaveBeenCalledWith("greeting-1");
-    expect(chatUpdates()).toContainEqual({ id: "chat-1", characterIds: [], name: "New roleplay" });
+    expect(chatUpdates()).toContainEqual({ id: "chat-1", characterIds: [], name: "New Roleplay" });
   });
 
   it("keeps the greeting once the user has written in the chat", async () => {
