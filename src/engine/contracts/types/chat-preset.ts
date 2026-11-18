@@ -76,6 +76,7 @@ export const CHAT_PRESET_EXCLUDED_METADATA_KEYS: readonly string[] = [
   "sceneBackground",
   "activeSceneChatId",
   "sceneBusyCharIds",
+  "scenePreviousConnectedChatId",
   // Lorebooks are owned by the chat, never by the preset.
   "activeLorebookIds",
 ] as const;

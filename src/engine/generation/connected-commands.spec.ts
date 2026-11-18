@@ -9,6 +9,7 @@ import { parseCharacterCommands } from "../modes/chat/commands/character-command
 import { detectConversationSelfieRequestIntent } from "../modes/chat/commands/selfie-intent";
 import { sentPhotoHistoryNote } from "../modes/chat/autonomous/unprompted-photos";
 import type { JsonRecord } from "./runtime-records";
+import { createFakeSceneStorage, scriptedLlm } from "../modes/roleplay/scene/scene-storage.fake";
 
 function asStorageValue<T>(value: unknown): T {
   return value as T;
@@ -223,6 +224,21 @@ describe("scene connected command parsing", () => {
         plan: "Keep it intimate.",
       },
     ]);
+  });
+
+  it("reads unquoted values up to the next key, prompt as the scenario, and ignores a tag without one", () => {
+    const result = parseCharacterCommands(
+      'Visible.\n[scene: prompt=A heist at the gala, plan=keep it fast] [scene: background="a pier"]',
+    );
+
+    expect(result.cleanContent).toBe("Visible.");
+    expect(result.commands).toEqual([{ type: "scene", scenario: "A heist at the gala", plan: "keep it fast" }]);
+  });
+
+  it("keeps a closing bracket inside a quoted scene value", () => {
+    const result = parseCharacterCommands('[SCENE: scenario="The sign reads [CLOSED]", plan="Wait it out"]');
+
+    expect(result.commands).toEqual([{ type: "scene", scenario: "The sign reads [CLOSED]", plan: "Wait it out" }]);
   });
 
   it("accepts bare scene premises inside explicit scene tags", () => {
@@ -1860,50 +1876,87 @@ describe("persistConnectedCommandTags", () => {
     });
   });
 
-  it("leaves character-created scenes empty for the Roleplay generator to open", async () => {
-    const chats: JsonRecord[] = [
-      {
-        id: "conversation-1",
-        name: "Conversation",
-        mode: "conversation",
+  it("starts a scene from a character's tag on the reply's connection, leaving the opening to the Roleplay writer", async () => {
+    const fixture = createFakeSceneStorage({
+      chats: [{ id: "conversation-1", name: "Texts", mode: "conversation", characterIds: ["char-1"], metadata: {} }],
+      connections: [{ id: "reply-conn", enabled: true }],
+      messages: { "conversation-1": [{ id: "m-1", role: "user", content: "What year is it?" }] },
+    });
+    const model = scriptedLlm(() =>
+      JSON.stringify({
+        name: "Scene: Stellar Year",
+        description: "Shlo learns the year.",
+        scenario: "A quiet observatory.",
+        firstMessage: "Participants: Shlo\nAction: Shlo reads the star chart\nPressure: The year is wrong",
         characterIds: ["char-1"],
-        metadata: {},
-      },
-    ];
-    const creates: Array<{ entity: StorageEntity; value: JsonRecord }> = [];
-    const messages: Array<{ chatId: string; value: JsonRecord }> = [];
-    const storage = commandStorage({ chats, lorebooks: [], lorebookEntries: [], creates, messages });
-    const llm = {
-      complete: async () => {
-        throw new Error("The fallback scene plan should not call the LLM without a connection");
-      },
-      stream: async function* () {},
-      listModels: async () => [],
-    } as unknown as LlmGateway;
-
-    const result = await persistConnectedCommandTags(
-      storage,
-      chats[0]!,
-      '[scene: scenario="Shlo learns that the current year is Stellar Year 265."]',
-      undefined,
-      llm,
-    );
-
-    expect(creates).toContainEqual(
-      expect.objectContaining({ entity: "chats", value: expect.objectContaining({ mode: "roleplay" }) }),
-    );
-    expect(messages.filter(({ value }) => value.role === "assistant")).toEqual([]);
-    expect(result.events).toContainEqual(
-      expect.objectContaining({
-        type: "scene_created",
-        data: expect.objectContaining({
-          chatId: "created-0",
-          openingGenerationGuide: expect.stringContaining(
-            "Premise: Shlo learns that the current year is Stellar Year 265.",
-          ),
-        }),
+        rating: "sfw",
+        relationshipHistory: "",
       }),
     );
+
+    const result = await persistConnectedCommandTags(
+      fixture.storage,
+      fixture.chat("conversation-1")!,
+      'Let me show you.\n[scene: scenario="Shlo learns that the current year is Stellar Year 265.", background="a rainy pier"]',
+      undefined,
+      model.llm,
+      "reply-conn",
+      undefined,
+      undefined,
+      { replyingCharacterId: "char-1" },
+    );
+
+    expect(result.displayContent).toBe("Let me show you.");
+    expect(result.executedCommands).toEqual(["scene"]);
+    const sceneChat = fixture.createdChats[0]!;
+    expect(sceneChat).toMatchObject({
+      mode: "roleplay",
+      connectionId: "reply-conn",
+      metadata: { sceneInitiatorCharId: "char-1", sceneBackground: null },
+    });
+    expect(fixture.messages(String(sceneChat.id))).toEqual([]);
+    expect(model.requests[0]!.connectionId).toBe("reply-conn");
+    const plannerPrompt = model.requests[0]!.messages.find((message) => message.role === "user")?.content ?? "";
+    expect(plannerPrompt).toContain(
+      "based on this request: Shlo learns that the current year is Stellar Year 265.\n\nSetting hint: a rainy pier",
+    );
+    expect(result.events).toContainEqual({
+      type: "scene_created",
+      data: {
+        chatId: sceneChat.id,
+        chatName: "Scene: Stellar Year",
+        originChatId: "conversation-1",
+        background: null,
+        openingGenerationGuide: expect.stringContaining("Action: Shlo reads the star chart"),
+      },
+    });
+  });
+
+  // Decision 1: no made-up scene when planning fails.
+  it("reports why a tag's scene couldn't be planned and creates nothing", async () => {
+    const fixture = createFakeSceneStorage({
+      chats: [{ id: "conversation-1", mode: "conversation", characterIds: ["char-1"], metadata: {} }],
+      messages: { "conversation-1": [{ id: "m-1", role: "user", content: "Hi" }] },
+    });
+    const model = scriptedLlm(() => "not a plan");
+
+    const result = await persistConnectedCommandTags(
+      fixture.storage,
+      fixture.chat("conversation-1")!,
+      'Sure.\n[scene: scenario="A walk on the pier"]',
+      undefined,
+      model.llm,
+      null,
+    );
+
+    expect(result.displayContent).toBe("Sure.");
+    expect(result.events).toContainEqual({
+      type: "command_error",
+      data: { command: "scene", error: expect.stringContaining("There's no model connection for this scene") },
+    });
+    expect(result.events.some((event) => event.type === "scene_created")).toBe(false);
+    expect(fixture.createdChats).toEqual([]);
+    expect(model.requests).toEqual([]);
   });
 
   it("reuses and tags a linked conversation for the resolved target", async () => {

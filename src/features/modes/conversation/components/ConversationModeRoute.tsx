@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { enabledChatAgentIds } from "../../../../engine/contracts/types/agent";
-import { getChatDisplayName, parseChatMetadata } from "../../../../shared/lib/chat-display";
 import { extractCreatorNotesCss } from "../../../../shared/lib/creator-notes-css";
 import { cssTargetsTypingIndicator, filterCssByMode } from "../../../../shared/lib/chat-css";
 import {
@@ -27,6 +26,7 @@ import {
   useNewChatDraft,
 } from "../../shared/chat-ui/index";
 import { ChatConversationSurface } from "./ChatConversationSurface";
+import { activeSceneOfOrigin } from "../../shared/scene-ui/SceneInProgressCard";
 import { CreatorNotesCssInjector } from "../../shared/chat-ui/index";
 import { useConversationAvatarOverrides } from "../hooks/use-conversation-avatar-overrides";
 import { buildConversationMusicContext } from "../lib/music-dj-conversation-context";
@@ -180,19 +180,7 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
   }, [data.chatMode, retryTimelineAgent, timelineAgentProcessing, timelineStreaming]);
   const connectedChatId = (data.chat as unknown as { connectedChatId?: string | null } | null | undefined)
     ?.connectedChatId;
-  const activeSceneChatId =
-    typeof data.chatMeta.activeSceneChatId === "string" ? data.chatMeta.activeSceneChatId : null;
-  const activeSceneChat = activeSceneChatId ? data.chatList.find((item) => item.id === activeSceneChatId) : undefined;
-  const activeSceneMeta = parseChatMetadata(activeSceneChat?.metadata);
-  const hasActiveLinkedScene = activeSceneChat && activeSceneMeta.sceneStatus === "active";
-  const sceneInfo =
-    activeSceneChatId && hasActiveLinkedScene
-      ? {
-          variant: "origin" as const,
-          sceneChatId: activeSceneChatId,
-          sceneChatName: getChatDisplayName(activeSceneChat),
-        }
-      : undefined;
+  const activeOriginScene = activeSceneOfOrigin(data.chatMeta, data.chatList);
   const newChatDraft = useNewChatDraft({
     activeChatId,
     overlays,
@@ -262,7 +250,8 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
         typingStyledCharacterIds={typingStyledCharacterIds}
         enabledAgentTypes={agentThoughtBubbleTypes}
         connectedChatName={data.connectedChatName}
-        sceneInfo={sceneInfo}
+        activeOriginScene={activeOriginScene}
+        onGoToScene={setActiveChatId}
         settingsOpen={overlays.settingsOpen}
         filesOpen={overlays.filesOpen}
         galleryOpen={overlays.galleryOpen}

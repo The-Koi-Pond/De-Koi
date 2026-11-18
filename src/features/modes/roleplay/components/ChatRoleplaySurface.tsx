@@ -14,7 +14,6 @@ import {
   type RefObject,
 } from "react";
 import type { SpritePlacement, SpriteSide } from "../../../../engine/contracts/types/chat";
-import type { SceneForkMode } from "../../../../engine/contracts/types/scene";
 import { countProposedContinuityDirectorBeats } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
 import { readWorldTickOffer } from "../../../../engine/modes/roleplay/world-tick/world-tick-state";
 import {
@@ -61,9 +60,11 @@ import { ChatInput } from "../../shared/chat-ui/index";
 import { CyoaChoices } from "./CyoaChoices";
 import { ContinuityDirectorReviewBadge, continuityDirectorReviewLabel } from "./ContinuityDirectorReviewBadge";
 import { RoleplaySceneSoundBar } from "./RoleplaySceneSoundBar";
+import { ConcludedSceneCard } from "../../shared/scene-ui/ConcludedSceneCard";
+import { EndSceneBar } from "../../shared/scene-ui/EndSceneBar";
+import { SceneInProgressCard } from "../../shared/scene-ui/SceneInProgressCard";
 import { EncounterLauncher, LazyEncounterHost } from "../encounter/components/EncounterLauncher";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
-import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
 import { ChatCommonOverlays, MakeFromThisButton, MakeFromThisDialog } from "../../shared/chat-ui/index";
 import { useJumpToMessage } from "../../shared/chat-ui/index";
 import { ActiveWorldInfoButton } from "../../../runtime/visuals/index";
@@ -703,6 +704,17 @@ function AuthorNotesButton({ chatId, chatMeta }: { chatId: string | null; chatMe
   );
 }
 
+/** What a scene chat's End scene bar and concluded-scene card can do. */
+export interface RoleplaySceneControls {
+  onBackToOrigin?: () => void;
+  onConclude: () => Promise<unknown>;
+  onDiscard: () => Promise<unknown>;
+  onConvert: () => Promise<unknown>;
+  onReopen: () => Promise<unknown>;
+  /** A clone or convert of this scene is running. */
+  isForking: boolean;
+}
+
 /** Props for the full roleplay surface, including scene lifecycle and fork controls. */
 type RoleplaySurfaceProps = {
   activeChatId: string;
@@ -780,11 +792,11 @@ type RoleplaySurfaceProps = {
   onRetryFailedAgents?: () => void;
   onRetryAgent?: (agentType: string) => void;
   onOpenEncounterSetup: () => void;
-  onConcludeScene: () => void;
-  onReopenScene: () => void;
-  onAbandonScene: () => void;
-  onForkScene: (sceneChatId: string, mode: SceneForkMode) => void;
-  isForkingScene?: boolean;
+  /** The End scene bar's and concluded-scene card's actions; left out outside scene chats. */
+  sceneControls?: RoleplaySceneControls;
+  /** This chat's scene being played elsewhere, for the "A scene is in progress" card. */
+  activeOriginScene?: { chatId: string; name: string } | null;
+  onGoToScene?: (sceneChatId: string) => void;
   onOpenSettings: () => void;
   onOpenFiles: () => void;
   onOpenGallery: () => void;
@@ -886,11 +898,9 @@ export function ChatRoleplaySurface({
   onRetryFailedAgents,
   onRetryAgent,
   onOpenEncounterSetup,
-  onConcludeScene,
-  onReopenScene,
-  onAbandonScene,
-  onForkScene,
-  isForkingScene,
+  sceneControls,
+  activeOriginScene,
+  onGoToScene,
   onOpenSettings,
   onOpenFiles,
   onOpenGallery,
@@ -1480,6 +1490,13 @@ export function ChatRoleplaySurface({
 
                 {!isConcludedScene && !isStreaming && <CyoaChoices messages={messages} />}
 
+                {activeOriginScene && onGoToScene && (
+                  <SceneInProgressCard
+                    sceneName={activeOriginScene.name}
+                    onGoToScene={() => onGoToScene(activeOriginScene.chatId)}
+                  />
+                )}
+
                 {transcriptWindow.hiddenAfterCount > 0 && (
                   <div className="flex justify-center py-3">
                     <button
@@ -1526,26 +1543,24 @@ export function ChatRoleplaySurface({
                     />
                   </Suspense>
                 )}
-                {chatMeta.sceneStatus === "active" && (
-                  <EndSceneBar
-                    sceneChatId={activeChatId}
-                    originChatId={metadataString(chatMeta.sceneOriginChatId) || undefined}
-                    onConclude={onConcludeScene}
-                    onAbandon={onAbandonScene}
-                    onFork={onForkScene}
-                    isForking={isForkingScene}
-                  />
-                )}
-                {isConcludedScene && (
-                  <SceneBanner
-                    variant="scene"
-                    sceneChatId={activeChatId}
-                    originChatId={metadataString(chatMeta.sceneOriginChatId) || undefined}
-                    description={metadataString(chatMeta.sceneDescription) || undefined}
-                    onReopen={onReopenScene}
-                  />
-                )}
                 {encountersEnabled && !isConcludedScene && <EncounterLauncher onStart={onOpenEncounterSetup} />}
+                {sceneControls && chatMeta.sceneStatus === "active" && (
+                  <EndSceneBar
+                    onBackToOrigin={sceneControls.onBackToOrigin}
+                    onConclude={sceneControls.onConclude}
+                    onDiscard={sceneControls.onDiscard}
+                    onConvert={sceneControls.onConvert}
+                    isStreaming={isStreaming}
+                    isForking={sceneControls.isForking}
+                  />
+                )}
+                {sceneControls && isConcludedScene && (
+                  <ConcludedSceneCard
+                    description={metadataString(chatMeta.sceneDescription, "")}
+                    onBackToOrigin={sceneControls.onBackToOrigin}
+                    onReopen={sceneControls.onReopen}
+                  />
+                )}
                 {!isConcludedScene && (
                   <ChatInput
                     mode={isRoleplay ? "roleplay" : "conversation"}

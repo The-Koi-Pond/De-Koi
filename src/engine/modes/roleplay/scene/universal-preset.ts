@@ -1,6 +1,6 @@
 import type { StorageGateway } from "../../../capabilities/storage";
 import { parseJsonObject } from "../../../core/json";
-import type { SceneFullPlan } from "../../../contracts/types/scene";
+import type { SceneFullPlan } from "./scene-types";
 import { isRecord, readString as stringValue } from "../../../shared/value-readers";
 
 export const DE_KOI_UNIVERSAL_PRESET_ID = "preset_universal_v2";

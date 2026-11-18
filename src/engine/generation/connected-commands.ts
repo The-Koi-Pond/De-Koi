@@ -18,8 +18,6 @@ import {
 } from "../modes/chat/commands/character-commands";
 import { conversationCommandPromptEnabled, conversationSelfieCommandEnabled } from "../modes/chat/commands/activation";
 import { isSelfieAttachment } from "../modes/chat/selfies/selfie-attachment";
-import { buildRoleplaySceneOpeningGuide } from "../modes/roleplay/scene/scene-opening";
-import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
 import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { resolveConversationSelfieSystemPrompt } from "./prompt-overrides";
 import { illustrationReferencesForRequest } from "../generation-core/images/illustration-reference-selection";
@@ -51,6 +49,7 @@ import {
 import { characterExtensionsPatch } from "../entities/character-extensions-patch";
 import { readMessageReactions, withMessageReaction } from "../modes/chat/core/message-reactions";
 import { MUSIC_RECENT_TRACKS_KEY, readChatMusicRecentTracks, withMusicRecentTrack } from "../shared/music/chat-music";
+import { sceneRequestFromTag, startRoleplayScene } from "../modes/roleplay/scene/scene-start";
 
 type ConnectedCommandEvent =
   | { type: "cross_post"; data: JsonRecord }
@@ -91,6 +90,8 @@ type ConnectedCommandOptions = {
   textsFirstPhoto?: "send" | "withhold";
   /** Texts-first only: the character texting, whose photo it is (in a group, not always the first character). */
   textsFirstCharacterId?: string | null;
+  /** The character whose reply carries the commands; a scene it starts names them as its initiator. */
+  replyingCharacterId?: string | null;
 };
 
 const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
@@ -1242,54 +1243,6 @@ async function playSpotifyCommand(
   return true;
 }
 
-async function createSceneFromCommand(args: {
-  storage: StorageGateway;
-  llm?: LlmGateway;
-  visuals?: VisualAssetGateway;
-  chat: JsonRecord;
-  command: Extract<CharacterCommand, { type: "scene" }>;
-  events: ConnectedCommandEvent[];
-  llmConnectionId?: string | null;
-}): Promise<boolean> {
-  if (!args.llm) return false;
-  const chatId = readString(args.chat.id);
-  const planResult = await planRoleplayScene(
-    { storage: args.storage, llm: args.llm, visuals: args.visuals },
-    {
-      chatId,
-      prompt: [args.command.scenario, args.command.plan].filter(Boolean).join("\n\n"),
-      connectionId: args.llmConnectionId ?? null,
-    },
-  );
-  if (!planResult.plan) return false;
-  const plan = {
-    ...planResult.plan,
-    background: args.command.background || planResult.plan.background,
-  };
-  const created = await createRoleplayScene(
-    args.storage,
-    {
-      originChatId: chatId,
-      initiatorCharId: activeCharacterId(args.chat),
-      plan,
-      connectionId: args.llmConnectionId ?? null,
-      openingMode: "generated",
-    },
-    args.visuals,
-  );
-  args.events.push({
-    type: "scene_created",
-    data: {
-      chatId: created.chatId,
-      chatName: created.chatName,
-      originChatId: chatId,
-      background: created.background,
-      openingGenerationGuide: buildRoleplaySceneOpeningGuide(plan.firstMessage),
-    },
-  });
-  return true;
-}
-
 async function applyScheduleUpdate(
   storage: StorageGateway,
   chat: JsonRecord,
@@ -1723,6 +1676,30 @@ async function executeCommand(
         : null;
     case "spotify":
       return (await playSpotifyCommand(storage, integrations, chat, command, events)) ? { name: "spotify" } : null;
+    case "scene": {
+      // Planning or creating failures throw, so the command error event carries the real reason.
+      if (!llm) throw new Error("A scene can't be planned here because no model is available.");
+      const started = await startRoleplayScene(
+        { storage, llm },
+        {
+          originChatId: chatId,
+          request: sceneRequestFromTag(command),
+          initiatorCharId: options?.replyingCharacterId ?? null,
+          connectionId: llmConnectionId ?? null,
+        },
+      );
+      events.push({
+        type: "scene_created",
+        data: {
+          chatId: started.scene.chatId,
+          chatName: started.scene.chatName,
+          originChatId: chatId,
+          background: null,
+          openingGenerationGuide: started.openingGenerationGuide,
+        },
+      });
+      return { name: "scene" };
+    }
     case "note":
     case "influence": {
       const storageChatId = await connectedNoteStorageChatId(storage, chat);
@@ -1932,10 +1909,6 @@ async function executeCommand(
         selfieRequest: options?.textsFirstPhoto === "send" ? undefined : options?.selfieRequest,
       }))
         ? { name: "selfie" }
-        : null;
-    case "scene":
-      return (await createSceneFromCommand({ storage, llm, visuals, chat, command, events, llmConnectionId }))
-        ? { name: "scene" }
         : null;
   }
 }

@@ -42,6 +42,7 @@ import {
   scheduleContinuityDirectorRefresh,
 } from "../modes/roleplay/continuity-director/continuity-director-scheduler";
 import { offerWorldTickForUserMessage } from "../modes/roleplay/world-tick/world-tick-offers";
+import { assertSceneAcceptsMessages } from "../modes/roleplay/scene/scene-status";
 import {
   cancelConversationSummaryBackfill,
   queueConversationSummaryBackfill,
@@ -571,11 +572,7 @@ function inputAttachments(input: StartGenerationInput): PromptAttachment[] {
 }
 
 function assertChatCanGenerate(chat: JsonRecord, input?: { forCharacterId?: unknown }) {
-  const mode = readString(chat.mode || chat.chatMode);
-  const metadata = parseRecord(chat.metadata);
-  if (mode === "roleplay" && metadata.sceneStatus === "concluded") {
-    throw new Error("This scene is concluded. Convert or reopen it before sending new messages.");
-  }
+  assertSceneAcceptsMessages(chat);
   assertChatHasActiveCharacters(chat);
   assertRequestedCharacterIsActive(chat, input?.forCharacterId);
 }
@@ -6042,6 +6039,7 @@ async function* startGenerationImpl(
             reactionTarget: conversationReactionTarget(chat, input, generationMessages),
             textsFirstPhoto: textsFirstPhotoOf(input),
             textsFirstCharacterId: textsFirstPhotoOf(input) ? assistantMessageCharacterId(chat, input) : null,
+            replyingCharacterId: assistantMessageCharacterId(chat, input),
           },
         );
     throwIfAborted(signal);
@@ -6473,6 +6471,7 @@ async function* startGenerationImpl(
           reactionTarget: conversationReactionTarget(chat, input, generationMessages),
           textsFirstPhoto: textsFirstPhotoOf(input),
           textsFirstCharacterId: textsFirstPhotoOf(input) ? assistantMessageCharacterId(chat, input) : null,
+          replyingCharacterId: assistantMessageCharacterId(chat, input),
         },
       );
   throwIfAborted(signal);

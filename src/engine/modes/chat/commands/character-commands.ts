@@ -58,16 +58,6 @@ interface MemoryCommand {
   summary: string;
 }
 
-interface SceneCommand {
-  type: "scene";
-  /** Description of the scene/scenario the character wants to play out */
-  scenario: string;
-  /** Optional background suggestion */
-  background?: string;
-  /** Optional plot plan / outline for how the scene unfolds */
-  plan?: string;
-}
-
 interface InfluenceCommand {
   type: "influence";
   /** The OOC influence text to inject into the connected roleplay */
@@ -98,6 +88,14 @@ interface ReactCommand {
   type: "react";
   /** One emoji, already validated by parseReactionEmoji. */
   emoji: string;
+}
+
+/** A character starting a Roleplay scene. `background` is passed to the planner as a setting hint. */
+interface SceneCommand {
+  type: "scene";
+  scenario: string;
+  background?: string;
+  plan?: string;
 }
 
 interface SpotifyCommand {
@@ -308,11 +306,11 @@ export type CharacterCommand =
   | CrossPostCommand
   | SelfieCommand
   | MemoryCommand
-  | SceneCommand
   | InfluenceCommand
   | NoteCommand
   | DirectMessageCommand
   | ReactCommand
+  | SceneCommand
   | SpotifyCommand
   | AssistantCommand;
 
@@ -331,7 +329,6 @@ const SELFIE_RE = /\[selfie(?::\s*(?:context="([^"]*)"|"([^"]*)"|([^\]\r\n"]+)))
 const MEMORY_RE = /\[memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)"\]/gi;
 const ANGLE_MEMORY_RE = /<memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)">/gi;
 const BARE_MEMORY_RE = new RegExp(`\\[memory:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
-const SCENE_RE = new RegExp(`\\[scene:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const REACT_RE = /\[react:\s*(?:emoji="([^"\]]{1,32})"|"([^"\]]{1,32})"|([^\]\r\n"]{1,32}))\s*\]/gi;
 // One emoji: a pictograph or flag, with optional variation selector, keycap, skin tone, or ZWJ-joined pictographs.
 const SINGLE_EMOJI_RE =
@@ -346,6 +343,10 @@ export function parseReactionEmoji(value: string): string | null {
 const SPOTIFY_RE =
   /\[spotify:\s*((?:[^"\u201c\u201d\]]|"(?:\\.|[^"\\])*"|[\u201c\u201d][^\u201c\u201d]*[\u201c\u201d])*)\]/gi;
 const DIRECT_MESSAGE_RE = new RegExp(`\\[dm:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
+// A scene tag's values may be in straight or curly double quotes, and a `]` inside a quoted value stays in the tag.
+const SCENE_TAG_RE =
+  /\[scene:\s*((?:[^"\u201c\u201d\]]|"(?:\\.|[^"\\])*"|\u201c[^\u201d]*\u201d|\u201d[^\u201d]*\u201d)*)\]/gi;
+const SCENE_PARAM_KEY_RE = /(?:^|[\s,])(scenario|description|prompt|background|plan)\s*=\s*/gi;
 const INFLUENCE_RE = /<influence>([\s\S]*?)<\/influence>/gi;
 const NOTE_RE = /<note>([\s\S]*?)<\/note>/gi;
 
@@ -467,6 +468,58 @@ function parseBareMemoryCommand(params: string): MemoryCommand | null {
   if (!target || !summary) return null;
 
   return { type: "memory", target, summary };
+}
+
+/** Index of the quote closing a value that starts at `from`, skipping backslash escapes; -1 when it never closes. */
+function closingQuoteIndex(text: string, from: number, closingQuote: string): number {
+  for (let index = from; index < text.length; index += 1) {
+    if (text[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (text[index] === closingQuote) return index;
+  }
+  return -1;
+}
+
+/**
+ * The values of a scene tag: `scenario` (or `description` or `prompt`), `background` and `plan`, each quoted or
+ * running unquoted up to the next known key. Without a leading `key=`, the whole text is the scenario.
+ */
+function parseSceneTagParams(params: string): SceneCommand | null {
+  const text = params.trim();
+  if (!/^(?:scenario|description|prompt|background|plan)\s*=/i.test(text)) {
+    const scenario = stripMatchingQuotes(text);
+    return scenario ? { type: "scene", scenario } : null;
+  }
+  const values = new Map<string, string>();
+  let position = 0;
+  while (position < text.length) {
+    SCENE_PARAM_KEY_RE.lastIndex = position;
+    const keyMatch = SCENE_PARAM_KEY_RE.exec(text);
+    if (!keyMatch) break;
+    const key = keyMatch[1]!.toLowerCase();
+    const valueStart = keyMatch.index + keyMatch[0].length;
+    const closingQuote = QUOTE_PAIRS[text[valueStart] ?? ""];
+    const quoteEnd = closingQuote ? closingQuoteIndex(text, valueStart + 1, closingQuote) : -1;
+    let value: string;
+    if (quoteEnd >= 0) {
+      value = decodeQuotedParamValue(text.slice(valueStart + 1, quoteEnd));
+      position = quoteEnd + 1;
+    } else {
+      SCENE_PARAM_KEY_RE.lastIndex = valueStart;
+      const nextKey = SCENE_PARAM_KEY_RE.exec(text);
+      const valueEnd = nextKey ? nextKey.index : text.length;
+      value = stripMatchingQuotes(text.slice(valueStart, valueEnd).replace(/[\s,]+$/, ""));
+      position = valueEnd;
+    }
+    if (!values.has(key) && value.trim()) values.set(key, value.trim());
+  }
+  const scenario = values.get("scenario") ?? values.get("description") ?? values.get("prompt") ?? "";
+  if (!scenario) return null;
+  const background = values.get("background");
+  const plan = values.get("plan");
+  return { type: "scene", scenario, ...(background ? { background } : {}), ...(plan ? { plan } : {}) };
 }
 
 function parseStringList(value: string | undefined): string[] | undefined {
@@ -760,35 +813,6 @@ function parseNumberParam(params: string, key: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
-function parseUnquotedSceneParam(params: string, key: string): string | undefined {
-  const match = params.match(
-    new RegExp(`${key}\\s*=\\s*([\\s\\S]*?)(?=\\s*,?\\s*(?:scenario|description|prompt|background|plan)\\s*=|$)`, "i"),
-  );
-  const value = match?.[1]?.replace(/,\s*$/, "").trim();
-  return value || undefined;
-}
-
-function parseSceneTextParam(params: string, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const quoted = parseQuotedParam(params, key);
-    if (quoted) return quoted.trim();
-    const unquoted = parseUnquotedSceneParam(params, key);
-    if (unquoted) return unquoted;
-  }
-  return undefined;
-}
-
-function parseBareSceneScenario(params: string): string | undefined {
-  const trimmed = params.trim();
-  if (!trimmed || /^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(trimmed)) return undefined;
-  const quote = trimmed[0];
-  const closeQuote = quote === "\u201c" ? "\u201d" : quote === "\u2018" ? "\u2019" : quote;
-  if ((quote === '"' || quote === "'" || quote === "\u201c" || quote === "\u2018") && trimmed.endsWith(closeQuote)) {
-    return trimmed.slice(1, -1).trim() || undefined;
-  }
-  return trimmed;
-}
-
 function applyCommonCharacterFields(
   cmd: CreateCharacterCommand | UpdateCharacterCommand,
   params: string,
@@ -906,20 +930,6 @@ export function parseCharacterCommands(
     if (command) commands.push(command);
   }
 
-  // Parse scene commands
-  for (const match of content.matchAll(SCENE_RE)) {
-    const params = match[1]!;
-    const cmd: SceneCommand = { type: "scene", scenario: "" };
-
-    cmd.scenario =
-      parseSceneTextParam(params, ["scenario", "description", "prompt"]) ?? parseBareSceneScenario(params) ?? "";
-    cmd.background = parseSceneTextParam(params, ["background"]);
-    cmd.plan = parseSceneTextParam(params, ["plan"]);
-
-    // Only add if we got a scenario
-    if (cmd.scenario) commands.push(cmd);
-  }
-
   // Parse influence commands (<influence>text</influence>)
   for (const match of content.matchAll(INFLUENCE_RE)) {
     const text = stripConversationPromptTimestamps(match[1]!.trim());
@@ -936,6 +946,12 @@ export function parseCharacterCommands(
   for (const match of content.matchAll(REACT_RE)) {
     const emoji = parseReactionEmoji(match[1] ?? match[2] ?? match[3] ?? "");
     if (emoji) commands.push({ type: "react", emoji });
+  }
+
+  // Parse scene tags; one without a scenario is ignored
+  for (const match of content.matchAll(SCENE_TAG_RE)) {
+    const command = parseSceneTagParams(match[1] ?? "");
+    if (command) commands.push(command);
   }
 
   // Parse Spotify song commands
@@ -1076,8 +1092,8 @@ export function parseCharacterCommands(
     .replace(SELFIE_RE, "")
     .replace(MEMORY_RE, "")
     .replace(BARE_MEMORY_RE, "")
-    .replace(SCENE_RE, "")
     .replace(REACT_RE, "")
+    .replace(SCENE_TAG_RE, "")
     .replace(SPOTIFY_RE, "")
     .replace(INFLUENCE_RE, "")
     .replace(NOTE_RE, "")

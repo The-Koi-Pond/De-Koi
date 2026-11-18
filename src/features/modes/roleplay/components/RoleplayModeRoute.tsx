@@ -31,7 +31,7 @@ import { useAgentInjectionReview } from "../hooks/use-agent-injection-review";
 import { useRoleplaySceneBackgrounds } from "../hooks/use-roleplay-scene-backgrounds";
 import { useRoleplaySceneSound } from "../hooks/use-roleplay-scene-sound";
 import { useRoleplayTranscriptScroll } from "../hooks/use-roleplay-transcript-scroll";
-import { useScene } from "../hooks/use-scene";
+import { useRoleplayScene } from "../hooks/use-roleplay-scene";
 import { getSpriteOwnerId, getSpriteOwnerKind, makeSpriteOwnerKey } from "../../../runtime/visuals/sprite-owner-keys";
 import {
   getSpriteExpressionForCharacter,
@@ -39,7 +39,8 @@ import {
   normalizeSpriteExpressionMap,
 } from "../../../runtime/visuals/sprite-expression-lookup";
 import { AgentInjectionReviewModal } from "./AgentInjectionReviewModal";
-import { ChatRoleplaySurface } from "./ChatRoleplaySurface";
+import { ChatRoleplaySurface, type RoleplaySceneControls } from "./ChatRoleplaySurface";
+import { activeSceneOfOrigin } from "../../shared/scene-ui/SceneInProgressCard";
 import { CreatorNotesCssInjector } from "../../shared/chat-ui/index";
 import { buildRoleplayMusicContext, shouldDispatchRoleplayMusicContext } from "../lib/music-dj-roleplay-context";
 
@@ -107,6 +108,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   const centerCompact = useUIStore((state) => state.centerCompact);
   const weatherEffects = useUIStore((state) => state.weatherEffects);
   const pendingNewChatMode = useChatStore((state) => state.pendingNewChatMode);
+  const setActiveChatId = useChatStore((state) => state.setActiveChatId);
   const overlays = useChatOverlays(activeChatId);
   const data = useChatSurfaceData({
     activeChatId,
@@ -149,7 +151,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   const isRenderingCachedMessages = data.messages === undefined && cachedMessagesForActiveChat !== undefined;
   const spriteState = useSpriteMetadataState({ chat: data.chat, chatMeta: data.chatMeta, messages: renderMessages });
   const { openSetup: openEncounterSetup } = useRoleplayEncounter();
-  const { concludeScene, reopenScene, abandonScene, forkScene, isForking } = useScene();
+  const { concludeScene, reopenScene, discardScene, forkScene, isForking } = useRoleplayScene();
   const encounterShown = useRoleplayEncounterStore((state) => state.encounter?.chatId === activeChatId);
   const { request, drafts, onDraftChange, onContinue, onClose } = useAgentInjectionReview();
 
@@ -299,6 +301,8 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
     }));
   }, [renderMessages]);
   const isSceneChat = data.chatMeta.sceneStatus === "active" || Boolean(data.chatMeta.sceneOriginChatId);
+  const isActiveScene = data.chatMeta.sceneStatus === "active";
+  const sceneOriginChatId = metadataString(data.chatMeta.sceneOriginChatId, "").trim();
   const isRoleplay = data.chatMode === "roleplay";
   const expressionAvatarsEnabled =
     isRoleplay &&
@@ -388,10 +392,35 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
   const handleCloneSceneFromHere = useCallback(
     (messageId: string) => {
       if (isForking || timeline.isStreaming) return;
-      forkScene(activeChatId, "clone", { upToMessageId: messageId });
+      void forkScene(activeChatId, "clone", { upToMessageId: messageId });
     },
     [activeChatId, forkScene, isForking, timeline.isStreaming],
   );
+  const sceneControls = useMemo<RoleplaySceneControls | undefined>(
+    () =>
+      isSceneChat
+        ? {
+            onBackToOrigin: sceneOriginChatId ? () => setActiveChatId(sceneOriginChatId) : undefined,
+            onConclude: () => concludeScene(activeChatId),
+            onDiscard: () => discardScene(activeChatId),
+            onConvert: () => forkScene(activeChatId, "convert"),
+            onReopen: () => reopenScene(activeChatId),
+            isForking,
+          }
+        : undefined,
+    [
+      activeChatId,
+      concludeScene,
+      discardScene,
+      forkScene,
+      isForking,
+      isSceneChat,
+      reopenScene,
+      sceneOriginChatId,
+      setActiveChatId,
+    ],
+  );
+  const activeOriginScene = activeSceneOfOrigin(data.chatMeta, data.chatList);
 
   const newChatDraft = useNewChatDraft({
     activeChatId,
@@ -480,7 +509,7 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         onToggleHiddenFromAI={timeline.handleToggleHiddenFromAI}
         onPeekPrompt={timeline.handlePeekPrompt}
         onBranch={isSceneChat ? undefined : timeline.handleBranch}
-        onCloneSceneFromHere={isSceneChat ? handleCloneSceneFromHere : undefined}
+        onCloneSceneFromHere={isActiveScene ? handleCloneSceneFromHere : undefined}
         isCloneSceneFromHereDisabled={isForking || timeline.isStreaming}
         onToggleSelectMessage={timeline.handleToggleSelectMessage}
         onSummaryContextSizeChange={handleSummaryContextSizeChange}
@@ -489,11 +518,9 @@ export function RoleplayModeRoute({ activeChatId, fallbackChatMode = "roleplay" 
         onRetryFailedAgents={timeline.handleRetryFailedAgents}
         onRetryAgent={timeline.handleRetryAgent}
         onOpenEncounterSetup={() => openEncounterSetup(activeChatId)}
-        onConcludeScene={() => concludeScene(activeChatId, data.chat?.connectionId ?? null)}
-        onReopenScene={() => reopenScene(activeChatId)}
-        onAbandonScene={() => abandonScene(activeChatId)}
-        onForkScene={forkScene}
-        isForkingScene={isForking || timeline.isStreaming}
+        sceneControls={sceneControls}
+        activeOriginScene={activeOriginScene}
+        onGoToScene={setActiveChatId}
         onOpenSettings={overlays.openSettings}
         onOpenFiles={overlays.openFiles}
         onOpenGallery={overlays.openGallery}
