@@ -97,6 +97,7 @@ const LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY: &str = "lorebookSelectiveLogicV1";
 const CARD_REGEX_APPLY_MODE_MIGRATION_KEY: &str = "cardRegexApplyModeV1";
 const RETIRE_GAME_ASSET_LIBRARY_MIGRATION_KEY: &str = "retireGameAssetLibraryV1";
 const STORED_COPY_TRIM_MIGRATION_KEY: &str = "storedCopyTrimV1";
+const COMPACT_STORED_VECTORS_MIGRATION_KEY: &str = "compactStoredVectorsV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const MEMORY_MAINTENANCE_WORKER_LEASE_TTL: Duration = Duration::from_secs(120);
 const MEMORY_CAPTURE_WORKER_LEASE_TTL: Duration = Duration::from_secs(30);
@@ -270,6 +271,20 @@ impl AppState {
         {
             log::warn!(
                 "Stored copy trim remains pending: code={} message={}",
+                error.code,
+                error.message
+            );
+        }
+        // Old number-array vectors still read, so a failure is logged and the next start tries again.
+        if let Err(error) = run_startup_migration_once(
+            &state.storage,
+            COMPACT_STORED_VECTORS_MIGRATION_KEY,
+            |storage| {
+                crate::storage_commands::stored_vector::compact_stored_vectors(storage).map(|_| ())
+            },
+        ) {
+            log::warn!(
+                "Stored vector compaction remains pending: code={} message={}",
                 error.code,
                 error.message
             );

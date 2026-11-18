@@ -112,10 +112,8 @@ const STORAGE_COLLECTIONS = {
   },
   "memory-index-rows": {
     genericApi: true,
-    readJsonFields: [
-      { name: "vector", kind: "array" },
-      { name: "lexicalTokens", kind: "array" },
-    ],
+    // `vector` is one encoded string at rest (src-tauri/.../stored_vector.rs), not a JSON array.
+    readJsonFields: [{ name: "lexicalTokens", kind: "array" }],
   },
   "music-dj-playlists": {
     genericApi: true,

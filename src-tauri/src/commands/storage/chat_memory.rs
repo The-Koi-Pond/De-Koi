@@ -394,7 +394,10 @@ async fn embed_memory_contents(
 }
 
 fn insert_memory_embedding_fields(memory: &mut Map<String, Value>, result: MemoryEmbeddingResult) {
-    memory.insert("embedding".to_string(), json!(result.embedding));
+    memory.insert(
+        "embedding".to_string(),
+        stored_vector::encode(&result.embedding),
+    );
     memory.insert("hasEmbedding".to_string(), json!(true));
     memory.insert("embeddingStatus".to_string(), json!("vectorized"));
     memory.insert("embeddingSource".to_string(), json!(result.source));
@@ -504,10 +507,7 @@ pub(crate) async fn embed_chat_memory_object(
     Ok(())
 }
 fn memory_has_numeric_embedding(memory: &Value) -> bool {
-    memory
-        .get("embedding")
-        .and_then(Value::as_array)
-        .is_some_and(|items| items.iter().any(Value::is_number))
+    stored_vector::decode(memory.get("embedding")).is_some()
 }
 
 fn memory_has_current_embedding(memory: &Value, context: Option<&MemoryEmbeddingContext>) -> bool {
@@ -524,10 +524,8 @@ fn memory_has_current_embedding(memory: &Value, context: Option<&MemoryEmbedding
         }
         None => {
             memory.get("embeddingSource").and_then(Value::as_str) == Some("lexical")
-                && memory
-                    .get("embedding")
-                    .and_then(Value::as_array)
-                    .is_some_and(|items| items.len() == MEMORY_EMBEDDING_DIMS)
+                && stored_vector::decode(memory.get("embedding"))
+                    .is_some_and(|vector| vector.len() == MEMORY_EMBEDDING_DIMS)
         }
     }
 }
@@ -968,6 +966,14 @@ pub(crate) fn list_chat_memories_excluding_recent(
 
     if let Some(limit) = limit {
         values.truncate(limit);
+    }
+    for value in &mut values {
+        if let Some(memory) = value.as_object_mut() {
+            if let Some(embedding) = memory.get("embedding") {
+                let public = stored_vector::to_public(Some(embedding));
+                memory.insert("embedding".to_string(), public);
+            }
+        }
     }
 
     Ok(Value::Array(values))
@@ -2004,19 +2010,7 @@ fn positive_usize_field(value: &Value, key: &str) -> Option<usize> {
 }
 
 fn public_memory_recall_embedding(value: Option<&Value>) -> Value {
-    let Some(items) = value.and_then(Value::as_array) else {
-        return Value::Null;
-    };
-    let numbers = items
-        .iter()
-        .filter(|item| item.is_number())
-        .cloned()
-        .collect::<Vec<_>>();
-    if numbers.is_empty() {
-        Value::Null
-    } else {
-        Value::Array(numbers)
-    }
+    stored_vector::to_public(value)
 }
 
 fn sanctioned_memory_recall_kind(value: &Value) -> Option<&'static str> {
@@ -3226,7 +3220,12 @@ mod tests {
         assert_eq!(transcript["canonicalMemoryVersion"], json!(1));
         assert_eq!(transcript["memoryKind"], json!("transcript"));
         assert_eq!(transcript["embeddingSource"], json!("lexical"));
-        assert!(transcript["embedding"].as_array().unwrap().len() > 8);
+        assert!(
+            stored_vector::decode(transcript.get("embedding"))
+                .unwrap()
+                .len()
+                > 8
+        );
         assert!(memories
             .iter()
             .any(|memory| memory["memoryKind"] == json!("imported")));
@@ -3430,7 +3429,12 @@ mod tests {
         assert_eq!(chat["memories"][0]["embeddingSource"], json!("lexical"));
         assert!(chat["memories"][0]["embeddingConnectionId"].is_null());
         assert!(chat["memories"][0]["embeddingModel"].is_null());
-        assert!(chat["memories"][0]["embedding"].as_array().unwrap().len() > 8);
+        assert!(
+            stored_vector::decode(chat["memories"][0].get("embedding"))
+                .unwrap()
+                .len()
+                > 8
+        );
 
         let mut embedding_missing = chat["memories"][0].as_object().unwrap().clone();
         embedding_missing.insert("status".to_string(), json!("active"));
@@ -3468,7 +3472,12 @@ mod tests {
         let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
         assert_eq!(chat["memories"][0]["status"], json!("active"));
         assert_eq!(chat["memories"][0]["hasEmbedding"], json!(true));
-        assert!(chat["memories"][0]["embedding"].as_array().unwrap().len() > 8);
+        assert!(
+            stored_vector::decode(chat["memories"][0].get("embedding"))
+                .unwrap()
+                .len()
+                > 8
+        );
 
         soft_delete_chat_memory(&state, "chat-1", "memory-1").expect("delete should deactivate");
         let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
@@ -3495,7 +3504,12 @@ mod tests {
         let chat = state.storage.get("chats", "chat-1").unwrap().unwrap();
         assert_eq!(chat["memories"][0]["status"], json!("active"));
         assert_eq!(chat["memories"][0]["hasEmbedding"], json!(true));
-        assert!(chat["memories"][0]["embedding"].as_array().unwrap().len() > 8);
+        assert!(
+            stored_vector::decode(chat["memories"][0].get("embedding"))
+                .unwrap()
+                .len()
+                > 8
+        );
 
         correct_chat_memory(
             &state,
@@ -3761,6 +3775,32 @@ mod tests {
         let invalid = list_chat_memories(&state, "chat-1", None, Some("popular"))
             .expect_err("unsupported ordering should be rejected");
         assert_eq!(invalid.code, "invalid_input");
+    }
+
+    #[test]
+    fn list_chat_memories_hands_out_stored_vectors_as_number_arrays() {
+        let state = test_state("chat-memory-list-vectors");
+        state
+            .storage
+            .create(
+                "chats",
+                json!({
+                    "id": "chat-1",
+                    "name": "Memory chat",
+                    "memories": [
+                        { "id": "encoded", "embedding": stored_vector::encode(&[0.5, -0.25]) },
+                        { "id": "array", "embedding": [0.75] },
+                        { "id": "none" }
+                    ]
+                }),
+            )
+            .expect("chat should be created");
+
+        let listed =
+            list_chat_memories(&state, "chat-1", None, None).expect("memories should list");
+        assert_eq!(listed[0]["embedding"], json!([0.5, -0.25]));
+        assert_eq!(listed[1]["embedding"], json!([0.75]));
+        assert!(listed[2].get("embedding").is_none());
     }
 
     #[test]
@@ -4183,9 +4223,7 @@ mod tests {
 
         assert_eq!(memory.get("embeddingSource"), Some(&json!("lexical")));
         assert_eq!(
-            memory
-                .get("embedding")
-                .and_then(Value::as_array)
+            stored_vector::decode(memory.get("embedding"))
                 .expect("lexical embedding should be stored")
                 .len(),
             MEMORY_EMBEDDING_DIMS
@@ -4492,7 +4530,7 @@ mod tests {
         assert_eq!(memories[0]["embedding"], memories[1]["embedding"]);
         assert_eq!(
             memories[0]["embedding"],
-            json!(lexical_memory_embedding("same portable memory"))
+            stored_vector::encode(&lexical_memory_embedding("same portable memory"))
         );
         for memory in memories {
             assert_eq!(memory["embeddingSource"], json!("lexical"));

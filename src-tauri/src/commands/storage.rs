@@ -105,6 +105,8 @@ pub(crate) mod sprites;
 pub(crate) mod startup_migrations;
 #[path = "storage/stored_copy_trim.rs"]
 pub(crate) mod stored_copy_trim;
+#[path = "storage/stored_vector.rs"]
+pub(crate) mod stored_vector;
 #[path = "storage/translation.rs"]
 pub(crate) mod translation;
 #[path = "storage/updates.rs"]

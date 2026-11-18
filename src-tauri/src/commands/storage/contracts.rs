@@ -169,7 +169,8 @@ const MEMORY_MAINTENANCE_JOB_FIELDS: &[TypedJsonField] = &[
     array("recentFingerprints"),
     nullable_object("lastResult"),
 ];
-const MEMORY_INDEX_FIELDS: &[TypedJsonField] = &[array("vector"), array("lexicalTokens")];
+// `vector` is not listed: it is stored as one encoded string (see `stored_vector.rs`).
+const MEMORY_INDEX_FIELDS: &[TypedJsonField] = &[array("lexicalTokens")];
 
 const REGEX_SCRIPT_FIELDS: &[TypedJsonField] = &[
     array("placement"),
