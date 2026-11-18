@@ -60,7 +60,8 @@ export type GenerationEvent =
   | { type: "content_replace"; data: string }
   | { type: "tool_call"; data: { id?: string; name: string; arguments: string } }
   | { type: "tool_result"; data: { toolCallId?: string; name: string; result: string; success: boolean } }
-  | { type: "typing"; data: { characters: string[] } }
+  /** `voiceNote`: this reply goes out as a voice note, so the character is recording rather than typing. */
+  | { type: "typing"; data: { characters: string[]; voiceNote?: boolean } }
   | { type: "delayed"; data: { characters: string[]; status: string; delayMs: number } }
   | { type: "offline"; data: { characters: string[] } }
   | { type: "group_turn"; data: { characterId: string; characterName: string; index: number; total: number } }

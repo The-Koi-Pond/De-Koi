@@ -29,3 +29,9 @@ export function shouldShowConversationTypingIndicator(input: {
   if ((input.activeCharacterCount ?? 1) > 1 && input.hasSpecificTypingTarget === false) return false;
   return true;
 }
+
+/** "Mira is typing..." or, while the reply is being made into a voice note, "Mira is recording a voice message...". */
+export function conversationTypingLabel(names: string, recordingVoiceNote: boolean) {
+  const verb = names.includes(",") || names.includes(" & ") ? "are" : "is";
+  return `${names} ${verb} ${recordingVoiceNote ? "recording a voice message" : "typing"}...`;
+}
