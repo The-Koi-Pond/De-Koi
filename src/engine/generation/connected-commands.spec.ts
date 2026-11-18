@@ -241,6 +241,29 @@ describe("conversation selfie request intent", () => {
     expect(detectConversationSelfieRequestIntent("Selfie please?")).toBe(true);
   });
 
+  it("hears a request for a picture without 'of you' as asking for one of the character", () => {
+    const asks = [
+      "Kept 💚💚 I work proper ~ can I see another pic~",
+      "can I see a pic",
+      "could I have a picture?",
+      "can i get another photo",
+      "send me a pic",
+      "show me a picture pls",
+    ];
+    for (const input of asks) {
+      expect(detectConversationSelfieRequestIntent(input), input).toBe(true);
+    }
+    const notAsks = [
+      "can I see the pic from yesterday again",
+      "can I see a pic of the cat",
+      "could I have my photo back",
+      "show me his picture",
+    ];
+    for (const input of notAsks) {
+      expect(detectConversationSelfieRequestIntent(input), input).toBe(false);
+    }
+  });
+
   it("does not treat descriptive photo prose as selfie request intent", () => {
     const negatives = [
       "I found an old photo by the harbor.",

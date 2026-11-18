@@ -103,10 +103,42 @@ function hasDirectRequestCue(tokens: string[], targetIndex: number): boolean {
   return false;
 }
 
+// "the pic", "my pic", "his photo": a picture that already exists or isn't the character's.
+const SPECIFIC_IMAGE_DETERMINERS = new Set([
+  "the",
+  "that",
+  "this",
+  "those",
+  "these",
+  "my",
+  "his",
+  "her",
+  "their",
+  "our",
+]);
+const RECEIVING_VERBS = new Set(["see", "have", "get"]);
+
+/**
+ * The user asking to be given a picture without saying whose: "can I see another pic", "could I have a pic",
+ * "send me a pic". In a chat with a character that means one of the character.
+ */
+function hasUserReceivingRequest(tokens: string[], targetIndex: number): boolean {
+  if (SPECIFIC_IMAGE_DETERMINERS.has(tokens[targetIndex - 1] ?? "")) return false;
+  const start = Math.max(0, targetIndex - 6);
+  for (let i = start; i < targetIndex; i += 1) {
+    const token = tokens[i]!;
+    if ((token === "can" || token === "could" || token === "may") && tokens[i + 1] === "i") {
+      if (RECEIVING_VERBS.has(tokens[i + 2] ?? "")) return true;
+    }
+    if (REQUEST_ACTIONS.has(token) && tokens[i + 1] === "me") return true;
+  }
+  return false;
+}
+
 function hasImplicitCharacterPhotoRequest(tokens: string[], targetIndex: number): boolean {
   if (hasCharacterImageObject(tokens, targetIndex, USER_SELF_REFERENCES)) return true;
   if (hasExplicitNonCharacterImageObject(tokens, targetIndex, USER_SELF_REFERENCES)) return false;
-  return hasSecondPersonActionBeforeTarget(tokens, targetIndex);
+  return hasSecondPersonActionBeforeTarget(tokens, targetIndex) || hasUserReceivingRequest(tokens, targetIndex);
 }
 
 function hasAssistantOfferCue(tokens: string[], targetIndex: number): boolean {

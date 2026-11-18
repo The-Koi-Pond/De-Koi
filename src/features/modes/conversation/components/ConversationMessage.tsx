@@ -2,7 +2,10 @@ import { useState, useCallback, useRef, useEffect, memo, useMemo, type CSSProper
 import { useUIStore } from "../../../../shared/stores/ui.store";
 import { formatTextQuotes } from "../../../../shared/lib/dialogue-quotes";
 import { copyToClipboard, normalizeAvatarCropValue } from "../../../../shared/lib/utils";
-import { useUpdateMessageExtra } from "../../../catalog/chats/index";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { chatKeys, useUpdateMessageExtra } from "../../../catalog/chats/index";
+import { isSelfieAttachment } from "../../../../engine/modes/chat/selfies/selfie-attachment";
 import { resolveMessageMacros } from "../../../../shared/lib/chat-macros";
 import { useTranslate } from "../../../../shared/hooks/use-translate";
 import {
@@ -324,8 +327,28 @@ export const ConversationMessage = memo(function ConversationMessage({
     [attachments, message.id, updateMessageExtra],
   );
 
+  const queryClient = useQueryClient();
   const handleRegenerateAttachment = useCallback(
     async (index: number) => {
+      const attachment = attachments[index];
+      // A selfie is made again as a selfie, and the old one stays until the new one exists.
+      if (attachment && isSelfieAttachment(attachment)) {
+        const toastId = toast.loading("Making a new selfie...");
+        try {
+          const { selfieApi } = await import("../../../../shared/api/selfie-api");
+          await selfieApi.regenerate({
+            chatId: message.chatId,
+            messageId: message.id,
+            attachment: { galleryId: attachment.galleryId ?? null, url: attachment.url ?? null },
+          });
+          toast.dismiss(toastId);
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "Couldn't make a new selfie.", { id: toastId });
+        } finally {
+          await queryClient.invalidateQueries({ queryKey: chatKeys.messages(message.chatId) });
+        }
+        return;
+      }
       if (!onIllustrateMoment) return;
       if (!(await handleRemoveAttachment(index))) return;
       await onIllustrateMoment(
@@ -340,8 +363,10 @@ export const ConversationMessage = memo(function ConversationMessage({
       );
     },
     [
+      attachments,
       displayName,
       handleRemoveAttachment,
+      queryClient,
       message.chatId,
       message.content,
       message.createdAt,

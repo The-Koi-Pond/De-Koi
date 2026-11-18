@@ -17,6 +17,7 @@ import {
   type UpdatePersonaCommand,
 } from "../modes/chat/commands/character-commands";
 import { conversationCommandPromptEnabled, conversationSelfieCommandEnabled } from "../modes/chat/commands/activation";
+import { isSelfieAttachment } from "../modes/chat/selfies/selfie-attachment";
 import { buildRoleplaySceneOpeningGuide } from "../modes/roleplay/scene/scene-opening";
 import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
 import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
@@ -979,32 +980,27 @@ async function generateSelfie(args: {
       height: size.height,
       ...(referenceImages.length > 0 ? { referenceImages } : {}),
     });
-    const normalizedImage = normalizeGeneratedImageResult(image);
-    const imageUrl = normalizedImage.dataUrl;
-    if (!imageUrl) throw new Error("Image provider returned no image data.");
-
-    const filename = `selfie_${characterName.toLowerCase().replace(/\s+/g, "_")}.${normalizedImage.ext}`;
-    const gallery = await args.storage.create<JsonRecord>("gallery", {
+    const stored = await storeSelfieImage({
+      storage: args.storage,
       chatId: readString(args.chat.id),
-      filePath: filename,
-      filename,
-      url: imageUrl,
+      characterName,
+      image,
       prompt,
-      provider: image.provider ?? "image_generation",
-      model: image.model ?? null,
-      width: size.width,
-      height: size.height,
+      size,
     });
-    const storedImageUrl = readString(gallery.url).trim() || imageUrl;
-    // The gallery may store the file under a cleaned-up, de-duplicated name; the chat finds the picture by it.
-    const storedFilename = readString(gallery.filename).trim() || filename;
     const description = args.command.context?.replace(/\s+/g, " ").trim();
     const attachment = {
       type: "image",
-      url: storedImageUrl,
-      filename: storedFilename,
+      // What a later "Regenerate image" needs to make this selfie again.
+      kind: "selfie",
+      url: stored.url,
+      filename: stored.filename,
       prompt,
-      galleryId: readString(gallery.id) || null,
+      ...(negativePrompt ? { negativePrompt } : {}),
+      ...(characterId ? { characterId } : {}),
+      width: size.width,
+      height: size.height,
+      galleryId: stored.galleryId,
       // What the character meant to show, so later prompts can say what was sent.
       ...(description ? { description } : {}),
       ...(args.unprompted ? { unprompted: true } : {}),
@@ -1015,9 +1011,9 @@ async function generateSelfie(args: {
       data: {
         characterId,
         characterName,
-        imageUrl: storedImageUrl,
+        imageUrl: stored.url,
         prompt,
-        galleryId: readString(gallery.id) || null,
+        galleryId: stored.galleryId,
       },
     });
     return true;
@@ -1029,6 +1025,136 @@ async function generateSelfie(args: {
     );
     return false;
   }
+}
+
+type GeneratedImage = Awaited<ReturnType<NonNullable<IntegrationGateway["image"]>["generate"]>>;
+
+/** Saves a generated selfie to the chat's gallery; the chat finds the picture by the stored url and filename. */
+async function storeSelfieImage(args: {
+  storage: StorageGateway;
+  chatId: string;
+  characterName: string;
+  image: GeneratedImage;
+  prompt: string;
+  size: { width: number; height: number };
+}): Promise<{ url: string; filename: string; galleryId: string | null }> {
+  const normalizedImage = normalizeGeneratedImageResult(args.image);
+  const imageUrl = normalizedImage.dataUrl;
+  if (!imageUrl) throw new Error("Image provider returned no image data.");
+  const filename = `selfie_${args.characterName.toLowerCase().replace(/\s+/g, "_")}.${normalizedImage.ext}`;
+  const gallery = await args.storage.create<JsonRecord>("gallery", {
+    chatId: args.chatId,
+    filePath: filename,
+    filename,
+    url: imageUrl,
+    prompt: args.prompt,
+    provider: args.image.provider ?? "image_generation",
+    model: args.image.model ?? null,
+    width: args.size.width,
+    height: args.size.height,
+  });
+  return {
+    url: readString(gallery.url).trim() || imageUrl,
+    // The gallery may store the file under a cleaned-up, de-duplicated name.
+    filename: readString(gallery.filename).trim() || filename,
+    galleryId: readString(gallery.id) || null,
+  };
+}
+
+function sameAttachment(attachment: JsonRecord, target: { galleryId?: string | null; url?: string | null }): boolean {
+  const galleryId = readString(target.galleryId).trim();
+  if (galleryId) return readString(attachment.galleryId) === galleryId;
+  const url = readString(target.url).trim();
+  return !!url && readString(attachment.url) === url;
+}
+
+function messageAttachments(extra: unknown): JsonRecord[] {
+  const attachments = parseRecord(extra).attachments;
+  return Array.isArray(attachments) ? attachments.filter(isRecord) : [];
+}
+
+/**
+ * Makes a new picture for a selfie already in the chat: same prompt, the chat's selfie connection and the selfie's
+ * size, and the character's reference picture when the chat uses one. The old picture is swapped out only once the
+ * new one is saved, so a failed try leaves the message as it was. Throws with a message the user can act on.
+ */
+export async function regenerateSelfieAttachment(args: {
+  storage: StorageGateway;
+  integrations: IntegrationGateway | undefined;
+  visuals?: VisualAssetGateway;
+  chatId: string;
+  messageId: string;
+  /** Which picture on the message: its gallery id, else its url. */
+  attachment: { galleryId?: string | null; url?: string | null };
+}): Promise<JsonRecord> {
+  const chat = await args.storage.get<JsonRecord>("chats", args.chatId);
+  const message = await args.storage.getChatMessage<JsonRecord>(args.messageId);
+  if (!chat || !message || readString(message.chatId) !== args.chatId) throw new Error("That message is gone.");
+  const original = messageAttachments(message.extra).find((attachment) => sameAttachment(attachment, args.attachment));
+  if (!original || !isSelfieAttachment(original)) throw new Error("That picture isn't a selfie on this message.");
+  const prompt = readString(original.prompt).trim();
+  if (!prompt) throw new Error("This selfie has no saved prompt to make it again.");
+  const metadata = parseRecord(chat.metadata);
+  const imageConnectionId = readString(metadata.imageGenConnectionId).trim();
+  if (!imageConnectionId) throw new Error("Choose an image connection for selfies in this chat's settings first.");
+  if (!args.integrations?.image) throw new Error("Image generation is not available.");
+
+  const characterId =
+    readString(original.characterId).trim() || readString(message.characterId).trim() || activeCharacterId(chat);
+  const character = characterId ? await args.storage.get<JsonRecord>("characters", characterId) : null;
+  const characterName = nameOf(character ?? {}) || "character";
+  const size =
+    typeof original.width === "number" && typeof original.height === "number"
+      ? { width: original.width, height: original.height }
+      : parseSelfieSize(metadata.selfieResolution);
+  // A selfie saved before its negative prompt was kept gets the chat's and the character's own negatives.
+  const avoidTags = readString(parseRecord(parseData(character ?? undefined).extensions).selfieAvoidTags).trim();
+  const negativePrompt =
+    readString(original.negativePrompt).trim() ||
+    [readString(metadata.selfieNegativePrompt).trim(), avoidTags].filter(Boolean).join(", ");
+  const referenceImages =
+    boolish(metadata.selfieUseAvatarReferences, false) && character
+      ? await selfieReferenceImages(args.visuals, character, characterName)
+      : [];
+  const image = await args.integrations.image.generate({
+    connectionId: imageConnectionId,
+    kind: "selfie",
+    reviewId: `selfie:${args.chatId}:${characterId ?? "active"}`,
+    reviewTitle: `Selfie: ${characterName}`,
+    prompt,
+    negativePrompt: negativePrompt || undefined,
+    width: size.width,
+    height: size.height,
+    ...(referenceImages.length > 0 ? { referenceImages } : {}),
+  });
+  const stored = await storeSelfieImage({
+    storage: args.storage,
+    chatId: args.chatId,
+    characterName,
+    image,
+    prompt,
+    size,
+  });
+  const replacement: JsonRecord = {
+    ...original,
+    kind: "selfie",
+    url: stored.url,
+    filename: stored.filename,
+    galleryId: stored.galleryId,
+    width: size.width,
+    height: size.height,
+    ...(negativePrompt ? { negativePrompt } : {}),
+    ...(characterId ? { characterId } : {}),
+  };
+  // Read again: the message may have changed while the picture was being made.
+  const latest = await args.storage.getChatMessage<JsonRecord>(args.messageId);
+  const attachments = messageAttachments(latest?.extra);
+  const at = attachments.findIndex((attachment) => sameAttachment(attachment, args.attachment));
+  if (at < 0)
+    throw new Error("The selfie was removed while the new one was being made; the new one is in the gallery.");
+  attachments[at] = replacement;
+  await args.storage.patchChatMessageExtra(args.messageId, { attachments });
+  return replacement;
 }
 
 function eventsPushSelfieError(events: ConnectedCommandEvent[], characterId: string | null, error: string): void {

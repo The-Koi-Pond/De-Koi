@@ -708,7 +708,8 @@ export function TrancePlayer({
         >
           {previousLine?.text ?? ""}
         </p>
-        <div className="flex flex-col items-center gap-2">
+        {/* Full width, so the line fading out keeps its own width instead of the (maybe much shorter) new line's. */}
+        <div className="flex w-full flex-col items-center gap-2">
           {colors && characterName && (
             <span
               data-testid="trance-guide-name"
@@ -718,7 +719,7 @@ export function TrancePlayer({
               {characterName}
             </span>
           )}
-          <div className="relative flex justify-center">
+          <div className="relative flex w-full justify-center">
             {leavingLine && (
               <LeavingLine
                 key={leavingLine.key}
