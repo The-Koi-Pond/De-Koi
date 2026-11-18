@@ -2400,20 +2400,50 @@ fn clear_deleted_scene_references(
                 );
             }
         }
-        let mut patch = Map::new();
-        patch.insert("metadata".to_string(), Value::Object(meta));
-        if origin_chat
+        let linked_to_deleted_scene = origin_chat
             .get("connectedChatId")
             .and_then(Value::as_str)
-            .is_some_and(|id| scene_ids.contains(id))
-        {
-            patch.insert("connectedChatId".to_string(), Value::Null);
+            .is_some_and(|id| scene_ids.contains(id));
+        let mut given_back_link = Value::Null;
+        if linked_to_deleted_scene {
+            // A scene borrows its origin's link while it runs; give the earlier link back when it's still mutual.
+            if let Some(previous_id) = remembered_scene_link(&meta, deleted_chat_id, &scene_ids) {
+                if let Some(previous_chat) = state.storage.get("chats", &previous_id)? {
+                    if previous_chat.get("connectedChatId").and_then(Value::as_str)
+                        == Some(origin_id.as_str())
+                    {
+                        given_back_link = Value::String(previous_id);
+                    }
+                }
+            }
+            meta.insert(SCENE_PREVIOUS_LINK_KEY.to_string(), Value::Null);
+        }
+        let mut patch = Map::new();
+        patch.insert("metadata".to_string(), Value::Object(meta));
+        if linked_to_deleted_scene {
+            patch.insert("connectedChatId".to_string(), given_back_link);
         }
         state
             .storage
             .patch("chats", &origin_id, Value::Object(patch))?;
     }
     Ok(())
+}
+
+/// Origin metadata: the chat the origin was linked to before a scene took its link over.
+const SCENE_PREVIOUS_LINK_KEY: &str = "scenePreviousConnectedChatId";
+
+fn remembered_scene_link(
+    origin_meta: &Map<String, Value>,
+    deleted_chat_id: &str,
+    scene_ids: &std::collections::BTreeSet<&str>,
+) -> Option<String> {
+    origin_meta
+        .get(SCENE_PREVIOUS_LINK_KEY)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && *id != deleted_chat_id && !scene_ids.contains(id))
+        .map(str::to_string)
 }
 
 fn object_or_parse(value: Option<&Value>) -> Map<String, Value> {
@@ -6964,6 +6994,50 @@ mod tests {
             .iter()
             .any(|memory| memory.get("summary").and_then(Value::as_str)
                 == Some("Keep this older unscoped memory.")));
+    }
+
+    #[test]
+    fn delete_active_scene_chat_gives_origin_its_earlier_link_back() {
+        let state = test_state("scene-origin-link-back");
+        for chat in [
+            json!({
+                "id": "origin-chat",
+                "name": "Origin",
+                "metadata": {
+                    "activeSceneChatId": "scene-chat",
+                    "sceneBusyCharIds": ["char-a"],
+                    "scenePreviousConnectedChatId": "linked-roleplay"
+                },
+                "connectedChatId": "scene-chat"
+            }),
+            json!({
+                "id": "scene-chat",
+                "name": "Scene: Rooftop",
+                "metadata": { "sceneOriginChatId": "origin-chat", "sceneStatus": "active" },
+                "connectedChatId": "origin-chat"
+            }),
+            json!({
+                "id": "linked-roleplay",
+                "name": "Linked roleplay",
+                "metadata": {},
+                "connectedChatId": "origin-chat"
+            }),
+        ] {
+            state.storage.create("chats", chat).unwrap();
+        }
+
+        delete_chat_with_messages(&state, "scene-chat").unwrap();
+
+        let origin = state.storage.get("chats", "origin-chat").unwrap().unwrap();
+        assert_eq!(
+            origin.get("connectedChatId").and_then(Value::as_str),
+            Some("linked-roleplay")
+        );
+        let meta = metadata_map(&origin);
+        assert!(meta.get("activeSceneChatId").is_some_and(Value::is_null));
+        assert!(meta
+            .get("scenePreviousConnectedChatId")
+            .is_some_and(Value::is_null));
     }
 
     #[test]
