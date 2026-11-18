@@ -181,7 +181,7 @@ jobs:
             broad=true
           fi
 
-          if matches '^(src-tauri/src/(commands/storage|http_(dispatch|server)|state)|src-tauri/crates/(assets|security)|src/engine/(agents-runtime|contracts|generation)/|src/shared/api/(agent|avatar|export|game|image-generation|import|integration-utility|local-file|lorebook-command|remote-runtime|storage|tracker-snapshot)-api\.ts|custom_components/)'; then
+          if matches '^(src-tauri/src/(commands/storage|http_(dispatch|server)|state)|src-tauri/crates/(assets|security)|src/engine/(agents-runtime|contracts|generation)/|src/shared/api/(agent|avatar|export|game|image-generation|import|integration-utility|local-file|lorebook-command|remote-runtime|storage|tracker-snapshot)-api\.ts)'; then
             broad=true
           fi
 

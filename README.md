@@ -323,7 +323,7 @@ Only the web container is exposed, on port `7860`; the Rust runtime stays privat
 <summary><b>Local network prompts</b></summary>
 
 Some operating systems ask whether De-Koi can reach devices on your local network. De-Koi uses that only for opt-in
-local workflows: local model servers, image tools, OAuth callbacks, Home Assistant, or a self-hosted runtime. If you
+local workflows: local model servers, image tools, OAuth callbacks, or a self-hosted runtime. If you
 use none of those, you can deny the prompt and still use ordinary hosted providers.
 
 </details>
