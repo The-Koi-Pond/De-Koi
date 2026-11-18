@@ -18,8 +18,6 @@ import {
 } from "../modes/chat/commands/character-commands";
 import { conversationCommandPromptEnabled, conversationSelfieCommandEnabled } from "../modes/chat/commands/activation";
 import { isSelfieAttachment } from "../modes/chat/selfies/selfie-attachment";
-import { buildRoleplaySceneOpeningGuide } from "../modes/roleplay/scene/scene-opening";
-import { createRoleplayScene, planRoleplayScene } from "../modes/roleplay/scene/scene-service";
 import { extractLeadingThinkingBlocks } from "../generation-core/llm/inline-thinking";
 import { resolveConversationSelfieSystemPrompt } from "./prompt-overrides";
 import { illustrationReferencesForRequest } from "../generation-core/images/illustration-reference-selection";
@@ -1242,54 +1240,6 @@ async function playSpotifyCommand(
   return true;
 }
 
-async function createSceneFromCommand(args: {
-  storage: StorageGateway;
-  llm?: LlmGateway;
-  visuals?: VisualAssetGateway;
-  chat: JsonRecord;
-  command: Extract<CharacterCommand, { type: "scene" }>;
-  events: ConnectedCommandEvent[];
-  llmConnectionId?: string | null;
-}): Promise<boolean> {
-  if (!args.llm) return false;
-  const chatId = readString(args.chat.id);
-  const planResult = await planRoleplayScene(
-    { storage: args.storage, llm: args.llm, visuals: args.visuals },
-    {
-      chatId,
-      prompt: [args.command.scenario, args.command.plan].filter(Boolean).join("\n\n"),
-      connectionId: args.llmConnectionId ?? null,
-    },
-  );
-  if (!planResult.plan) return false;
-  const plan = {
-    ...planResult.plan,
-    background: args.command.background || planResult.plan.background,
-  };
-  const created = await createRoleplayScene(
-    args.storage,
-    {
-      originChatId: chatId,
-      initiatorCharId: activeCharacterId(args.chat),
-      plan,
-      connectionId: args.llmConnectionId ?? null,
-      openingMode: "generated",
-    },
-    args.visuals,
-  );
-  args.events.push({
-    type: "scene_created",
-    data: {
-      chatId: created.chatId,
-      chatName: created.chatName,
-      originChatId: chatId,
-      background: created.background,
-      openingGenerationGuide: buildRoleplaySceneOpeningGuide(plan.firstMessage),
-    },
-  });
-  return true;
-}
-
 async function applyScheduleUpdate(
   storage: StorageGateway,
   chat: JsonRecord,
@@ -1932,10 +1882,6 @@ async function executeCommand(
         selfieRequest: options?.textsFirstPhoto === "send" ? undefined : options?.selfieRequest,
       }))
         ? { name: "selfie" }
-        : null;
-    case "scene":
-      return (await createSceneFromCommand({ storage, llm, visuals, chat, command, events, llmConnectionId }))
-        ? { name: "scene" }
         : null;
   }
 }

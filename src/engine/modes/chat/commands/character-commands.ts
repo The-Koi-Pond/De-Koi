@@ -58,16 +58,6 @@ interface MemoryCommand {
   summary: string;
 }
 
-interface SceneCommand {
-  type: "scene";
-  /** Description of the scene/scenario the character wants to play out */
-  scenario: string;
-  /** Optional background suggestion */
-  background?: string;
-  /** Optional plot plan / outline for how the scene unfolds */
-  plan?: string;
-}
-
 interface InfluenceCommand {
   type: "influence";
   /** The OOC influence text to inject into the connected roleplay */
@@ -308,7 +298,6 @@ export type CharacterCommand =
   | CrossPostCommand
   | SelfieCommand
   | MemoryCommand
-  | SceneCommand
   | InfluenceCommand
   | NoteCommand
   | DirectMessageCommand
@@ -331,7 +320,6 @@ const SELFIE_RE = /\[selfie(?::\s*(?:context="([^"]*)"|"([^"]*)"|([^\]\r\n"]+)))
 const MEMORY_RE = /\[memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)"\]/gi;
 const ANGLE_MEMORY_RE = /<memory:\s*target="([^"]+)"\s*,\s*summary="([^"]+)">/gi;
 const BARE_MEMORY_RE = new RegExp(`\\[memory:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
-const SCENE_RE = new RegExp(`\\[scene:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const REACT_RE = /\[react:\s*(?:emoji="([^"\]]{1,32})"|"([^"\]]{1,32})"|([^\]\r\n"]{1,32}))\s*\]/gi;
 // One emoji: a pictograph or flag, with optional variation selector, keycap, skin tone, or ZWJ-joined pictographs.
 const SINGLE_EMOJI_RE =
@@ -760,35 +748,6 @@ function parseNumberParam(params: string, key: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
-function parseUnquotedSceneParam(params: string, key: string): string | undefined {
-  const match = params.match(
-    new RegExp(`${key}\\s*=\\s*([\\s\\S]*?)(?=\\s*,?\\s*(?:scenario|description|prompt|background|plan)\\s*=|$)`, "i"),
-  );
-  const value = match?.[1]?.replace(/,\s*$/, "").trim();
-  return value || undefined;
-}
-
-function parseSceneTextParam(params: string, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const quoted = parseQuotedParam(params, key);
-    if (quoted) return quoted.trim();
-    const unquoted = parseUnquotedSceneParam(params, key);
-    if (unquoted) return unquoted;
-  }
-  return undefined;
-}
-
-function parseBareSceneScenario(params: string): string | undefined {
-  const trimmed = params.trim();
-  if (!trimmed || /^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(trimmed)) return undefined;
-  const quote = trimmed[0];
-  const closeQuote = quote === "\u201c" ? "\u201d" : quote === "\u2018" ? "\u2019" : quote;
-  if ((quote === '"' || quote === "'" || quote === "\u201c" || quote === "\u2018") && trimmed.endsWith(closeQuote)) {
-    return trimmed.slice(1, -1).trim() || undefined;
-  }
-  return trimmed;
-}
-
 function applyCommonCharacterFields(
   cmd: CreateCharacterCommand | UpdateCharacterCommand,
   params: string,
@@ -904,20 +863,6 @@ export function parseCharacterCommands(
   for (const match of content.matchAll(BARE_MEMORY_RE)) {
     const command = parseBareMemoryCommand(match[1]!);
     if (command) commands.push(command);
-  }
-
-  // Parse scene commands
-  for (const match of content.matchAll(SCENE_RE)) {
-    const params = match[1]!;
-    const cmd: SceneCommand = { type: "scene", scenario: "" };
-
-    cmd.scenario =
-      parseSceneTextParam(params, ["scenario", "description", "prompt"]) ?? parseBareSceneScenario(params) ?? "";
-    cmd.background = parseSceneTextParam(params, ["background"]);
-    cmd.plan = parseSceneTextParam(params, ["plan"]);
-
-    // Only add if we got a scenario
-    if (cmd.scenario) commands.push(cmd);
   }
 
   // Parse influence commands (<influence>text</influence>)
@@ -1076,7 +1021,6 @@ export function parseCharacterCommands(
     .replace(SELFIE_RE, "")
     .replace(MEMORY_RE, "")
     .replace(BARE_MEMORY_RE, "")
-    .replace(SCENE_RE, "")
     .replace(REACT_RE, "")
     .replace(SPOTIFY_RE, "")
     .replace(INFLUENCE_RE, "")

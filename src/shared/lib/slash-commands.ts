@@ -2,8 +2,6 @@
 // Slash Commands — SillyTavern-style / commands
 // ──────────────────────────────────────────────
 import { chatBackgroundMetadataToUrl } from "./backgrounds";
-import { planRoleplayScene, createRoleplayScene } from "../../engine/modes/roleplay/scene/scene-service";
-import { buildRoleplaySceneOpeningGuide } from "../../engine/modes/roleplay/scene/scene-opening";
 import { llmApi } from "../api/llm-api";
 import { chatMetadataStorageApi, chatTranscriptStorageApi, storageApi } from "../api/storage-api";
 import { visualAssetsApi } from "../api/visual-assets-api";
@@ -11,7 +9,6 @@ import { spriteApi } from "../api/image-generation-api";
 import { useChatStore } from "../stores/chat.store";
 import { useUIStore } from "../stores/ui.store";
 import { toast } from "sonner";
-import type { SceneCreateResponse, ScenePlanResponse } from "../../engine/contracts/types/scene";
 import { SUPPORTED_MACROS } from "../../engine/shared/macros/macro-engine";
 import {
   buildAmendGenerationInstructionMessage,
@@ -721,100 +718,6 @@ const SLASH_COMMANDS: SlashCommand[] = [
           "[Narrator instruction — do not include a reply from {{user}}. Instead: And now, something completely different. Introduce a random, unexpected event to stir up the plot. Be creative and surprising — throw a curveball that keeps things interesting!]",
       });
       return { handled: true };
-    },
-  },
-  {
-    name: "scene",
-    aliases: ["rp"],
-    description: "Start a roleplay scene branching from this conversation",
-    usage: "/scene [description]",
-    local: true,
-    async execute(args, ctx) {
-      const prompt = args.trim();
-
-      // If no prompt and no messages, guide the user
-      if (!prompt) {
-        const msgs = await chatTranscriptStorageApi.listChatMessages<unknown>(ctx.chatId);
-        if (!msgs || msgs.length === 0) {
-          return {
-            handled: true,
-            feedback:
-              "No conversation history to base a scene on. Provide a description or chat first: /scene <description>",
-          };
-        }
-      }
-
-      // Step 1: Ask the roleplay engine to plan the scene.
-      const planToastId = toast.loading("Planning scene...", { icon: "🎬" });
-      let planRes: ScenePlanResponse;
-      try {
-        planRes = await planRoleplayScene(
-          { storage: storageApi, llm: llmApi, visuals: visualAssetsApi },
-          {
-            chatId: ctx.chatId,
-            prompt,
-            connectionId: null,
-          },
-        );
-      } catch {
-        toast.dismiss(planToastId);
-        return { handled: true, feedback: "Failed to plan scene. Check your API connection." };
-      }
-
-      if (!planRes.plan) {
-        toast.dismiss(planToastId);
-        return { handled: true, feedback: planRes.error || "Scene planning returned empty result. Try again." };
-      }
-
-      // Step 2: Create the scene chat using the full plan
-      toast.loading("Creating scene...", { id: planToastId, icon: "🎬" });
-      try {
-        const res: SceneCreateResponse = await createRoleplayScene(
-          storageApi,
-          {
-            originChatId: ctx.chatId,
-            initiatorCharId: null, // user-initiated
-            plan: planRes.plan,
-            connectionId: null,
-            openingMode: "generated",
-          },
-          visualAssetsApi,
-        );
-
-        // Invalidate chats so the new scene appears + navigate to it
-        ctx.invalidate();
-        useChatStore.getState().setActiveChatId(res.chatId);
-
-        let openingStarted: boolean | void = false;
-        try {
-          openingStarted = await ctx.generate({
-            chatId: res.chatId,
-            connectionId: null,
-            generationGuide: buildRoleplaySceneOpeningGuide(planRes.plan.firstMessage),
-            generationGuideSource: "narrator",
-          });
-        } catch {
-          openingStarted = false;
-        }
-        if (openingStarted === false) {
-          toast.dismiss(planToastId);
-          return {
-            handled: true,
-            feedback: "Scene created, but its opening could not start. Send a message in the scene to continue.",
-          };
-        }
-
-        // Apply background if the plan chose one
-        if (res.background) {
-          useUIStore.getState().setChatBackground(chatBackgroundMetadataToUrl(res.background));
-        }
-
-        toast.success(`Scene created: ${res.chatName}`, { id: planToastId, icon: "🎬" });
-        return { handled: true };
-      } catch {
-        toast.dismiss(planToastId);
-        return { handled: true, feedback: "Failed to create scene chat." };
-      }
     },
   },
   {

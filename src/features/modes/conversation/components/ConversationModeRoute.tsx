@@ -180,19 +180,6 @@ export function ConversationModeRoute({ activeChatId }: ConversationModeRoutePro
   }, [data.chatMode, retryTimelineAgent, timelineAgentProcessing, timelineStreaming]);
   const connectedChatId = (data.chat as unknown as { connectedChatId?: string | null } | null | undefined)
     ?.connectedChatId;
-  const activeSceneChatId =
-    typeof data.chatMeta.activeSceneChatId === "string" ? data.chatMeta.activeSceneChatId : null;
-  const activeSceneChat = activeSceneChatId ? data.chatList.find((item) => item.id === activeSceneChatId) : undefined;
-  const activeSceneMeta = parseChatMetadata(activeSceneChat?.metadata);
-  const hasActiveLinkedScene = activeSceneChat && activeSceneMeta.sceneStatus === "active";
-  const sceneInfo =
-    activeSceneChatId && hasActiveLinkedScene
-      ? {
-          variant: "origin" as const,
-          sceneChatId: activeSceneChatId,
-          sceneChatName: getChatDisplayName(activeSceneChat),
-        }
-      : undefined;
   const newChatDraft = useNewChatDraft({
     activeChatId,
     overlays,

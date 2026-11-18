@@ -288,9 +288,6 @@ async function assertChatCanGenerate(queryClient: QueryClient, chatId: string) {
   const chatRecord = parseMaybeRecord(chat);
   const mode = readString(chatRecord.mode || chatRecord.chatMode);
   const metadata = parseMaybeRecord(chatRecord.metadata);
-  if (mode === "roleplay" && metadata.sceneStatus === "concluded") {
-    throw new Error("This scene is concluded. Convert or reopen it before sending new messages.");
-  }
 }
 
 async function insertOptimisticUserMessage(queryClient: QueryClient, args: GenerateArgs) {

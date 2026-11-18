@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { ConversationMessage } from "./ConversationMessage";
 import { ConversationInput } from "./ConversationInput";
-import { SceneBanner, EndSceneBar } from "../../shared/scene-ui";
 
 import {
   clearConversationRevealGeneration,
@@ -1783,11 +1782,6 @@ export function ConversationView({
             </>
           )}
 
-          {/* Scene banner ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â inline at bottom of messages (origin variant only) */}
-          {sceneInfo?.variant === "origin" && (
-            <SceneBanner variant="origin" sceneChatId={sceneInfo.sceneChatId} sceneChatName={sceneInfo.sceneChatName} />
-          )}
-
           <div className="h-1" />
         </div>
 
@@ -1804,16 +1798,6 @@ export function ConversationView({
               conversationStatusMessagesEnabled={conversationStatusMessagesEnabled}
             />
           </Suspense>
-        )}
-
-        {/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ End Scene bar (above input) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */}
-        {sceneInfo?.variant === "scene" && sceneInfo.sceneChatId && onConcludeScene && (
-          <EndSceneBar
-            sceneChatId={sceneInfo.sceneChatId}
-            originChatId={sceneInfo.originChatId}
-            onConclude={onConcludeScene}
-            onAbandon={onAbandonScene}
-          />
         )}
 
         {/* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Input area ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */}

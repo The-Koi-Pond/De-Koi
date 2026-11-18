@@ -63,7 +63,6 @@ import { ContinuityDirectorReviewBadge, continuityDirectorReviewLabel } from "./
 import { RoleplaySceneSoundBar } from "./RoleplaySceneSoundBar";
 import { EncounterLauncher, LazyEncounterHost } from "../encounter/components/EncounterLauncher";
 import { ChatBranchSelector, type ChatBranchSelectorHandle } from "../../shared/chat-ui/index";
-import { EndSceneBar, SceneBanner } from "../../shared/scene-ui";
 import { ChatCommonOverlays, MakeFromThisButton, MakeFromThisDialog } from "../../shared/chat-ui/index";
 import { useJumpToMessage } from "../../shared/chat-ui/index";
 import { ActiveWorldInfoButton } from "../../../runtime/visuals/index";
@@ -1525,25 +1524,6 @@ export function ChatRoleplaySurface({
                       onOpen={() => setWorldTickOpen(true)}
                     />
                   </Suspense>
-                )}
-                {chatMeta.sceneStatus === "active" && (
-                  <EndSceneBar
-                    sceneChatId={activeChatId}
-                    originChatId={metadataString(chatMeta.sceneOriginChatId) || undefined}
-                    onConclude={onConcludeScene}
-                    onAbandon={onAbandonScene}
-                    onFork={onForkScene}
-                    isForking={isForkingScene}
-                  />
-                )}
-                {isConcludedScene && (
-                  <SceneBanner
-                    variant="scene"
-                    sceneChatId={activeChatId}
-                    originChatId={metadataString(chatMeta.sceneOriginChatId) || undefined}
-                    description={metadataString(chatMeta.sceneDescription) || undefined}
-                    onReopen={onReopenScene}
-                  />
                 )}
                 {encountersEnabled && !isConcludedScene && <EncounterLauncher onStart={onOpenEncounterSetup} />}
                 {!isConcludedScene && (
