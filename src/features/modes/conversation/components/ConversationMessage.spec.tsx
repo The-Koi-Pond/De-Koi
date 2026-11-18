@@ -641,6 +641,60 @@ describe("ConversationMessage memo subscriptions", () => {
     });
   });
 
+  it("makes a selfie again as a selfie and never removes it first or hands it to the Illustrator", async () => {
+    const { selfieApi } = await import("../../../../shared/api/selfie-api");
+    const regenerate = vi.spyOn(selfieApi, "regenerate").mockResolvedValue({});
+    const onIllustrateMoment = vi.fn().mockResolvedValue(undefined);
+    const patchExtra = vi.spyOn(storageApi, "patchChatMessageExtra").mockResolvedValue({} as Message);
+    const selfieMessage: Message = {
+      ...message,
+      id: "message-selfie",
+      content: "Here.",
+      extra: {
+        displayText: null,
+        isGenerated: true,
+        tokenCount: null,
+        generationInfo: null,
+        attachments: [
+          {
+            type: "image",
+            url: "data:image/png;base64,aW1hZ2U=",
+            filename: "selfie_aster-3.png",
+            prompt: "aster, selfie",
+            galleryId: "gallery-3",
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <QueryClientProvider client={queryClient!}>
+          <ConversationMessage
+            message={selfieMessage}
+            onIllustrateMoment={onIllustrateMoment}
+            characterMap={characterMap}
+            chatCharacterIds={["character-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('button[title="Regenerate image"]')!.click();
+      await vi.waitFor(() => expect(regenerate).toHaveBeenCalled());
+    });
+
+    expect(regenerate).toHaveBeenCalledWith({
+      chatId: "chat-1",
+      messageId: "message-selfie",
+      attachment: { galleryId: "gallery-3", url: "data:image/png;base64,aW1hZ2U=" },
+    });
+    expect(patchExtra).not.toHaveBeenCalled();
+    expect(onIllustrateMoment).not.toHaveBeenCalled();
+  });
+
   it("labels assistant messages without a character as Assistant", () => {
     const neutralMessage: Message = {
       ...message,
