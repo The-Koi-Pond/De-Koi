@@ -28,6 +28,12 @@ function avatarCropSnapshot(value: unknown): string | null {
   }
 }
 
+/**
+ * What a user message keeps of its persona: who sent it and how they looked, so editing the persona later
+ * doesn't restyle past messages. The persona's description, personality and other card text are left out:
+ * nothing reads them back from a message, and copying them onto every message and swipe grew the stores by
+ * megabytes.
+ */
 function personaSnapshotFromRecord(value: unknown): PersonaMessageSnapshot | null {
   if (!isRecord(value)) return null;
   const data = recordData(value);
@@ -37,11 +43,6 @@ function personaSnapshotFromRecord(value: unknown): PersonaMessageSnapshot | nul
   return {
     personaId,
     name,
-    description: optionalString(field(value, data, "description")),
-    personality: optionalString(field(value, data, "personality")),
-    scenario: optionalString(field(value, data, "scenario")),
-    backstory: optionalString(field(value, data, "backstory")),
-    appearance: optionalString(field(value, data, "appearance")),
     avatarUrl:
       optionalString(field(value, data, "avatarPath")) ??
       optionalString(field(value, data, "avatarUrl")) ??

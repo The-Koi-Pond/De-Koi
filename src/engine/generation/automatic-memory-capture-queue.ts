@@ -801,6 +801,10 @@ export async function processAutomaticMemoryCaptureQueue(
             valueReview,
             captureReport: report,
             affectedCanonicalMemoryIds: consequences.map((entry) => entry.memory.id),
+            // A completed job is never run again: re-queueing the same messages returns it as is (matched by
+            // chat and source message ids). Its copies of the message text only took space.
+            sourceMessages: [],
+            referenceMessages: [],
           },
           leaseId,
         );

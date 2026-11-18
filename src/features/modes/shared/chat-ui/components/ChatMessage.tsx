@@ -1154,14 +1154,15 @@ export const ChatMessage = memo(function ChatMessage({
   // For user messages, prefer per-message persona snapshot (stored when message was sent)
   // to preserve the correct persona name/avatar even after switching personas.
   // Fall back to the current personaInfo prop for older messages without snapshots.
+  // The snapshot keeps only name and look, so persona text macros use the current persona.
   const msgPersona = isUser && extra.personaSnapshot ? extra.personaSnapshot : null;
   const userName = msgPersona?.name ?? personaInfo?.name ?? "You";
   const charName = primaryCharInfo?.name ?? "Assistant";
-  const personaDescription = msgPersona?.description ?? personaInfo?.description;
-  const personaPersonality = msgPersona?.personality ?? personaInfo?.personality;
-  const personaBackstory = msgPersona?.backstory ?? personaInfo?.backstory;
-  const personaAppearance = msgPersona?.appearance ?? personaInfo?.appearance;
-  const personaScenario = msgPersona?.scenario ?? personaInfo?.scenario;
+  const personaDescription = personaInfo?.description;
+  const personaPersonality = personaInfo?.personality;
+  const personaBackstory = personaInfo?.backstory;
+  const personaAppearance = personaInfo?.appearance;
+  const personaScenario = personaInfo?.scenario;
   const macroCharacters = useMemo(() => {
     if (scopedCharacterMap?.size) {
       const candidates = Array.from(scopedCharacterMap.values()).filter(

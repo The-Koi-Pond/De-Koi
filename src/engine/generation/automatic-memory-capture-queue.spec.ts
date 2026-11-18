@@ -669,6 +669,10 @@ describe("automatic memory capture queue", () => {
     const affectedIds = completedJob?.affectedCanonicalMemoryIds as string[];
     expect(affectedIds).toEqual(persistedIds);
     expect(new Set(affectedIds).size).toBe(affectedIds.length);
+    // A completed job keeps the ids that identify it, not copies of the message text.
+    expect(completedJob?.sourceMessageIds).toEqual(job?.sourceMessageIds);
+    expect(completedJob?.sourceMessages).toEqual([]);
+    expect(completedJob?.referenceMessages).toEqual([]);
   });
 
   it("times out a hung lease renewal and still attempts release", async () => {
