@@ -266,11 +266,11 @@ export const ConversationMessage = memo(function ConversationMessage({
       userName: displayName,
       persona: {
         name: displayName,
-        description: isPlainUserMessage ? undefined : (msgPersona?.description ?? personaInfo?.description),
-        personality: isPlainUserMessage ? undefined : (msgPersona?.personality ?? personaInfo?.personality),
-        backstory: isPlainUserMessage ? undefined : (msgPersona?.backstory ?? personaInfo?.backstory),
-        appearance: isPlainUserMessage ? undefined : (msgPersona?.appearance ?? personaInfo?.appearance),
-        scenario: isPlainUserMessage ? undefined : (msgPersona?.scenario ?? personaInfo?.scenario),
+        description: isPlainUserMessage ? undefined : personaInfo?.description,
+        personality: isPlainUserMessage ? undefined : personaInfo?.personality,
+        backstory: isPlainUserMessage ? undefined : personaInfo?.backstory,
+        appearance: isPlainUserMessage ? undefined : personaInfo?.appearance,
+        scenario: isPlainUserMessage ? undefined : personaInfo?.scenario,
       },
       primaryCharacter: primaryCharInfo ?? { name: displayName },
       characters: scopedCharacterMap
@@ -282,11 +282,6 @@ export const ConversationMessage = memo(function ConversationMessage({
     [
       displayName,
       isPlainUserMessage,
-      msgPersona?.appearance,
-      msgPersona?.backstory,
-      msgPersona?.description,
-      msgPersona?.personality,
-      msgPersona?.scenario,
       personaInfo?.appearance,
       personaInfo?.backstory,
       personaInfo?.description,

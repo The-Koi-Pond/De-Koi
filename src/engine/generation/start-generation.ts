@@ -808,31 +808,20 @@ function mirrorSavedUserMessageToDiscord(args: {
   characters?: GenerationCharacterContext[];
   input: StartGenerationInput;
   prepared: PreparedUserInput;
-  persona: GenerationPersonaContext | null;
+  personaName: string | null | undefined;
 }): void {
   if (!shouldSaveUserMessage(args.input, args.prepared)) return;
   mirrorDiscordMessage({
     integrations: args.deps.integrations,
     chat: args.chat,
     content: args.prepared.content || inputUserMessage(args.input),
-    username: limitedDiscordName(args.persona?.name, "User"),
+    username: limitedDiscordName(args.personaName, "User"),
   });
 }
 
-function savedUserPersonaContext(saved: unknown): GenerationPersonaContext | null {
+function savedUserPersonaName(saved: unknown): string | null {
   if (!isRecord(saved)) return null;
-  const snapshot = parseRecord(parseRecord(saved.extra).personaSnapshot);
-  const name = readString(snapshot.name).trim();
-  if (!name) return null;
-  return {
-    name,
-    description: readString(snapshot.description),
-    personality: readString(snapshot.personality),
-    backstory: readString(snapshot.backstory),
-    appearance: readString(snapshot.appearance),
-    scenario: readString(snapshot.scenario),
-    tags: [],
-  };
+  return readString(parseRecord(parseRecord(saved.extra).personaSnapshot).name).trim() || null;
 }
 
 function illustrationSize(value: unknown): { width: number; height: number } {
@@ -2695,12 +2684,11 @@ async function persistTrackerSnapshotSafely(
 }
 
 /**
- * Snapshots are retained for only the most recent assistant messages to bound
- * per-chat storage growth (parity with v1.6.1). Older assistant messages keep
- * their text but drop the saved prompt; the inspector then shows "No saved
- * prompt snapshot" for them, exactly as v1.6.1 did.
+ * Only the latest assistant message keeps its saved prompt (about 75 KB each in
+ * real chats). Older assistant messages keep their text but drop the saved
+ * prompt; the inspector then shows "No saved prompt snapshot" for them.
  */
-const PROMPT_SNAPSHOT_KEEP_LAST = 2;
+const PROMPT_SNAPSHOT_KEEP_LAST = 1;
 
 async function evictStalePromptSnapshotsSafely(storage: StorageGateway, chatId: string): Promise<void> {
   try {
@@ -5694,7 +5682,7 @@ async function* startGenerationImpl(
         chat,
         input,
         prepared: preparedUserInput,
-        persona: savedUserPersonaContext(savedUserMessage),
+        personaName: savedUserPersonaName(savedUserMessage),
       });
       yield { type: "offline", data: { characters: characterNames } };
       yield { type: "done" };
@@ -5793,7 +5781,13 @@ async function* startGenerationImpl(
     messageCount: generationMessages.length,
     promptMessageCount: assembly.messages.length,
   });
-  mirrorSavedUserMessageToDiscord({ deps, chat, input, prepared: preparedUserInput, persona: assembly.persona });
+  mirrorSavedUserMessageToDiscord({
+    deps,
+    chat,
+    input,
+    prepared: preparedUserInput,
+    personaName: assembly.persona?.name,
+  });
 
   if (!directMessages) {
     const agentsEnabled = input.impersonateBlockAgents !== true && !isUserMessageRegeneration;

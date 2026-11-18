@@ -96,6 +96,7 @@ const REMOVE_GAME_MODE_MIGRATION_KEY: &str = "removeGameModeV1";
 const LOREBOOK_SELECTIVE_LOGIC_MIGRATION_KEY: &str = "lorebookSelectiveLogicV1";
 const CARD_REGEX_APPLY_MODE_MIGRATION_KEY: &str = "cardRegexApplyModeV1";
 const RETIRE_GAME_ASSET_LIBRARY_MIGRATION_KEY: &str = "retireGameAssetLibraryV1";
+const STORED_COPY_TRIM_MIGRATION_KEY: &str = "storedCopyTrimV1";
 const COMPACT_STORED_VECTORS_MIGRATION_KEY: &str = "compactStoredVectorsV1";
 const LLM_STREAM_PENDING_CANCEL_TTL: Duration = Duration::from_secs(60);
 const MEMORY_MAINTENANCE_WORKER_LEASE_TTL: Duration = Duration::from_secs(120);
@@ -262,6 +263,18 @@ impl AppState {
             CARD_REGEX_APPLY_MODE_MIGRATION_KEY,
             crate::storage_commands::startup_migrations::restore_card_regex_apply_modes,
         )?;
+        // Trimming only saves space: a failure is logged and the next start tries again.
+        if let Err(error) =
+            run_startup_migration_once(&state.storage, STORED_COPY_TRIM_MIGRATION_KEY, |_| {
+                crate::storage_commands::stored_copy_trim::trim_stored_copies(&state).map(|_| ())
+            })
+        {
+            log::warn!(
+                "Stored copy trim remains pending: code={} message={}",
+                error.code,
+                error.message
+            );
+        }
         // Old number-array vectors still read, so a failure is logged and the next start tries again.
         if let Err(error) = run_startup_migration_once(
             &state.storage,
