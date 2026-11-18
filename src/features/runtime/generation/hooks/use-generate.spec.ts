@@ -1135,6 +1135,12 @@ describe("runGenerationWithUi", () => {
     });
 
     expect(useChatStore.getState().activeChatId).toBe("conversation-1");
+    expect(toast).toHaveBeenCalledWith("Scene created: Moonlit Library", {
+      action: { label: "Go to scene", onClick: expect.any(Function) },
+    });
+    const options = vi.mocked(toast).mock.calls.at(-1)?.[1] as unknown as { action: { onClick: () => void } };
+    options.action.onClick();
+    expect(useChatStore.getState().activeChatId).toBe("scene-1");
 
     vi.advanceTimersByTime(75);
 

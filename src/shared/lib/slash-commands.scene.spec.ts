@@ -1,56 +1,77 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  createRoleplayScene: vi.fn(),
-  planRoleplayScene: vi.fn(),
+import type { LlmGateway } from "../../engine/capabilities/llm";
+import type { StorageGateway } from "../../engine/capabilities/storage";
+import {
+  createFakeSceneStorage,
+  scriptedLlm,
+  type FakeSceneStorage,
+} from "../../engine/modes/roleplay/scene/scene-storage.fake";
+
+const runtime = vi.hoisted(() => ({
+  storage: null as unknown as StorageGateway,
+  llm: null as unknown as LlmGateway,
   setActiveChatId: vi.fn(),
+  toast: { dismiss: vi.fn(), error: vi.fn(), loading: vi.fn(() => "scene-toast"), success: vi.fn() },
 }));
 
-vi.mock("../../engine/modes/roleplay/scene/scene-service", () => ({
-  createRoleplayScene: mocks.createRoleplayScene,
-  planRoleplayScene: mocks.planRoleplayScene,
+// The wrappers forward to the in-memory runtime of the current test.
+vi.mock("../api/storage-api", () => {
+  const forward = new Proxy({}, { get: (_target, key) => runtime.storage[key as keyof StorageGateway] });
+  return { storageApi: forward, chatTranscriptStorageApi: forward, chatMetadataStorageApi: forward };
+});
+vi.mock("../api/llm-api", () => ({
+  llmApi: new Proxy({}, { get: (_target, key) => runtime.llm[key as keyof LlmGateway] }),
 }));
-
-vi.mock("../api/storage-api", () => ({
-  chatMetadataStorageApi: {},
-  chatTranscriptStorageApi: { listChatMessages: vi.fn().mockResolvedValue([{ role: "user", content: "hello" }]) },
-  storageApi: {},
-}));
-
-vi.mock("../api/llm-api", () => ({ llmApi: {} }));
-vi.mock("../api/visual-assets-api", () => ({ visualAssetsApi: {} }));
 vi.mock("../api/image-generation-api", () => ({ spriteApi: {} }));
 vi.mock("../stores/chat.store", () => ({
-  useChatStore: { getState: () => ({ setActiveChatId: mocks.setActiveChatId }) },
+  useChatStore: { getState: () => ({ setActiveChatId: runtime.setActiveChatId }) },
 }));
-vi.mock("../stores/ui.store", () => ({
-  useUIStore: { getState: () => ({ setChatBackground: vi.fn() }) },
-}));
-vi.mock("sonner", () => ({
-  toast: {
-    dismiss: vi.fn(),
-    error: vi.fn(),
-    loading: vi.fn().mockReturnValue("scene-toast"),
-    success: vi.fn(),
-  },
-}));
+vi.mock("../stores/ui.store", () => ({ useUIStore: { getState: () => ({}) } }));
+vi.mock("sonner", () => ({ toast: runtime.toast }));
 
 import { matchSlashCommand, type SlashCommandContext } from "./slash-commands";
 
-const plan = {
+const BEAT = "Participants: Harlequin\nAction: Harlequin blocks the corridor\nPressure: The user must answer";
+const PLAN_ANSWER = JSON.stringify({
   name: "Scene: Hallway",
-  description: "A confrontation begins backstage.",
-  scenario: "Harlequin asks Chai to repeat the joke.",
-  firstMessage: "Harlequin steps into the corridor and blocks the way.",
-  background: null,
+  description: "A confrontation backstage.",
+  scenario: "Harlequin wants the joke repeated.",
+  firstMessage: BEAT,
   characterIds: ["harlequin"],
-  systemPrompt: "Keep the confrontation playful.",
-  rating: "sfw" as const,
-  relationshipHistory: "They were teasing each other moments ago.",
-  participationGuide: "",
-};
+  rating: "sfw",
+  relationshipHistory: "They were teasing.",
+});
 
-function sceneContext(generate = vi.fn().mockResolvedValue(true)): SlashCommandContext {
+let fixture: FakeSceneStorage;
+
+function useRuntime(options: { metadata?: Record<string, unknown>; messages?: number; answer?: string } = {}) {
+  fixture = createFakeSceneStorage({
+    chats: [
+      {
+        id: "conversation-chat",
+        mode: "conversation",
+        connectionId: "main",
+        characterIds: ["harlequin"],
+        metadata: options.metadata ?? {},
+      },
+    ],
+    connections: [{ id: "main", enabled: true }],
+    messages: {
+      "conversation-chat": Array.from({ length: options.messages ?? 1 }, (_, index) => ({
+        id: `m-${index}`,
+        role: "user",
+        content: "Say that joke again.",
+      })),
+    },
+  });
+  const model = scriptedLlm(() => options.answer ?? PLAN_ANSWER);
+  runtime.storage = fixture.storage;
+  runtime.llm = model.llm;
+  return model;
+}
+
+function context(generate = vi.fn().mockResolvedValue(true)): SlashCommandContext {
   return {
     chatId: "conversation-chat",
     mode: "conversation",
@@ -61,69 +82,116 @@ function sceneContext(generate = vi.fn().mockResolvedValue(true)): SlashCommandC
   };
 }
 
+async function run(input: string, ctx = context()) {
+  const match = matchSlashCommand(input);
+  if (!match) throw new Error(`${input} didn't match a command`);
+  return { result: await match.command.execute(match.args, ctx), ctx };
+}
+
 describe("/scene", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.planRoleplayScene.mockResolvedValue({ plan });
-    mocks.createRoleplayScene.mockResolvedValue({
-      chatId: "scene-chat",
-      chatName: plan.name,
-      description: plan.description,
-      background: null,
+  });
+
+  it("plans, creates and opens the scene, then streams its opening through the Roleplay writer", async () => {
+    const model = useRuntime();
+
+    const { result, ctx } = await run("/scene a heist at the gala");
+
+    expect(result).toEqual({ handled: true });
+    expect(model.requests).toHaveLength(1);
+    const scene = fixture.createdChats[0]!;
+    expect(scene).toMatchObject({ name: "Scene: Hallway", mode: "roleplay", connectedChatId: "conversation-chat" });
+    expect(fixture.messages(String(scene.id))).toEqual([]);
+    expect(ctx.invalidate).toHaveBeenCalled();
+    expect(runtime.setActiveChatId).toHaveBeenCalledWith(scene.id);
+    expect(ctx.generate).toHaveBeenCalledWith({
+      chatId: scene.id,
+      connectionId: null,
+      generationGuide: expect.stringContaining(BEAT),
+      generationGuideSource: "narrator",
+    });
+    expect(runtime.toast.loading).toHaveBeenCalledWith("Planning scene...", { icon: "🎬" });
+    expect(runtime.toast.loading).toHaveBeenCalledWith("Creating scene...", { id: "scene-toast", icon: "🎬" });
+    expect(runtime.toast.success).toHaveBeenCalledWith("Scene created: Scene: Hallway", {
+      id: "scene-toast",
+      icon: "🎬",
     });
   });
 
-  it("defers the planner draft so the Roleplay writer owns the opening", async () => {
-    const match = matchSlashCommand("/scene");
+  it("answers to /rp too", async () => {
+    useRuntime();
 
-    await match!.command.execute(match!.args, sceneContext());
+    await run("/rp");
 
-    expect(mocks.createRoleplayScene).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ openingMode: "generated" }),
-      expect.anything(),
-    );
+    expect(fixture.createdChats).toHaveLength(1);
   });
 
-  it("generates the opening through the new scene chat's Roleplay pipeline", async () => {
-    const generate = vi.fn().mockResolvedValue(true);
-    const match = matchSlashCommand("/scene");
+  it.each([
+    ["returns false", () => vi.fn().mockResolvedValue(false)],
+    ["throws", () => vi.fn().mockRejectedValue(new Error("provider unavailable"))],
+  ])("keeps the scene and says so when the opening %s", async (_label, makeGenerate) => {
+    useRuntime();
 
-    await match!.command.execute(match!.args, sceneContext(generate));
-
-    expect(generate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        chatId: "scene-chat",
-        connectionId: null,
-        generationGuide: expect.stringContaining(plan.firstMessage),
-        generationGuideSource: "narrator",
-      }),
-    );
-  });
-
-  it("reports a partial success when the scene exists but opening generation cannot start", async () => {
-    const match = matchSlashCommand("/scene");
-
-    const result = await match!.command.execute(match!.args, sceneContext(vi.fn().mockResolvedValue(false)));
+    const { result } = await run("/scene", context(makeGenerate()));
 
     expect(result).toEqual({
       handled: true,
       feedback: "Scene created, but its opening could not start. Send a message in the scene to continue.",
     });
+    expect(fixture.createdChats).toHaveLength(1);
+    expect(runtime.setActiveChatId).toHaveBeenCalledWith(fixture.createdChats[0]!.id);
   });
 
-  it("keeps the created scene and reports the opening failure when generation throws", async () => {
-    const match = matchSlashCommand("/scene");
+  it("asks for a description when there's nothing to base the scene on", async () => {
+    const model = useRuntime({ messages: 0 });
 
-    const result = await match!.command.execute(
-      match!.args,
-      sceneContext(vi.fn().mockRejectedValue(new Error("provider unavailable"))),
-    );
+    const { result } = await run("/scene");
 
     expect(result).toEqual({
       handled: true,
-      feedback: "Scene created, but its opening could not start. Send a message in the scene to continue.",
+      feedback: "No conversation history to base a scene on. Provide a description or chat first: /scene <description>",
     });
-    expect(mocks.setActiveChatId).toHaveBeenCalledWith("scene-chat");
+    expect(model.requests).toEqual([]);
+    expect(runtime.toast.loading).not.toHaveBeenCalled();
+  });
+
+  // Decision 1.
+  it("shows the real reason and creates nothing when planning fails", async () => {
+    useRuntime({ answer: "Sorry, I can't plan that." });
+
+    const { result, ctx } = await run("/scene a heist");
+
+    expect(result).toEqual({
+      handled: true,
+      feedback:
+        "Scene planning failed: The model's answer wasn't a scene plan. Try again, or switch to a stronger model.",
+    });
+    expect(fixture.createdChats).toEqual([]);
+    expect(ctx.generate).not.toHaveBeenCalled();
+    expect(runtime.setActiveChatId).not.toHaveBeenCalled();
+    expect(runtime.toast.dismiss).toHaveBeenCalledWith("scene-toast");
+  });
+
+  it("shows why it can't create a second scene", async () => {
+    useRuntime({ metadata: { activeSceneChatId: "earlier-scene" } });
+
+    const { result } = await run("/scene another one");
+
+    expect(result).toEqual({
+      handled: true,
+      feedback: "This conversation already has an active scene. Conclude or discard that scene first.",
+    });
+    expect(fixture.createdChats).toEqual([]);
+  });
+
+  // Decision 7.
+  it("refuses inside an active scene without planning", async () => {
+    const model = useRuntime({ metadata: { sceneStatus: "active", sceneOriginChatId: "origin" } });
+
+    const { result } = await run("/scene a scene within a scene");
+
+    expect(result).toEqual({ handled: true, feedback: "Finish this scene first." });
+    expect(model.requests).toEqual([]);
   });
 });
