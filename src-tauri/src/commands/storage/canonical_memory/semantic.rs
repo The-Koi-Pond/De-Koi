@@ -2,6 +2,7 @@ use super::query_embedding_cache::QueryEmbeddingKey;
 use super::vector_cache::SemanticVectorKey;
 use super::{batch_queries, query_memories_batch, read_string, sha256_hash, INDEX_COLLECTION};
 use crate::state::AppState;
+use crate::storage_commands::stored_vector;
 use marinara_core::{AppError, AppResult};
 use serde_json::{json, Value};
 use std::cmp::Ordering;
@@ -38,11 +39,7 @@ fn require_body_string(body: &Value, key: &str) -> AppResult<String> {
 }
 
 fn vector_from_value(value: Option<&Value>) -> Option<Vec<f64>> {
-    let values = value?.as_array()?;
-    if values.is_empty() {
-        return None;
-    }
-    values.iter().map(Value::as_f64).collect()
+    stored_vector::decode(value)
 }
 
 fn semantic_index_row(
@@ -80,7 +77,7 @@ fn semantic_index_row(
         "contentHash": content_hash,
         "projectionHash": projection_hash,
         "canonicalUpdatedAt": canonical_updated_at,
-        "vector": vector
+        "vector": stored_vector::encode(&vector)
     }))
 }
 

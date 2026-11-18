@@ -552,7 +552,10 @@ mod tests {
             json!("Rina entrusted the silver key to Celia.")
         );
         assert_eq!(chat["memories"][0]["userEdited"], json!(true));
-        assert!(chat["memories"][0]["embedding"].is_array());
+        assert!(crate::storage_commands::stored_vector::decode(
+            chat["memories"][0].get("embedding")
+        )
+        .is_some());
     }
 
     #[test]
