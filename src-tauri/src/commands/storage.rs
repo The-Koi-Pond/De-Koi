@@ -103,6 +103,8 @@ pub(crate) mod sidecar;
 pub(crate) mod sprites;
 #[path = "storage/startup_migrations.rs"]
 pub(crate) mod startup_migrations;
+#[path = "storage/stored_copy_trim.rs"]
+pub(crate) mod stored_copy_trim;
 #[path = "storage/translation.rs"]
 pub(crate) mod translation;
 #[path = "storage/updates.rs"]

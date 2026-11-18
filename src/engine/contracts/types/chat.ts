@@ -647,15 +647,10 @@ export interface MessageExtra {
   spriteExpressions?: Record<string, string> | null;
   /** Per-swipe CYOA choices from the CYOA Choices agent */
   cyoaChoices?: Array<{ label: string; text: string }> | null;
-  /** Snapshot of the persona that was active when this message was sent (user messages only) */
+  /** Name and look of the persona that was active when this message was sent (user messages only) */
   personaSnapshot?: {
     personaId: string;
     name: string;
-    description?: string | null;
-    personality?: string | null;
-    backstory?: string | null;
-    appearance?: string | null;
-    scenario?: string | null;
     avatarUrl?: string | null;
     avatarFilePath?: string | null;
     avatarFilename?: string | null;
