@@ -54,6 +54,7 @@ import type { GenerationReplayInput } from "../../../../engine/generation/genera
 import { findPersonaSnapshotForChat } from "../../../../engine/generation/persona-snapshot";
 import { readNonNegativeInteger } from "../../../../engine/generation/runtime-records";
 import { latestMessageSentDuringReply } from "../../../../engine/modes/chat/core/sent-during-reply";
+import { assertSceneAcceptsMessages } from "../../../../engine/modes/roleplay/scene/scene-status";
 import { worldStatePatchFromAgentData } from "../../../../engine/generation/world-state-agent-result";
 import {
   applyQuestUpdatesToPlayerStats,
@@ -285,9 +286,7 @@ async function assertChatCanGenerate(queryClient: QueryClient, chatId: string) {
   if (!chat) {
     chat = (await storageApi.get("chats", chatId)) as Chat;
   }
-  const chatRecord = parseMaybeRecord(chat);
-  const mode = readString(chatRecord.mode || chatRecord.chatMode);
-  const metadata = parseMaybeRecord(chatRecord.metadata);
+  assertSceneAcceptsMessages(parseMaybeRecord(chat));
 }
 
 async function insertOptimisticUserMessage(queryClient: QueryClient, args: GenerateArgs) {
@@ -423,6 +422,7 @@ function scheduleChatQueryRefresh(queryClient: QueryClient, chatId: string): voi
   scheduledChatRefreshTimers.set(chatId, timer);
 }
 
+/** A character's reply started a scene: say so with a way there, and refresh both chats. The user stays where they are. */
 export function handleSceneCreatedGenerationEvent(
   queryClient: QueryClient,
   originChatId: string,
@@ -430,22 +430,38 @@ export function handleSceneCreatedGenerationEvent(
 ): void {
   const data = parseMaybeRecord(rawData);
   const sceneChatId = readString(data.chatId).trim();
-  const sceneChatName = readString(data.chatName).trim();
-  const message = sceneChatName ? `Scene created: ${sceneChatName}` : "Scene created.";
-
-  if (sceneChatId) {
-    toast(message, {
-      action: {
-        label: "Go to Scene",
-        onClick: () => useChatStore.getState().setActiveChatId(sceneChatId),
-      },
-    });
-    scheduleChatQueryRefresh(queryClient, sceneChatId);
-  } else {
-    toast(message);
-  }
-
+  const sceneName = readString(data.chatName).trim();
+  const goToScene = sceneChatId
+    ? { action: { label: "Go to scene", onClick: () => useChatStore.getState().setActiveChatId(sceneChatId) } }
+    : undefined;
+  toast(sceneName ? `Scene created: ${sceneName}` : "Scene created.", goToScene);
+  if (sceneChatId) scheduleChatQueryRefresh(queryClient, sceneChatId);
   scheduleChatQueryRefresh(queryClient, originChatId);
+}
+
+/** Streams a character-created scene's opening reply in the scene chat, through the normal Roleplay pipeline. */
+async function startCreatedSceneOpening(
+  queryClient: QueryClient,
+  rawData: unknown,
+  streamFactory: GenerationStreamFactory,
+): Promise<void> {
+  const data = parseMaybeRecord(rawData);
+  const sceneChatId = readString(data.chatId).trim();
+  const generationGuide = readString(data.openingGenerationGuide).trim();
+  if (!sceneChatId || !generationGuide) return;
+  let started = false;
+  try {
+    started = await runGenerationWithUi(
+      queryClient,
+      { chatId: sceneChatId, connectionId: null, generationGuide, generationGuideSource: "narrator" },
+      streamFactory,
+    );
+  } catch (error) {
+    console.warn("[generation] A character-created scene's opening reply failed", error);
+  }
+  if (!started) {
+    toast.warning("Scene created, but its opening could not start. Send a message in the scene to continue.");
+  }
 }
 
 async function chatForNotification(queryClient: QueryClient, chatId: string): Promise<Chat | null> {
@@ -1947,33 +1963,10 @@ export async function runGenerationWithUi(
           void queryClient.invalidateQueries({ queryKey: roleplayWorldTickKeys.state(offerChatId) });
           break;
         }
-        case "scene_created": {
-          const data = parseMaybeRecord(event.data);
-          handleSceneCreatedGenerationEvent(queryClient, chatId, data);
-          const sceneChatId = readString(data.chatId).trim();
-          const openingGenerationGuide = readString(data.openingGenerationGuide).trim();
-          if (sceneChatId && openingGenerationGuide) {
-            let openingStarted = false;
-            try {
-              openingStarted = await runGenerationWithUi(
-                queryClient,
-                {
-                  chatId: sceneChatId,
-                  connectionId: null,
-                  generationGuide: openingGenerationGuide,
-                  generationGuideSource: "narrator",
-                },
-                streamFactory,
-              );
-            } catch (error) {
-              console.warn("[generation] Character-created scene opening failed", error);
-            }
-            if (!openingStarted) {
-              toast.warning("Scene created, but its opening could not start. Send a message in the scene to continue.");
-            }
-          }
+        case "scene_created":
+          handleSceneCreatedGenerationEvent(queryClient, chatId, event.data);
+          await startCreatedSceneOpening(queryClient, event.data, streamFactory);
           break;
-        }
         case "done":
           await flushLiveGenerationBuffers();
           break;

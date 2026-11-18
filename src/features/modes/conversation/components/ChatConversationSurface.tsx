@@ -12,19 +12,6 @@ import type {
 } from "../../shared/chat-ui/types";
 import type { SaveMomentSource, SaveMomentSummaryDraft } from "../../shared/chat-ui/index";
 
-type SceneInfo =
-  | {
-      variant: "origin";
-      sceneChatId: string;
-      sceneChatName?: string;
-    }
-  | {
-      variant: "scene";
-      sceneChatId: string;
-      originChatId?: string;
-      description?: string;
-    };
-
 type ConversationSurfaceProps = {
   activeChatId: string;
   chat: ComponentProps<typeof ChatCommonOverlays>["chat"];
@@ -49,7 +36,9 @@ type ConversationSurfaceProps = {
   typingStyledCharacterIds?: Set<string>;
   enabledAgentTypes?: Set<string>;
   connectedChatName?: string;
-  sceneInfo?: SceneInfo;
+  /** This chat's scene being played, for the "A scene is in progress" card. */
+  activeOriginScene?: { chatId: string; name: string } | null;
+  onGoToScene?: (sceneChatId: string) => void;
   settingsOpen: boolean;
   filesOpen: boolean;
   galleryOpen: boolean;
@@ -72,8 +61,6 @@ type ConversationSurfaceProps = {
   onBranch: (messageId: string) => void;
   onToggleSelectMessage: (toggle: MessageSelectionToggle) => void;
   onSwitchChat?: () => void;
-  onConcludeScene?: () => void;
-  onAbandonScene?: () => void;
   onOpenSettings: () => void;
   onOpenFiles: () => void;
   onOpenGallery: () => void;
@@ -119,7 +106,8 @@ export function ChatConversationSurface({
   typingStyledCharacterIds,
   enabledAgentTypes,
   connectedChatName,
-  sceneInfo,
+  activeOriginScene,
+  onGoToScene,
   settingsOpen,
   filesOpen,
   galleryOpen,
@@ -142,8 +130,6 @@ export function ChatConversationSurface({
   onBranch,
   onToggleSelectMessage,
   onSwitchChat,
-  onConcludeScene,
-  onAbandonScene,
   onOpenSettings,
   onOpenFiles,
   onOpenGallery,
@@ -214,9 +200,8 @@ export function ChatConversationSurface({
           onToggleSelectMessage={onToggleSelectMessage}
           connectedChatName={connectedChatName}
           onSwitchChat={onSwitchChat}
-          sceneInfo={sceneInfo}
-          onConcludeScene={onConcludeScene}
-          onAbandonScene={onAbandonScene}
+          activeOriginScene={activeOriginScene}
+          onGoToScene={onGoToScene}
         />
       </div>
 

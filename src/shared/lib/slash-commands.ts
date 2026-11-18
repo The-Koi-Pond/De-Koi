@@ -1,10 +1,8 @@
 // ──────────────────────────────────────────────
 // Slash Commands — SillyTavern-style / commands
 // ──────────────────────────────────────────────
-import { chatBackgroundMetadataToUrl } from "./backgrounds";
 import { llmApi } from "../api/llm-api";
 import { chatMetadataStorageApi, chatTranscriptStorageApi, storageApi } from "../api/storage-api";
-import { visualAssetsApi } from "../api/visual-assets-api";
 import { spriteApi } from "../api/image-generation-api";
 import { useChatStore } from "../stores/chat.store";
 import { useUIStore } from "../stores/ui.store";
@@ -16,6 +14,9 @@ import {
   type GenerationGuideSource,
 } from "../../engine/shared/text/generation-guide";
 import type { CreateMessageInput } from "../../engine/contracts/schemas/chat.schema";
+import { startRoleplayScene } from "../../engine/modes/roleplay/scene/scene-start";
+import { isActiveSceneChat, SCENE_INSIDE_SCENE_REFUSAL } from "../../engine/modes/roleplay/scene/scene-status";
+import { toUserMessage } from "./error-message";
 
 type SlashCommandMessageInput = Pick<CreateMessageInput, "role" | "content" | "characterId">;
 
@@ -319,6 +320,66 @@ function isMessageHidden(msg: { extra?: unknown }): boolean {
   }
 }
 
+// ── Roleplay scenes (/scene) ────────────────
+
+const SCENE_TOAST_ICON = "🎬";
+const SCENE_NEEDS_HISTORY =
+  "No conversation history to base a scene on. Provide a description or chat first: /scene <description>";
+const SCENE_OPENING_DID_NOT_START =
+  "Scene created, but its opening could not start. Send a message in the scene to continue.";
+
+/** Why a scene couldn't be planned or created, in the words the user should see. */
+function sceneFailureFeedback(error: unknown): string {
+  const reason = error instanceof Error ? error.message.trim() : "";
+  return toUserMessage(error, { fallback: reason || "The scene couldn't be started. Try again." });
+}
+
+/** Plans and creates a scene from this chat, opens it, and starts its opening reply through the Roleplay writer. */
+async function startSceneFromCommand(args: string, ctx: SlashCommandContext): Promise<SlashCommandResult> {
+  const request = args.trim();
+  const chat = await storageApi.get<unknown>("chats", ctx.chatId);
+  if (isActiveSceneChat(chat)) return { handled: true, feedback: SCENE_INSIDE_SCENE_REFUSAL };
+  if (!request) {
+    const messages = await chatTranscriptStorageApi.listChatMessages<unknown>(ctx.chatId, { limit: 1, fields: ["id"] });
+    if (messages.length === 0) return { handled: true, feedback: SCENE_NEEDS_HISTORY };
+  }
+
+  const toastId = toast.loading("Planning scene...", { icon: SCENE_TOAST_ICON });
+  let started: Awaited<ReturnType<typeof startRoleplayScene>>;
+  try {
+    started = await startRoleplayScene(
+      { storage: storageApi, llm: llmApi },
+      { originChatId: ctx.chatId, request, initiatorCharId: null, connectionId: null },
+      { onPlanned: () => toast.loading("Creating scene...", { id: toastId, icon: SCENE_TOAST_ICON }) },
+    );
+  } catch (error) {
+    toast.dismiss(toastId);
+    return { handled: true, feedback: sceneFailureFeedback(error) };
+  }
+
+  const { scene, openingGenerationGuide } = started;
+  ctx.invalidate();
+  useChatStore.getState().setActiveChatId(scene.chatId);
+  let openingStarted = false;
+  try {
+    const result = await ctx.generate({
+      chatId: scene.chatId,
+      connectionId: null,
+      generationGuide: openingGenerationGuide,
+      generationGuideSource: "narrator",
+    });
+    openingStarted = result !== false;
+  } catch (error) {
+    console.warn("[scene] The new scene's opening reply failed", error);
+  }
+  if (!openingStarted) {
+    toast.dismiss(toastId);
+    return { handled: true, feedback: SCENE_OPENING_DID_NOT_START };
+  }
+  toast.success(`Scene created: ${scene.chatName}`, { id: toastId, icon: SCENE_TOAST_ICON });
+  return { handled: true };
+}
+
 // ── Command definitions ────────────────
 
 const SLASH_COMMANDS: SlashCommand[] = [
@@ -368,6 +429,14 @@ const SLASH_COMMANDS: SlashCommand[] = [
       });
       return { handled: true };
     },
+  },
+  {
+    name: "scene",
+    aliases: ["rp"],
+    description: "Start a roleplay scene branching from this conversation",
+    usage: "/scene [description]",
+    local: true,
+    execute: startSceneFromCommand,
   },
   {
     name: "amend",

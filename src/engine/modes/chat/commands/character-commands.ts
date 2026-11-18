@@ -90,6 +90,14 @@ interface ReactCommand {
   emoji: string;
 }
 
+/** A character starting a Roleplay scene. `background` is passed to the planner as a setting hint. */
+interface SceneCommand {
+  type: "scene";
+  scenario: string;
+  background?: string;
+  plan?: string;
+}
+
 interface SpotifyCommand {
   type: "spotify";
   /** Empty when the command left it out; execution reports that as a command error. */
@@ -302,6 +310,7 @@ export type CharacterCommand =
   | NoteCommand
   | DirectMessageCommand
   | ReactCommand
+  | SceneCommand
   | SpotifyCommand
   | AssistantCommand;
 
@@ -334,6 +343,10 @@ export function parseReactionEmoji(value: string): string | null {
 const SPOTIFY_RE =
   /\[spotify:\s*((?:[^"\u201c\u201d\]]|"(?:\\.|[^"\\])*"|[\u201c\u201d][^\u201c\u201d]*[\u201c\u201d])*)\]/gi;
 const DIRECT_MESSAGE_RE = new RegExp(`\\[dm:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
+// A scene tag's values may be in straight or curly double quotes, and a `]` inside a quoted value stays in the tag.
+const SCENE_TAG_RE =
+  /\[scene:\s*((?:[^"\u201c\u201d\]]|"(?:\\.|[^"\\])*"|\u201c[^\u201d]*\u201d|\u201d[^\u201d]*\u201d)*)\]/gi;
+const SCENE_PARAM_KEY_RE = /(?:^|[\s,])(scenario|description|prompt|background|plan)\s*=\s*/gi;
 const INFLUENCE_RE = /<influence>([\s\S]*?)<\/influence>/gi;
 const NOTE_RE = /<note>([\s\S]*?)<\/note>/gi;
 
@@ -455,6 +468,58 @@ function parseBareMemoryCommand(params: string): MemoryCommand | null {
   if (!target || !summary) return null;
 
   return { type: "memory", target, summary };
+}
+
+/** Index of the quote closing a value that starts at `from`, skipping backslash escapes; -1 when it never closes. */
+function closingQuoteIndex(text: string, from: number, closingQuote: string): number {
+  for (let index = from; index < text.length; index += 1) {
+    if (text[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (text[index] === closingQuote) return index;
+  }
+  return -1;
+}
+
+/**
+ * The values of a scene tag: `scenario` (or `description` or `prompt`), `background` and `plan`, each quoted or
+ * running unquoted up to the next known key. Without a leading `key=`, the whole text is the scenario.
+ */
+function parseSceneTagParams(params: string): SceneCommand | null {
+  const text = params.trim();
+  if (!/^(?:scenario|description|prompt|background|plan)\s*=/i.test(text)) {
+    const scenario = stripMatchingQuotes(text);
+    return scenario ? { type: "scene", scenario } : null;
+  }
+  const values = new Map<string, string>();
+  let position = 0;
+  while (position < text.length) {
+    SCENE_PARAM_KEY_RE.lastIndex = position;
+    const keyMatch = SCENE_PARAM_KEY_RE.exec(text);
+    if (!keyMatch) break;
+    const key = keyMatch[1]!.toLowerCase();
+    const valueStart = keyMatch.index + keyMatch[0].length;
+    const closingQuote = QUOTE_PAIRS[text[valueStart] ?? ""];
+    const quoteEnd = closingQuote ? closingQuoteIndex(text, valueStart + 1, closingQuote) : -1;
+    let value: string;
+    if (quoteEnd >= 0) {
+      value = decodeQuotedParamValue(text.slice(valueStart + 1, quoteEnd));
+      position = quoteEnd + 1;
+    } else {
+      SCENE_PARAM_KEY_RE.lastIndex = valueStart;
+      const nextKey = SCENE_PARAM_KEY_RE.exec(text);
+      const valueEnd = nextKey ? nextKey.index : text.length;
+      value = stripMatchingQuotes(text.slice(valueStart, valueEnd).replace(/[\s,]+$/, ""));
+      position = valueEnd;
+    }
+    if (!values.has(key) && value.trim()) values.set(key, value.trim());
+  }
+  const scenario = values.get("scenario") ?? values.get("description") ?? values.get("prompt") ?? "";
+  if (!scenario) return null;
+  const background = values.get("background");
+  const plan = values.get("plan");
+  return { type: "scene", scenario, ...(background ? { background } : {}), ...(plan ? { plan } : {}) };
 }
 
 function parseStringList(value: string | undefined): string[] | undefined {
@@ -883,6 +948,12 @@ export function parseCharacterCommands(
     if (emoji) commands.push({ type: "react", emoji });
   }
 
+  // Parse scene tags; one without a scenario is ignored
+  for (const match of content.matchAll(SCENE_TAG_RE)) {
+    const command = parseSceneTagParams(match[1] ?? "");
+    if (command) commands.push(command);
+  }
+
   // Parse Spotify song commands
   for (const match of content.matchAll(SPOTIFY_RE)) {
     const params = match[1]!;
@@ -1022,6 +1093,7 @@ export function parseCharacterCommands(
     .replace(MEMORY_RE, "")
     .replace(BARE_MEMORY_RE, "")
     .replace(REACT_RE, "")
+    .replace(SCENE_TAG_RE, "")
     .replace(SPOTIFY_RE, "")
     .replace(INFLUENCE_RE, "")
     .replace(NOTE_RE, "")

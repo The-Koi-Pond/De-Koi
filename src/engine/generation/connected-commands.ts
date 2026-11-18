@@ -49,6 +49,7 @@ import {
 import { characterExtensionsPatch } from "../entities/character-extensions-patch";
 import { readMessageReactions, withMessageReaction } from "../modes/chat/core/message-reactions";
 import { MUSIC_RECENT_TRACKS_KEY, readChatMusicRecentTracks, withMusicRecentTrack } from "../shared/music/chat-music";
+import { sceneRequestFromTag, startRoleplayScene } from "../modes/roleplay/scene/scene-start";
 
 type ConnectedCommandEvent =
   | { type: "cross_post"; data: JsonRecord }
@@ -89,6 +90,8 @@ type ConnectedCommandOptions = {
   textsFirstPhoto?: "send" | "withhold";
   /** Texts-first only: the character texting, whose photo it is (in a group, not always the first character). */
   textsFirstCharacterId?: string | null;
+  /** The character whose reply carries the commands; a scene it starts names them as its initiator. */
+  replyingCharacterId?: string | null;
 };
 
 const CONVERSATION_NOTES_BUDGET_CHARS = 4000;
@@ -1673,6 +1676,30 @@ async function executeCommand(
         : null;
     case "spotify":
       return (await playSpotifyCommand(storage, integrations, chat, command, events)) ? { name: "spotify" } : null;
+    case "scene": {
+      // Planning or creating failures throw, so the command error event carries the real reason.
+      if (!llm) throw new Error("A scene can't be planned here because no model is available.");
+      const started = await startRoleplayScene(
+        { storage, llm },
+        {
+          originChatId: chatId,
+          request: sceneRequestFromTag(command),
+          initiatorCharId: options?.replyingCharacterId ?? null,
+          connectionId: llmConnectionId ?? null,
+        },
+      );
+      events.push({
+        type: "scene_created",
+        data: {
+          chatId: started.scene.chatId,
+          chatName: started.scene.chatName,
+          originChatId: chatId,
+          background: null,
+          openingGenerationGuide: started.openingGenerationGuide,
+        },
+      });
+      return { name: "scene" };
+    }
     case "note":
     case "influence": {
       const storageChatId = await connectedNoteStorageChatId(storage, chat);

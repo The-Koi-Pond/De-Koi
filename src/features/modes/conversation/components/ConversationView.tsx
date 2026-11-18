@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { ConversationMessage } from "./ConversationMessage";
 import { ConversationInput } from "./ConversationInput";
+import { SceneInProgressCard } from "../../shared/scene-ui/SceneInProgressCard";
 
 import {
   clearConversationRevealGeneration,
@@ -172,15 +173,9 @@ interface ConversationViewProps {
   onToggleSelectMessage?: (toggle: MessageSelectionToggle) => void;
   connectedChatName?: string;
   onSwitchChat?: () => void;
-  sceneInfo?: {
-    variant: "origin" | "scene";
-    sceneChatId?: string;
-    sceneChatName?: string;
-    originChatId?: string;
-    description?: string;
-  };
-  onConcludeScene?: (sceneChatId: string) => void;
-  onAbandonScene?: (sceneChatId: string) => void;
+  /** This chat's scene being played, for the "A scene is in progress" card. */
+  activeOriginScene?: { chatId: string; name: string } | null;
+  onGoToScene?: (sceneChatId: string) => void;
 }
 
 /** Return a display label for a day separator */
@@ -417,9 +412,8 @@ export function ConversationView({
   onToggleSelectMessage,
   connectedChatName,
   onSwitchChat,
-  sceneInfo,
-  onConcludeScene,
-  onAbandonScene,
+  activeOriginScene,
+  onGoToScene,
 }: ConversationViewProps) {
   const qc = useQueryClient();
   const streamingChatId = useChatStore((s) => s.streamingChatId);
@@ -1780,6 +1774,13 @@ export function ConversationView({
               ))}
               <TypingWaitNote chatId={chatId} />
             </>
+          )}
+
+          {activeOriginScene && onGoToScene && (
+            <SceneInProgressCard
+              sceneName={activeOriginScene.name}
+              onGoToScene={() => onGoToScene(activeOriginScene.chatId)}
+            />
           )}
 
           <div className="h-1" />
