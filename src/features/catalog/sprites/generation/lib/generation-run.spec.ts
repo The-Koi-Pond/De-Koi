@@ -133,6 +133,7 @@ describe("matched batches", () => {
       ports,
       cleanupSettings: () => ({ enabled: false, strength: 35 }),
       onProgress: (line) => progress.push(line),
+      isCurrent: () => true,
     });
     expect(result.failure).toBeNull();
     expect(result.sprites.map((sprite) => sprite.name)).toEqual(names);
@@ -167,6 +168,7 @@ describe("matched batches", () => {
       ports,
       cleanupSettings: () => ({ enabled: false, strength: 35 }),
       onProgress: (line) => progress.push(line),
+      isCurrent: () => true,
     });
     expect(sent).toHaveLength(3);
     expect(progress[2]).toBe("Batch 2 of 2 (retrying once): very sad, thinking");
@@ -185,45 +187,56 @@ describe("matched batches", () => {
       ports: retry.ports,
       cleanupSettings: () => ({ enabled: false, strength: 35 }),
       onProgress: () => {},
+      isCurrent: () => true,
     });
     expect(resumed.failure).toBeNull();
     expect(resumed.sprites.map((sprite) => sprite.name)).toEqual(names);
     expect(resumed.sheets.map((sheet) => sheet.label)).toEqual(["Batch 1", "Batch 2"]);
   });
 
-  it("cleans a batch inside its try, and a cleanup failure fails the try", async () => {
+  it("cleans a batch inside its try, and a cleanup failure keeps the batch uncleaned instead of paying again", async () => {
     let cleanups = 0;
-    const { ports, sent } = fakePorts([cells(["a"]), cells(["a"])], {
+    const { ports, sent } = fakePorts([cells(["a", "b", "c", "d"]), cells(["e"])], {
       cleanup: async (body) => {
         sent.push({ command: "cleanup", body });
         cleanups += 1;
         if (cleanups === 1) throw generic();
-        return { cells: [{ base64: "clean" }] };
+        return { cells: body.cells.map(() => ({ base64: "clean" })) };
       },
     });
     const result = await runMatchedBatches({
-      batches: planMatchedBatches(["a"]),
+      batches: planMatchedBatches(["a", "b", "c", "d", "e"]),
       startIndex: 0,
       template,
       collected: { sprites: [], sheets: [] },
       ports,
       cleanupSettings: () => ({ enabled: true, strength: 50 }),
       onProgress: () => {},
+      isCurrent: () => true,
     });
     expect(sent.map((item) => item.command)).toEqual(["generate", "cleanup", "generate", "cleanup"]);
+    expect(result.failure).toBeNull();
+    expect(result.sprites.map((sprite) => sprite.shown)).toEqual([
+      "data:image/png;base64,cell0",
+      "data:image/png;base64,cell1",
+      "data:image/png;base64,cell2",
+      "data:image/png;base64,cell3",
+      "data:image/png;base64,clean",
+    ]);
     expect(result.cleaned).toBe(true);
-    expect(result.sprites[0].shown).toBe("data:image/png;base64,clean");
+    expect(result.note).toBe("Couldn't remove the background. Use Apply cleanup to try again.");
   });
 
-  it("counts a cancelled review as a failed try, so the review opens twice before the batch pauses", async () => {
+  it("stops at a cancelled review: no second preview, nothing more sent, the batches before it kept", async () => {
     let previews = 0;
-    const { ports } = fakePorts([], {
+    const { ports, sent } = fakePorts([cells(names.slice(0, 4))], {
       reviewPrompts: true,
-      preview: async () => {
+      preview: async (body) => {
         previews += 1;
+        sent.push({ command: "preview", body });
         return { items: [{ id: "x", kind: "sprite", title: "t", prompt: "p", width: 1, height: 1 }] };
       },
-      review: async () => null,
+      review: async () => (previews === 1 ? [] : null),
     });
     const result = await runMatchedBatches({
       batches,
@@ -233,11 +246,36 @@ describe("matched batches", () => {
       ports,
       cleanupSettings: () => ({ enabled: false, strength: 35 }),
       onProgress: () => {},
+      isCurrent: () => true,
     });
-    expect(previews).toBe(2);
-    expect(result.failure?.message).toBe(
-      "Batch 1 of 2 failed after one automatic retry: Image generation failed. Try again.",
-    );
+    expect(sent.map((item) => item.command)).toEqual(["preview", "generate", "preview"]);
+    expect(result.failure).toBeNull();
+    expect(result.cancelledAt).toBe(1);
+    expect(result.stale).toBe(false);
+    expect(result.sprites.map((sprite) => sprite.name)).toEqual(names.slice(0, 4));
+  });
+
+  it("sends nothing more once the run is no longer current", async () => {
+    let current = true;
+    const { ports, sent } = fakePorts([cells(names.slice(0, 4)), cells(names.slice(4))], {
+      generate: async (body) => {
+        sent.push({ command: "generate", body });
+        current = false; // e.g. the owner changed while this batch was being generated
+        return cells(names.slice(0, 4));
+      },
+    });
+    const result = await runMatchedBatches({
+      batches,
+      startIndex: 0,
+      template,
+      collected: { sprites: [], sheets: [] },
+      ports,
+      cleanupSettings: () => ({ enabled: true, strength: 35 }),
+      onProgress: () => {},
+      isCurrent: () => current,
+    });
+    expect(sent.map((item) => item.command)).toEqual(["generate", "cleanup"]);
+    expect(result.stale).toBe(true);
   });
 
   it("words the progress line with spaces", () => {

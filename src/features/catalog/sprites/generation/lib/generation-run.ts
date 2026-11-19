@@ -12,7 +12,12 @@ import {
   type SpriteGenerationBody,
   type SpriteGenerationInput,
 } from "./request-bodies";
-import { GENERATION_FAILED, SpriteCheckError, spriteErrorMessage } from "./sprite-errors";
+import {
+  CLEANUP_AFTER_GENERATION_FAILED,
+  GENERATION_FAILED,
+  SpriteCheckError,
+  spriteErrorMessage,
+} from "./sprite-errors";
 import { spacedName, type SpriteGrid } from "./sprite-lists";
 
 /** One generated sprite under review. */
@@ -120,14 +125,6 @@ export async function cleanSprites(
   });
 }
 
-/** Thrown inside a matched batch's try when the prompt review was cancelled; it counts as a failed try today. */
-class ReviewCancelledError extends Error {
-  constructor() {
-    super("Prompt review cancelled");
-    this.name = "ReviewCancelledError";
-  }
-}
-
 interface MatchedRunState {
   sprites: GeneratedSprite[];
   sheets: GeneratedSheet[];
@@ -144,12 +141,20 @@ export interface MatchedRunOptions {
   /** "Transparent background" and the cleanup strength, read as each batch finishes. */
   cleanupSettings: () => { enabled: boolean; strength: number };
   onProgress: (line: string) => void;
+  /** False once the run was replaced (a new owner, a new run, Back to setup); nothing more is sent then. */
+  isCurrent: () => boolean;
 }
 
 export interface MatchedRunResult extends MatchedRunState {
   /** The batch that failed both tries, with what to show; null when every batch went through. */
   failure: { batchIndex: number; message: string } | null;
+  /** The batch whose prompt review was cancelled; the run stopped there and that batch waits for Retry batch. */
+  cancelledAt: number | null;
+  /** The run was replaced and stopped early; its results must not be shown. */
+  stale: boolean;
   cleaned: boolean;
+  /** A note to show with the results, e.g. that the background couldn't be removed from some batches. */
+  note: string | null;
 }
 
 export function batchProgressLine(index: number, total: number, names: readonly string[], retrying: boolean): string {
@@ -161,10 +166,15 @@ async function runBatchTry(
   batchIndex: number,
   options: MatchedRunOptions,
   sheetIndex: number,
-): Promise<{ sprites: GeneratedSprite[]; sheet: GeneratedSheet | null; cleaned: boolean }> {
+): Promise<{
+  sprites: GeneratedSprite[];
+  sheet: GeneratedSheet | null;
+  cleaned: boolean;
+  cleanupFailed: boolean;
+} | null> {
   const body = buildGenerationBody({ ...options.template, expressions: batch.names, grid: batch.grid });
   const reply = await requestSheet(body, options.ports);
-  if (!reply) throw new ReviewCancelledError();
+  if (!reply) return null;
   if (reply.failedExpressions && reply.failedExpressions.length > 0) {
     throw new SpriteCheckError(
       reply.failedExpressions.map((failed) => `${failed.expression}: ${failed.error}`).join("; "),
@@ -176,30 +186,48 @@ async function runBatchTry(
   const sheet = sheetFromReply(reply, `Batch ${batchIndex + 1}`, batch.grid);
   let sprites = spritesFromReply(reply, sheet ? sheetIndex : null, options.ports.nextId);
   const cleanup = options.cleanupSettings();
-  if (cleanup.enabled) sprites = await cleanSprites(sprites, cleanup.strength, options.ports.cleanup);
-  return { sprites, sheet, cleaned: cleanup.enabled };
+  if (!cleanup.enabled) return { sprites, sheet, cleaned: false, cleanupFailed: false };
+  try {
+    sprites = await cleanSprites(sprites, cleanup.strength, options.ports.cleanup);
+    return { sprites, sheet, cleaned: true, cleanupFailed: false };
+  } catch {
+    // The paid pictures stay uncleaned; generating the batch again would be a second paid request.
+    return { sprites, sheet, cleaned: false, cleanupFailed: true };
+  }
 }
 
 /**
  * Runs matched batches one after another, from `startIndex`. Each batch gets two tries; a batch that fails both stops
- * the run, and what was collected so far is kept.
+ * the run, and what was collected so far is kept. A cancelled prompt review stops the run at once (no second try),
+ * and a run that is no longer current sends nothing more.
  */
 export async function runMatchedBatches(options: MatchedRunOptions): Promise<MatchedRunResult> {
   const sprites = [...options.collected.sprites];
   const sheets = [...options.collected.sheets];
   let cleaned = false;
+  let cleanupFailed = false;
   const total = options.batches.length;
+  const finish = (rest: Pick<MatchedRunResult, "failure" | "cancelledAt" | "stale">): MatchedRunResult => ({
+    sprites,
+    sheets,
+    cleaned,
+    note: cleanupFailed ? CLEANUP_AFTER_GENERATION_FAILED : null,
+    ...rest,
+  });
   for (let batchIndex = options.startIndex; batchIndex < total; batchIndex += 1) {
     const batch = options.batches[batchIndex];
     let lastError: unknown = null;
     let done = false;
     for (let attempt = 0; attempt < 2 && !done; attempt += 1) {
+      if (!options.isCurrent()) return finish({ failure: null, cancelledAt: null, stale: true });
       options.onProgress(batchProgressLine(batchIndex, total, batch.names, attempt > 0));
       try {
         const result = await runBatchTry(batch, batchIndex, options, sheets.length);
+        if (!result) return finish({ failure: null, cancelledAt: batchIndex, stale: !options.isCurrent() });
         if (result.sheet) sheets.push(result.sheet);
         sprites.push(...result.sprites);
         cleaned = cleaned || result.cleaned;
+        cleanupFailed = cleanupFailed || result.cleanupFailed;
         done = true;
       } catch (error) {
         lastError = error;
@@ -207,16 +235,15 @@ export async function runMatchedBatches(options: MatchedRunOptions): Promise<Mat
     }
     if (!done) {
       const reason = spriteErrorMessage(lastError, GENERATION_FAILED);
-      return {
-        sprites,
-        sheets,
-        cleaned,
+      return finish({
         failure: {
           batchIndex,
           message: `Batch ${batchIndex + 1} of ${total} failed after one automatic retry: ${reason}`,
         },
-      };
+        cancelledAt: null,
+        stale: !options.isCurrent(),
+      });
     }
   }
-  return { sprites, sheets, cleaned, failure: null };
+  return finish({ failure: null, cancelledAt: null, stale: !options.isCurrent() });
 }

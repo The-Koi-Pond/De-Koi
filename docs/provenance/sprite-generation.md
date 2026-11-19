@@ -661,7 +661,9 @@ what the dialog shows. Line numbers point into the old file for the reviewer.
    1228–1233). Cleaned sprites also show with "Transparent background" off.
    **Follow-up:** when the dialog reopens with unsaved results, keep the
    settings those results were made with; reset only when it opens on the setup
-   step. No change in the rebuild.
+   step. No change in the rebuild. **Done after the rebuild:** reopening resets
+   the setup only on the setup step, and Save, its count and the "Needs a name"
+   marks use the type the results were made as.
 2. **A cleanup failure throws away the generated pictures.** With "Prefer
    transparent PNG" on, the cleanup runs inside the generation step (lines 917
    and 814). If it fails, a single sheet's paid results are discarded and the
@@ -671,6 +673,7 @@ what the dialog shows. Line numbers point into the old file for the reviewer.
    its uncleaned results with "Couldn't remove the background. Use Apply cleanup
    to try again." (screen only, in the rebuild). **Follow-up:** in matched mode,
    a cleanup failure keeps the batch uncleaned instead of generating it again.
+   **Done after the rebuild:** the batch stays uncleaned with that same note.
 3. **Cancelling the prompt review in matched mode counts as a failure.** The
    batch's try loop catches the cancel like any error (lines 805–817), so the
    review opens a second time (a second preview request), and cancelling again
@@ -678,7 +681,10 @@ what the dialog shows. Line numbers point into the old file for the reviewer.
    generation failed. Try again." The code meant to return to setup on cancel
    (lines 851–856) is never reached. **Follow-up:** a cancel stops the run at
    once and shows the batches finished so far on the review step, with the
-   cancelled batch paused and no error.
+   cancelled batch paused and no error. **Done after the rebuild:** as
+   described, with the hint "You cancelled its prompt review."; a cancel before
+   any batch finished goes back to setup, like a single sheet. A run whose owner
+   changed (or that Back to setup replaced) also sends no further batch.
 4. **Hosted installs give up after 30 seconds.** `spriteApi.generateSheet` and
    `spriteApi.cleanup` use the default 30-second limit for hosted requests
    (`REMOTE_FINITE_REQUEST_TIMEOUT_MS`), while `image_generate` was given no
@@ -715,7 +721,8 @@ what the dialog shows. Line numbers point into the old file for the reviewer.
    `onSpritesGenerated`) and say "Saved 3 of 6. Couldn't save sad: <reason>."
    (in the rebuild). **Follow-up:** unselect the saved ones so the next Save
    sends only the rest (today it sends all of them again, which overwrites them
-   with the same pictures).
+   with the same pictures). **Done after the rebuild:** the saved ones are
+   unselected.
 8. **Same-name sprites replace each other without warning.** Two sprites with
    the same save name: the second replaces the first. A save name that already
    exists for the owner replaces the saved sprite. Recommended in the rebuild: a
@@ -727,7 +734,7 @@ what the dialog shows. Line numbers point into the old file for the reviewer.
    trims first, so typing "very happy" gives `veryhappy` (line 1199–1213).
    **Follow-up:** keep the text as typed while editing and apply the rule when
    the box loses focus, so it saves as `very_happy`. That changes the saved name
-   for the same keys, so not in the rebuild.
+   for the same keys, so not in the rebuild. **Done after the rebuild.**
 10. **"Regenerate" doesn't regenerate.** It goes back to setup and drops every
     result without asking (lines 1260–1273). Recommended: label it "Back to
     setup" and, when there are results, ask "Discard these N sprites?" first.

@@ -113,6 +113,8 @@ interface PausedRun {
   batches: MatchedBatch[];
   batchIndex: number;
   template: Omit<SpriteGenerationInput, "expressions" | "grid">;
+  /** Why it stopped there: the batch failed both tries, or its prompt review was cancelled. */
+  reason?: "failed" | "cancelled";
 }
 
 export interface FrameEditorState {
@@ -191,11 +193,12 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
   const pendingReviewRef = useRef<PendingReview | null>(null);
   pendingReviewRef.current = pendingReview;
 
-  // Each time the dialog opens, the settings beneath the results reset; the step and results stay.
+  // Each time the dialog opens on the setup step, the setup resets. With results (or a run) waiting, the settings they
+  // were made with stay, so Save still names them for their type and the cleanup box matches the pictures (decision 1).
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) {
+    if (open && step === "setup") {
       setSpriteType(props.initialSpriteType);
       setCount(DEFAULT_SPRITE_COUNT);
       setPicks(defaultPicks(props.initialSpriteType, DEFAULT_SPRITE_COUNT));
@@ -336,18 +339,25 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
       onProgress: (line) => {
         if (runToken.current === token) setProgress(line);
       },
+      isCurrent: () => runToken.current === token,
     });
-    if (runToken.current !== token) return;
+    if (result.stale || runToken.current !== token) return;
+    // A cancelled review before anything was made goes back to setup, like a single sheet (decision 3).
+    if (result.cancelledAt !== null && result.sprites.length === 0) {
+      setPaused(null);
+      setProgress(null);
+      setError(null);
+      setStep("setup");
+      return;
+    }
     setSprites(result.sprites);
     setSheets(result.sheets);
     if (result.cleaned) setCleanupApplied(true);
-    if (result.failure) {
-      setError(result.failure.message);
-      setPaused({ ...run, batchIndex: result.failure.batchIndex });
-    } else {
-      setError(null);
-      setPaused(null);
-    }
+    const notes = [result.failure?.message, result.note].filter(Boolean);
+    setError(notes.length > 0 ? notes.join(" ") : null);
+    if (result.failure) setPaused({ ...run, batchIndex: result.failure.batchIndex, reason: "failed" });
+    else if (result.cancelledAt !== null) setPaused({ ...run, batchIndex: result.cancelledAt, reason: "cancelled" });
+    else setPaused(null);
     setStep("review");
   };
 
@@ -580,11 +590,13 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
     }
   };
 
-  const toSave = sprites.filter((sprite) => sprite.selected && savableName(sprite.name, spriteType) !== null);
+  // Results are saved for the type they were made as, whatever the setup shows now.
+  const saveType = generation?.type ?? spriteType;
+  const toSave = sprites.filter((sprite) => sprite.selected && savableName(sprite.name, saveType) !== null);
 
   const save = async () => {
     if (saving || toSave.length === 0) return;
-    const type = spriteType;
+    const type = saveType;
     const stillCurrent = startWork();
     setSaving(true);
     const replacing = namesReplacingSaved(
@@ -609,6 +621,7 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
       return;
     }
     let saved = 0;
+    const savedIds = new Set<string>();
     try {
       for (const sprite of toSave) {
         const expression = savableName(sprite.name, type) ?? "";
@@ -616,12 +629,19 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
           await spriteApi.upload(entityId, { expression, image: sprite.shown }, { ownerType });
         } catch (caught) {
           if (!stillCurrent()) return;
-          // The ones saved before it stay saved, so the tab's list refreshes.
-          if (saved > 0) props.onSpritesGenerated();
+          // The ones saved before it stay saved: the tab's list refreshes, and they're unselected so the next Save
+          // sends only the rest (decision 7).
+          if (saved > 0) {
+            props.onSpritesGenerated();
+            setSprites((current) =>
+              current.map((item) => (savedIds.has(item.id) ? { ...item, selected: false } : item)),
+            );
+          }
           setError(saveFailureMessage(caught, expression, saved, toSave.length));
           return;
         }
         saved += 1;
+        savedIds.add(sprite.id);
       }
       if (!stillCurrent()) return;
       props.onSpritesGenerated();
@@ -682,6 +702,7 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
           batchIndex: paused.batchIndex,
           total: paused.batches.length,
           names: paused.batches[paused.batchIndex]?.names ?? [],
+          cancelled: paused.reason === "cancelled",
         }
       : null,
     retryBatch,
@@ -711,6 +732,7 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
     setFrameValue,
     applyFrame,
     framing,
+    saveType,
     saveCount: toSave.length,
     save,
     saving,

@@ -120,6 +120,14 @@ export async function changeValue(element: HTMLElement, value: string) {
   await settle(1);
 }
 
+/** Moves focus out of an element (React's onBlur listens to focusout). */
+export async function blur(element: HTMLElement) {
+  await act(async () => {
+    element.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  });
+  await settle(1);
+}
+
 /** Picks a file in a file input. */
 export async function pickFile(input: HTMLInputElement, file: File) {
   Object.defineProperty(input, "files", { value: [file], configurable: true });
