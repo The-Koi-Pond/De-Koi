@@ -5,7 +5,7 @@ import type { TrackerCardColorConfig, TrackerCardColorMode } from "../../../../e
 import { cleanTrackerCardColorConfig, type TrackerCardPaintColors } from "../../../lib/tracker-card-colors";
 import { cn } from "../../../lib/utils";
 import { GroupHeading, OptionButton, OptionTrack, Panel, RangeSlider } from "./control-parts";
-import { describeControls, readCurrentConfig, swatchStyle } from "./controls-state";
+import { describeControls, readChatColors, readCurrentConfig, swatchStyle } from "./controls-state";
 import { FINISH_PRESETS, FINISH_SLIDERS, MODE_OPTIONS, STAGE_OPTIONS, type PaintChannel } from "./options";
 import { CustomPaint, SourceStrength } from "./PaintChannels";
 
@@ -28,7 +28,7 @@ interface TrackerCardColorControlsProps {
 export function TrackerCardColorControls({
   value,
   onChange,
-  chatColors,
+  chatColors: rawChatColors,
   entityLabel,
   variant = "full",
   disabled = false,
@@ -36,6 +36,7 @@ export function TrackerCardColorControls({
   const [expanded, setExpanded] = useState(true);
   const compact = variant === "compact";
   const config = readCurrentConfig(value);
+  const chatColors = readChatColors(rawChatColors);
   const view = describeControls(config, chatColors);
 
   const commit = (change: TrackerCardColorConfig) => {

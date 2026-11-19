@@ -113,7 +113,10 @@ next render. A caller that ignores `onChange` sees no change on screen.
 
 **Effective colors** (for the swatches and the "has paint" rules): Custom uses
 the current config's `nameColor`, `dialogueColor`, `boxColor`; Chat colors uses
-`chatColors`; Default uses none.
+`chatColors`; Default uses none. A `chatColors` value that isn't a string (a
+number, object or array from an imported card) counts as no color, here and
+when Custom starts from the chat colors (follow-up after the rebuild; before it,
+such a value crashed the panel).
 
 ## What `onChange` gets
 

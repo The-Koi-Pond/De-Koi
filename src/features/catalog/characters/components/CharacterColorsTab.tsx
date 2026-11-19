@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Loader2, Palette, User } from "lucide-react";
 import type { CharacterData } from "../../../../engine/contracts/types/character";
+import { readString } from "../../../../engine/shared/value-readers";
 import { ColorPicker } from "../../../../shared/components/ui/ColorPicker";
 import { TrackerCardColorControls } from "../../../../shared/components/ui/tracker-card-color-controls";
 import { extractColorsFromImage } from "../../../../shared/lib/avatar-color-extraction";
@@ -20,8 +21,9 @@ export function CharacterColorsTab({
   avatarUrl: string | null;
   characterId: string | null;
 }) {
-  const nameColor = (formData.extensions.nameColor as string) ?? "";
-  const boxColor = (formData.extensions.boxColor as string) ?? "";
+  // An imported card can hold a number or object here; anything that isn't text counts as no color.
+  const nameColor = readString(formData.extensions.nameColor);
+  const boxColor = readString(formData.extensions.boxColor);
   const trackerCardColors = parseTrackerCardColorConfig(formData.extensions.trackerCardColors);
   const [extracting, setExtracting] = useState(false);
 

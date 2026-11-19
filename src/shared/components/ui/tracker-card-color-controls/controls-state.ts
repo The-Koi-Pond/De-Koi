@@ -27,6 +27,16 @@ function hasText(color: string | null | undefined) {
   return typeof color === "string" && color.trim() !== "";
 }
 
+/** Chat colors as text only: a number or object (e.g. from an imported card) counts as no color. */
+export function readChatColors(colors: TrackerCardPaintColors | null | undefined): TrackerCardPaintColors {
+  const read = (color: unknown) => (typeof color === "string" ? color : "");
+  return {
+    nameColor: read(colors?.nameColor),
+    dialogueColor: read(colors?.dialogueColor),
+    boxColor: read(colors?.boxColor),
+  };
+}
+
 /** Surface needs its own color; Display and Accent light up when either of them has one. */
 function channelHasPaint(channel: PaintChannel, colors: TrackerCardPaintColors) {
   if (channel.colorField === "boxColor") return hasText(colors.boxColor);
