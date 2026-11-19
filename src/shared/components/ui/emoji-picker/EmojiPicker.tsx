@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 
 import { cn } from "../../../lib/utils";
@@ -13,23 +21,45 @@ interface EmojiPickerProps {
   anchorRef?: RefObject<HTMLElement | null>;
   /** The bar whose top edge the picker sits above. Falls back to the anchor. */
   containerRef?: RefObject<HTMLElement | null>;
+  /** Gets focus back when Escape or a press outside closes the picker (the message box). */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 const GAP_PX = 8;
 const PANEL_WIDTH_PX = 336; // 21rem
 const NARROW_WINDOW_PX = 480;
 
-/** Fixed-position offsets, measured once when the picker opens. Without an anchor it stays bottom-left. */
-function measurePosition(anchor: HTMLElement | null, container: HTMLElement | null): CSSProperties {
+/**
+ * Fixed-position offsets, measured once when the picker opens. Without an anchor it stays bottom-left.
+ * When there isn't room above the bar for the whole panel, its top stays 8px below the window's top
+ * edge (covering the bar instead), and a window shorter than the panel shrinks it to fit.
+ */
+function measurePosition(
+  anchor: HTMLElement | null,
+  container: HTMLElement | null,
+  panelHeight: number,
+): CSSProperties {
   if (!anchor) return { bottom: 0, left: 0 };
   const anchorRect = anchor.getBoundingClientRect();
   const referenceTop = (container ?? anchor).getBoundingClientRect().top;
-  const bottom = window.innerHeight - referenceTop + GAP_PX;
+  const windowHeight = window.innerHeight;
+  const bottom = windowHeight - referenceTop + GAP_PX;
+  const vertical: CSSProperties =
+    windowHeight - bottom - panelHeight >= GAP_PX
+      ? { bottom }
+      : { top: GAP_PX, height: Math.max(0, Math.min(panelHeight, windowHeight - 2 * GAP_PX)) };
   const width = window.innerWidth;
   if (width < NARROW_WINDOW_PX) {
-    return { bottom, left: Math.max(GAP_PX, (width - Math.min(PANEL_WIDTH_PX, width - 2 * GAP_PX)) / 2) };
+    return { ...vertical, left: Math.max(GAP_PX, (width - Math.min(PANEL_WIDTH_PX, width - 2 * GAP_PX)) / 2) };
   }
-  return { bottom, right: Math.max(GAP_PX, width - anchorRect.right) };
+  return { ...vertical, right: Math.max(GAP_PX, width - anchorRect.right) };
+}
+
+/** Files dragged over the picker aren't for it, and mustn't reach the message bar's file drop behind it. */
+function refuseDrag(event: DragEvent) {
+  event.stopPropagation();
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "none";
 }
 
 export function EmojiPicker({ open, ...panelProps }: EmojiPickerProps) {
@@ -48,7 +78,15 @@ interface EmojiPanelProps extends Omit<EmojiPickerProps, "open"> {
 }
 
 /** Mounted only while open, so every opening starts with an empty search (decision 5). */
-function EmojiPanel({ onClose, onSelect, anchorRef, containerRef, activeIndex, onActiveIndexChange }: EmojiPanelProps) {
+function EmojiPanel({
+  onClose,
+  onSelect,
+  anchorRef,
+  containerRef,
+  returnFocusRef,
+  activeIndex,
+  onActiveIndexChange,
+}: EmojiPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
@@ -56,7 +94,9 @@ function EmojiPanel({ onClose, onSelect, anchorRef, containerRef, activeIndex, o
   const [position, setPosition] = useState<CSSProperties>({ bottom: 0, left: 0 });
 
   useLayoutEffect(() => {
-    setPosition(measurePosition(anchorRef?.current ?? null, containerRef?.current ?? null));
+    // The panel's own height (22rem at the current text size), measured before any clamp sets one.
+    const panelHeight = panelRef.current?.getBoundingClientRect().height ?? 0;
+    setPosition(measurePosition(anchorRef?.current ?? null, containerRef?.current ?? null, panelHeight));
   }, [anchorRef, containerRef]);
 
   // A new tab or a new search starts the grid at the top.
@@ -69,6 +109,7 @@ function EmojiPanel({ onClose, onSelect, anchorRef, containerRef, activeIndex, o
       // Escape while an input method is composing belongs to the composition, not the picker.
       if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
       onClose();
+      returnFocusRef?.current?.focus();
     };
     // Any press outside the panel and the anchor closes it, with or without an anchor (decision 7).
     const onMouseDown = (event: MouseEvent) => {
@@ -76,6 +117,15 @@ function EmojiPanel({ onClose, onSelect, anchorRef, containerRef, activeIndex, o
       if (panelRef.current?.contains(target)) return;
       if (anchorRef?.current?.contains(target)) return;
       onClose();
+      // After the press has moved focus: a press on something focusable keeps it there; otherwise
+      // focus would be left on the page, so it goes back to the message box.
+      const returnTo = returnFocusRef?.current;
+      if (returnTo) {
+        window.setTimeout(() => {
+          const active = document.activeElement;
+          if (!active || active === document.body) returnTo.focus();
+        }, 0);
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("mousedown", onMouseDown);
@@ -83,7 +133,7 @@ function EmojiPanel({ onClose, onSelect, anchorRef, containerRef, activeIndex, o
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("mousedown", onMouseDown);
     };
-  }, [onClose, anchorRef]);
+  }, [onClose, anchorRef, returnFocusRef]);
 
   const sections: EmojiSection[] = needle ? searchEmojis(needle) : [EMOJI_CATEGORIES[activeIndex]];
 
@@ -93,6 +143,10 @@ function EmojiPanel({ onClose, onSelect, anchorRef, containerRef, activeIndex, o
       role="dialog"
       aria-label="Emoji picker"
       style={position}
+      onDragEnter={refuseDrag}
+      onDragOver={refuseDrag}
+      onDragLeave={(event) => event.stopPropagation()}
+      onDrop={refuseDrag}
       className="fixed z-[9999] flex h-[22rem] w-[21rem] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
     >
       <div className="border-b border-[var(--border)] px-3 py-2">
