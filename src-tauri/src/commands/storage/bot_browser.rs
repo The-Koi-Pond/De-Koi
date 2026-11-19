@@ -21,8 +21,13 @@ const JANNY_TOKEN_KEY: &str = "bot-browser-janny-token";
 const JANNY_FALLBACK_TOKEN_TTL_MS: u64 = 60_000;
 const JANNY_SCRAPED_TOKEN_TTL_MS: u64 = 5 * 60_000;
 
-const CT_API_BASE: &str = "https://character-tavern.com/api";
+const CT_SITE_BASE: &str = "https://character-tavern.com";
 const CT_CARDS_CDN: &str = "https://cards.character-tavern.com";
+const CT_CARDS_STORAGE: &str = "https://ct-cards.storage.character-tavern.com";
+const CT_IMAGE_HOSTS: &[(&str, bool)] = &[
+    ("ct-cards.storage.character-tavern.com", false),
+    ("cards.character-tavern.com", false),
+];
 const CT_COOKIE_KEY: &str = "bot-browser-chartavern-cookie";
 
 const PYGMALION_API_BASE: &str = "https://server.pygmalion.chat/galatea.v1.PublicCharacterService";
@@ -177,52 +182,27 @@ pub(crate) async fn bot_browser_call(
         ("GET", ["chartavern", "character", author, slug]) => {
             let author = percent_decode_path_component(author);
             let slug = percent_decode_path_component(slug);
-            ct_json_get(
-                state,
-                &format!(
-                    "{CT_API_BASE}/character/{}/{}",
-                    percent_encode_component(&author),
-                    percent_encode_component(&slug)
-                ),
-            )
-            .await
+            chartavern_character(state, &author, &slug).await
         }
         ("GET", ["chartavern", "download", path @ ..]) if !path.is_empty() => {
             let path = encode_path_preserving_slashes(&decoded_path(path));
-            image_binary(
-                &format!("{CT_CARDS_CDN}/{path}.png"),
-                "image/png",
-                &[("cards.character-tavern.com", false)],
-            )
+            // The storage host has every card; `?action=download` is the site's own
+            // Download link and keeps the card data in plain `tEXt` chunks (the bare file
+            // may use compressed `zTXt`, which the importer doesn't read). Older cards are
+            // still on the legacy CDN.
+            ct_image_first_found(&[
+                format!("{CT_CARDS_STORAGE}/{path}.png?action=download"),
+                format!("{CT_CARDS_CDN}/{path}.png"),
+            ])
             .await
         }
         ("GET", ["chartavern", "avatar", path @ ..]) if !path.is_empty() => {
             let path = encode_path_preserving_slashes(&decoded_path(path));
-            match image_binary(
-                &format!(
-                    "{CT_CARDS_CDN}/cdn-cgi/image/format=auto,width=320,quality=85/{path}.png"
-                ),
-                "image/png",
-                &[("cards.character-tavern.com", false)],
-            )
-            .await
-            {
-                Ok(value) => Ok(value),
-                Err(_) => {
-                    image_binary(
-                        &format!("{CT_CARDS_CDN}/{path}.png"),
-                        "image/png",
-                        &[("cards.character-tavern.com", false)],
-                    )
-                    .await
-                }
-            }
-        }
-        ("GET", ["chartavern", "top-tags"]) => {
-            json_get(
-                &format!("{CT_API_BASE}/catalog/top-tags"),
-                vec![header("Accept", "application/json")],
-            )
+            ct_image_first_found(&[
+                format!("{CT_CARDS_STORAGE}/{path}.png?width=320&quality=85&format=auto"),
+                format!("{CT_CARDS_CDN}/cdn-cgi/image/format=auto,width=320,quality=85/{path}.png"),
+                format!("{CT_CARDS_CDN}/{path}.png"),
+            ])
             .await
         }
 
@@ -965,7 +945,9 @@ async fn janny_character(state: &AppState, char_id: &str, slug: &str) -> AppResu
     let html = fetch_janny_page(&page_path)
         .await
         .filter(|html| !is_janny_challenge_html(html))
-        .ok_or_else(|| AppError::not_found("Could not fetch JannyAI character page"))?;
+        .ok_or_else(|| AppError::not_found(
+            "JannyAI is blocking the app with a Cloudflare check right now. Open this character on jannyai.com instead.",
+        ))?;
 
     let props = extract_janny_astro_props(&html)
         .ok_or_else(|| AppError::not_found("Could not parse character data from JannyAI page"))?;
@@ -1193,35 +1175,190 @@ fn chartavern_search_params(route: &ParsedPath) -> Vec<(String, String)> {
     params
 }
 
+// CharacterTavern retired its `/api/...` JSON routes (they now answer with an HTML 404).
+// The site's own pages load their data from SvelteKit `__data.json` routes, so the
+// browser reads those and turns them back into the shapes the old API returned.
 async fn chartavern_search(state: &AppState, route: &ParsedPath) -> AppResult<Value> {
-    ct_json_get(
+    let page = ct_page_data(
         state,
         &format!(
-            "{CT_API_BASE}/search/cards?{}",
+            "{CT_SITE_BASE}/search/cards/__data.json?{}",
             query_string_owned(&chartavern_search_params(route))
         ),
     )
-    .await
+    .await?;
+    chartavern_search_from_page_data(&page)
+}
+
+async fn chartavern_character(state: &AppState, author: &str, slug: &str) -> AppResult<Value> {
+    let page = ct_page_data(
+        state,
+        &format!(
+            "{CT_SITE_BASE}/character/{}/{}/__data.json",
+            percent_encode_component(author),
+            percent_encode_component(slug)
+        ),
+    )
+    .await?;
+    chartavern_character_from_page_data(&page)
+}
+
+fn chartavern_search_from_page_data(page: &Value) -> AppResult<Value> {
+    let mut results = sveltekit_node_field(page, "searchResults")
+        .filter(Value::is_object)
+        .ok_or_else(|| {
+            AppError::new(
+                "upstream_json_error",
+                "CharacterTavern search page had no search results",
+            )
+        })?;
+    if let Some(hits) = results.get_mut("hits").and_then(Value::as_array_mut) {
+        for hit in hits.iter_mut().filter_map(Value::as_object_mut) {
+            if !hit.contains_key("totalTokens") {
+                if let Some(tokens) = hit.get("permanentTokens").cloned() {
+                    hit.insert("totalTokens".to_string(), tokens);
+                }
+            }
+        }
+    }
+    Ok(results)
+}
+
+fn chartavern_character_from_page_data(page: &Value) -> AppResult<Value> {
+    let card = sveltekit_node_field(page, "character")
+        .filter(Value::is_object)
+        .ok_or_else(|| AppError::not_found("CharacterTavern character not found"))?;
+    Ok(json!({ "card": card }))
+}
+
+/// Tries each CharacterTavern image URL in order and returns the first that loads.
+async fn ct_image_first_found(urls: &[String]) -> AppResult<Value> {
+    let mut last_error = AppError::not_found("CharacterTavern image not found");
+    for url in urls {
+        match image_binary(url, "image/png", CT_IMAGE_HOSTS).await {
+            Ok(value) => return Ok(value),
+            Err(error) => last_error = error,
+        }
+    }
+    Err(last_error)
 }
 
 fn ct_headers(state: &AppState) -> AppResult<Vec<Header>> {
     let cookie = provider_secret(state, CT_COOKIE_KEY)?;
-    Ok(vec![
+    let mut headers = vec![
         header("Accept", "application/json"),
-        header("Cookie", cookie),
-    ])
+        header("User-Agent", BROWSER_UA),
+    ];
+    if !cookie.is_empty() {
+        headers.push(header("Cookie", cookie));
+    }
+    Ok(headers)
 }
 
-async fn ct_json_get(state: &AppState, url: &str) -> AppResult<Value> {
+async fn ct_page_data(state: &AppState, url: &str) -> AppResult<Value> {
     let cookie = provider_secret(state, CT_COOKIE_KEY)?;
     let response = apply_headers(http_client(30)?.get(url), &ct_headers(state)?)
         .send()
         .await
         .map_err(|error| AppError::new("upstream_request_failed", error.to_string()))?;
-    if response.status() == StatusCode::FORBIDDEN && !cookie.is_empty() {
+    let status = response.status();
+    if status == StatusCode::FORBIDDEN && !cookie.is_empty() {
         clear_setting(state, CT_COOKIE_KEY)?;
     }
-    upstream_json(response).await
+    let body = response
+        .text()
+        .await
+        .map_err(|error| AppError::new("upstream_request_failed", error.to_string()))?;
+    if !status.is_success() {
+        return Err(AppError::with_details(
+            "upstream_request_failed",
+            format!("Upstream returned {status}"),
+            json!({ "body": body.chars().take(500).collect::<String>() }),
+        ));
+    }
+    parse_sveltekit_page_data(&body)
+}
+
+/// A `__data.json` body is one JSON document per line: the page data first, then one
+/// line per streamed promise. Only the first line is needed here.
+fn parse_sveltekit_page_data(body: &str) -> AppResult<Value> {
+    let first_line = body
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("");
+    let page: Value = serde_json::from_str(first_line)
+        .map_err(|error| AppError::new("upstream_json_error", error.to_string()))?;
+    match page.get("type").and_then(Value::as_str) {
+        Some("data") => Ok(page),
+        Some("redirect") => Err(AppError::new(
+            "upstream_request_failed",
+            "CharacterTavern redirected this request (the page may need a login)",
+        )),
+        _ => Err(AppError::with_details(
+            "upstream_request_failed",
+            "CharacterTavern returned an error page",
+            page.get("error").cloned().unwrap_or(Value::Null),
+        )),
+    }
+}
+
+/// The layout node carries `user`: null when the cookie didn't sign anyone in.
+fn chartavern_page_has_user(page: &Value) -> bool {
+    sveltekit_node_field(page, "user").is_some_and(|user| !user.is_null())
+}
+
+/// Finds the first page node whose decoded data has `field` and returns that value.
+fn sveltekit_node_field(page: &Value, field: &str) -> Option<Value> {
+    page.get("nodes")?
+        .as_array()?
+        .iter()
+        .filter(|node| node.get("type").and_then(Value::as_str) == Some("data"))
+        .filter_map(|node| node.get("data"))
+        .map(devalue_unflatten)
+        .find_map(|data| data.get(field).cloned())
+}
+
+/// Decodes the `devalue` flat format SvelteKit uses: an array whose first entry is the
+/// root, where objects and arrays hold indexes into the same array. Negative indexes are
+/// special constants (undefined, holes, NaN, infinities, -0); typed entries such as
+/// `["Date", iso]` start with a string. Values JSON can't hold become null, dates become
+/// their ISO string, and shared or circular references are cut off after a depth limit.
+fn devalue_unflatten(flat: &Value) -> Value {
+    fn hydrate(flat: &[Value], index: i64, depth: usize) -> Value {
+        if index < 0 || depth > 64 {
+            return Value::Null;
+        }
+        let Some(value) = flat.get(index as usize) else {
+            return Value::Null;
+        };
+        let child = |reference: &Value| {
+            reference
+                .as_i64()
+                .map(|index| hydrate(flat, index, depth + 1))
+                .unwrap_or(Value::Null)
+        };
+        match value {
+            Value::Array(items) => match items.first() {
+                Some(Value::String(kind)) => match kind.as_str() {
+                    "Date" => items.get(1).cloned().unwrap_or(Value::Null),
+                    "Set" => Value::Array(items[1..].iter().map(child).collect()),
+                    _ => Value::Null,
+                },
+                _ => Value::Array(items.iter().map(child).collect()),
+            },
+            Value::Object(fields) => Value::Object(
+                fields
+                    .iter()
+                    .map(|(key, reference)| (key.clone(), child(reference)))
+                    .collect(),
+            ),
+            primitive => primitive.clone(),
+        }
+    }
+    match flat {
+        Value::Array(items) => hydrate(items, 0, 0),
+        _ => Value::Null,
+    }
 }
 
 fn set_chartavern_cookie(state: &AppState, body: &Value) -> AppResult<Value> {
@@ -1251,7 +1388,9 @@ async fn validate_chartavern_cookie(state: &AppState) -> AppResult<Value> {
         return Ok(json!({ "valid": false, "reason": "no cookies stored" }));
     }
     let response = apply_headers(
-        http_client(15)?.get(format!("{CT_API_BASE}/search/cards?query=test&limit=5")),
+        http_client(15)?.get(format!(
+            "{CT_SITE_BASE}/search/cards/__data.json?query=test&limit=5"
+        )),
         &ct_headers(state)?,
     )
     .send()
@@ -1263,19 +1402,18 @@ async fn validate_chartavern_cookie(state: &AppState) -> AppResult<Value> {
             .get("set-cookie")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.contains("session=;") || value.contains("Max-Age=0"));
-        let json: Value = response.json().await.unwrap_or_else(|_| json!({}));
+        let body = response.text().await.unwrap_or_default();
         if rejected {
             clear_setting(state, CT_COOKIE_KEY)?;
             return Ok(json!({ "valid": false, "reason": "Session rejected/expired by server" }));
         }
-        let has_nsfw = json
-            .get("hits")
-            .and_then(Value::as_array)
-            .is_some_and(|hits| {
-                hits.iter()
-                    .any(|hit| hit.get("isNSFW").and_then(Value::as_bool).unwrap_or(false))
-            });
-        return Ok(json!({ "valid": true, "hasNsfw": has_nsfw }));
+        let page = parse_sveltekit_page_data(&body).unwrap_or(Value::Null);
+        if !chartavern_page_has_user(&page) {
+            return Ok(
+                json!({ "valid": false, "reason": "CharacterTavern did not recognize this session" }),
+            );
+        }
+        return Ok(json!({ "valid": true, "hasNsfw": false }));
     }
     if response.status() == StatusCode::FORBIDDEN {
         clear_setting(state, CT_COOKIE_KEY)?;
@@ -1759,6 +1897,102 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn ct_search_page_body() -> String {
+        // Same layout as CharacterTavern's `/search/cards/__data.json`: a layout node with
+        // `user`, a skipped node, then the page node in devalue's flat format, followed by
+        // a streamed-promise line.
+        let page = json!({
+            "type": "data",
+            "nodes": [
+                { "type": "data", "data": [{ "user": 1, "banner": 2 }, null, false] },
+                null,
+                { "type": "data", "data": [
+                    { "searchResults": 1, "query": 7, "created": 16 },
+                    { "hits": 2, "totalHits": 13, "totalPages": 14, "hiddenByPrefs": 15 },
+                    [3],
+                    { "id": 4, "name": 5, "path": 6, "author": 8, "contentWarnings": 9, "permanentTokens": 10, "missing": -1, "tags": 11 },
+                    "CT_1", "Test Card", "tester/test_card", "", "tester", [], 512,
+                    ["Set", 12], "fantasy", 41, 2, false,
+                    ["Date", "2025-02-02T20:30:47.026Z"]
+                ]}
+            ]
+        });
+        format!("{page}\n{{\"type\":\"chunk\",\"id\":2,\"data\":[[]]}}\n")
+    }
+
+    #[test]
+    fn devalue_unflatten_resolves_references_and_special_values() {
+        let flat = json!([
+            { "list": 1, "when": 3, "gone": -1, "self": 0, "map": 4 },
+            [2, -2, 2],
+            "x",
+            ["Date", "2025-01-01T00:00:00.000Z"],
+            ["Map", 2, 2]
+        ]);
+        let value = devalue_unflatten(&flat);
+        assert_eq!(value["list"], json!(["x", null, "x"]));
+        assert_eq!(value["when"], json!("2025-01-01T00:00:00.000Z"));
+        assert_eq!(value["gone"], Value::Null);
+        assert_eq!(value["map"], Value::Null);
+        // A circular reference is cut off instead of recursing forever.
+        assert!(value["self"].is_object());
+        assert_eq!(devalue_unflatten(&json!(-1)), Value::Null);
+    }
+
+    #[test]
+    fn chartavern_search_page_data_becomes_old_api_shape() {
+        let page = parse_sveltekit_page_data(&ct_search_page_body()).unwrap();
+        let results = chartavern_search_from_page_data(&page).unwrap();
+        assert_eq!(results["totalHits"], json!(41));
+        assert_eq!(results["totalPages"], json!(2));
+        let hit = &results["hits"][0];
+        assert_eq!(hit["path"], json!("tester/test_card"));
+        assert_eq!(hit["name"], json!("Test Card"));
+        assert_eq!(hit["author"], json!("tester"));
+        assert_eq!(hit["totalTokens"], json!(512));
+        assert_eq!(hit["tags"], json!(["fantasy"]));
+        assert!(!chartavern_page_has_user(&page));
+    }
+
+    #[test]
+    fn chartavern_character_page_data_becomes_card() {
+        let body = json!({
+            "type": "data",
+            "nodes": [
+                { "type": "data", "data": [{ "user": 1 }, { "name": 2 }, "someone"] },
+                { "type": "data", "data": [
+                    { "character": 1 },
+                    { "name": 2, "definition_first_message": 3, "lorebookId": -1, "description": 4 },
+                    "Test Card", "Hello {{user}}", "notes"
+                ]}
+            ]
+        })
+        .to_string();
+        let page = parse_sveltekit_page_data(&body).unwrap();
+        assert!(chartavern_page_has_user(&page));
+        let detail = chartavern_character_from_page_data(&page).unwrap();
+        assert_eq!(detail["card"]["name"], json!("Test Card"));
+        assert_eq!(
+            detail["card"]["definition_first_message"],
+            json!("Hello {{user}}")
+        );
+        assert_eq!(detail["card"]["description"], json!("notes"));
+        assert_eq!(detail["card"]["lorebookId"], Value::Null);
+    }
+
+    #[test]
+    fn chartavern_page_data_errors_are_reported() {
+        assert!(parse_sveltekit_page_data("<!doctype html><html>").is_err());
+        assert!(parse_sveltekit_page_data(r#"{"type":"redirect","location":"/login"}"#).is_err());
+        assert!(
+            parse_sveltekit_page_data(r#"{"type":"error","error":{"message":"Not found"}}"#)
+                .is_err()
+        );
+        let empty = parse_sveltekit_page_data(r#"{"type":"data","nodes":[null]}"#).unwrap();
+        assert!(chartavern_search_from_page_data(&empty).is_err());
+        assert!(chartavern_character_from_page_data(&empty).is_err());
+    }
 
     #[test]
     fn datacat_recent_fallback_matches_fresh_shape() {
