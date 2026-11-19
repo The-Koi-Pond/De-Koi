@@ -27,6 +27,7 @@ export function CharacterSpriteEditors({
         <SpriteFrameEditor
           imageUrl={framingSprite.url}
           label={displayExpression(framingSprite.expression)}
+          filename={framingSprite.filename}
           applying={savingFrame}
           onApply={onApplyFrame}
           onClose={onCloseFrame}
@@ -37,6 +38,7 @@ export function CharacterSpriteEditors({
         <SpriteCleanupEditor
           imageUrl={wandCleanupSprite.url}
           label={displayExpression(wandCleanupSprite.expression)}
+          filename={wandCleanupSprite.filename}
           applying={savingWandCleanup}
           onApply={onApplyWandCleanup}
           onClose={onCloseWandCleanup}

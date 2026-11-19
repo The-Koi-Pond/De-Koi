@@ -14,14 +14,14 @@ import { CleanupFooter } from "./CleanupFooter";
 import { CleanupSettings, type PreviewBackground } from "./CleanupSettings";
 import { CleanupStage } from "./CleanupStage";
 import { CleanupToolbar } from "./CleanupToolbar";
-import { useDiscardQuestion, type SavedSpriteEditorProps } from "./saved-sprite-editor";
+import { saveFormatNote, useDiscardQuestion, type SavedSpriteEditorProps } from "./saved-sprite-editor";
 
 /**
  * The cleanup editor for a saved sprite: a wand that removes connected background and brushes that clean, erase,
  * paint, restore and smooth. It hands the edited picture to `onApply` as a canvas PNG; the Sprites tab saves it.
  * Every open starts fresh. Spec: docs/provenance/sprite-editors.md, "Cleanup editor".
  */
-export function SpriteCleanupEditor({ imageUrl, label, applying, onApply, onClose }: SavedSpriteEditorProps) {
+export function SpriteCleanupEditor({ imageUrl, label, filename, applying, onApply, onClose }: SavedSpriteEditorProps) {
   const session = useCleanupPicture(imageUrl);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -165,6 +165,7 @@ export function SpriteCleanupEditor({ imageUrl, label, applying, onApply, onClos
         <CleanupFooter
           status={session.status ?? idleHint(tool, brush.paintMode)}
           error={session.error}
+          note={saveFormatNote(filename)}
           readout={readoutText(gestures.hover)}
           canUndo={canUndo}
           canRedo={canRedo}

@@ -6,6 +6,7 @@ import { editorButton, errorText, mutedText, primaryEditorButton } from "./edito
 export function CleanupFooter({
   status,
   error,
+  note,
   readout,
   canUndo,
   canRedo,
@@ -22,6 +23,8 @@ export function CleanupFooter({
 }: {
   status: string;
   error: string | null;
+  /** A standing note about the save, e.g. that a GIF comes back still. */
+  note: string | null;
   readout: string;
   canUndo: boolean;
   canRedo: boolean;
@@ -48,6 +51,7 @@ export function CleanupFooter({
         <p role="status" aria-live="polite" className="text-xs text-[var(--foreground)] empty:hidden">
           {error ? null : status}
         </p>
+        {note && <p className={mutedText}>{note}</p>}
         <p className={`${mutedText} tabular-nums`}>{readout}</p>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">

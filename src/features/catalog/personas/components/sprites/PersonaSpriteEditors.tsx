@@ -29,6 +29,7 @@ export function PersonaSpriteEditors({
         <SpriteFrameEditor
           imageUrl={framingSprite.url}
           label={displayExpression(framingSprite.expression)}
+          filename={framingSprite.filename}
           applying={savingFrame}
           onApply={onApplySpriteFrame}
           onClose={onCloseFrame}
@@ -39,6 +40,7 @@ export function PersonaSpriteEditors({
         <SpriteCleanupEditor
           imageUrl={wandCleanupSprite.url}
           label={displayExpression(wandCleanupSprite.expression)}
+          filename={wandCleanupSprite.filename}
           applying={savingWandCleanup}
           onApply={onApplyWandCleanup}
           onClose={onCloseWandCleanup}

@@ -495,6 +495,7 @@ pub(crate) fn upload_sprite(
         .map(normalize_sprite_expression)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| AppError::invalid_input("Expression label is required"))?;
+    let raw_expression = body.get("expression").and_then(Value::as_str).unwrap_or("");
     let image = body
         .get("image")
         .and_then(Value::as_str)
@@ -503,7 +504,54 @@ pub(crate) fn upload_sprite(
     fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{expression}.{ext}"));
     write_managed_file_atomically(&path, &bytes)?;
+    remove_replaced_sprite_files(&dir, raw_expression, &expression, &[path.as_path()])?;
     sprite_info_from_path(&path, owner_kind, character_id)
+}
+
+/// A saved sprite has one file. After a save under `expression`, remove the files it replaces: the same name with
+/// another extension (`happy.jpg` when `happy.png` is saved), and the file the caller named before the name rule
+/// changed it (`Very Happy.png` when the editor saves it as `very_happy.png`). Files in `keep` (everything this save
+/// wrote) always stay.
+fn remove_replaced_sprite_files(
+    dir: &Path,
+    raw_expression: &str,
+    expression: &str,
+    keep: &[&Path],
+) -> AppResult<()> {
+    let raw_expression = raw_expression.trim();
+    for path in sprite_file_paths(dir)? {
+        let stem = expression_from_path(&path);
+        if stem != expression && (raw_expression.is_empty() || stem != raw_expression) {
+            continue;
+        }
+        // On a case-insensitive disk `Happy.png` and `happy.png` are the same file.
+        if keep_file(&path, keep)? {
+            continue;
+        }
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(AppError::new(
+                    "sprite_old_file_not_removed",
+                    format!(
+                        "Saved {expression} but couldn't remove its old file {}: {error}",
+                        file_name(&path)?
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn keep_file(path: &Path, keep: &[&Path]) -> AppResult<bool> {
+    for kept in keep {
+        if same_file::is_same_file(path, kept)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(crate) fn upload_sprites(
@@ -552,7 +600,7 @@ pub(crate) fn upload_sprites(
         };
         let filename = format!("{expression}.{ext}");
         let path = dir.join(&filename);
-        prepared.push((expression, filename, path, bytes));
+        prepared.push((raw_expression, expression, filename, path, bytes));
     }
 
     if !failed.is_empty() {
@@ -564,7 +612,7 @@ pub(crate) fn upload_sprites(
     }
 
     let mut written: Vec<(PathBuf, Option<Vec<u8>>)> = Vec::new();
-    for (_expression, filename, path, bytes) in &prepared {
+    for (_raw_expression, _expression, filename, path, bytes) in &prepared {
         let previous = if path.exists() {
             Some(fs::read(path)?)
         } else {
@@ -601,6 +649,13 @@ pub(crate) fn upload_sprites(
             ));
         }
         written.push((path.clone(), previous));
+    }
+    let kept: Vec<&Path> = prepared
+        .iter()
+        .map(|(_, _, _, path, _)| path.as_path())
+        .collect();
+    for (raw_expression, expression, _filename, _path, _bytes) in &prepared {
+        remove_replaced_sprite_files(&dir, raw_expression, expression, &kept)?;
     }
 
     Ok(json!({
@@ -4057,6 +4112,7 @@ mod sprite_upload_tests {
     use super::*;
     use std::fs;
 
+    const TINY_GIF: &str = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
     const TINY_PNG: &str =
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
@@ -4066,6 +4122,150 @@ mod sprite_upload_tests {
         let state = AppState::from_data_dir_with_resource_dir(data_dir, Vec::new(), None)
             .expect("test state should initialize");
         (state, root)
+    }
+
+    fn sprite_dir_names(state: &AppState, owner_id: &str) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(state.data_dir.join("sprites").join(owner_id))
+            .expect("sprite dir should exist")
+            .map(|entry| {
+                entry
+                    .expect("dir entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .filter(|name| !name.starts_with('.'))
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn saving_a_png_replaces_the_same_sprite_in_another_format() {
+        let (state, root) = test_state("replace-other-format");
+        let dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&dir).expect("sprite dir");
+        fs::write(dir.join("sad.jpg"), b"old jpeg").expect("old jpg");
+        fs::write(dir.join("sad_2.png"), b"other").expect("other sprite");
+        fs::write(dir.join("happy.webp"), b"other").expect("other sprite");
+
+        upload_sprite(
+            &state,
+            "character-1",
+            json!({ "expression": "sad", "image": format!("data:image/png;base64,{TINY_PNG}") }),
+            None,
+        )
+        .expect("upload should succeed");
+
+        assert_eq!(
+            sprite_dir_names(&state, "character-1"),
+            ["happy.webp", "sad.png", "sad_2.png"]
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn saving_under_a_hand_placed_name_replaces_that_file() {
+        let (state, root) = test_state("replace-raw-name");
+        let dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&dir).expect("sprite dir");
+        fs::write(dir.join("Very Happy.png"), b"old").expect("old sprite");
+        fs::write(dir.join("very happy too.png"), b"other").expect("other sprite");
+
+        upload_sprite(
+            &state,
+            "character-1",
+            json!({ "expression": "Very Happy", "image": format!("data:image/png;base64,{TINY_PNG}") }),
+            None,
+        )
+        .expect("upload should succeed");
+
+        assert_eq!(
+            sprite_dir_names(&state, "character-1"),
+            ["very happy too.png", "very_happy.png"]
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn saving_the_same_png_again_keeps_it() {
+        let (state, root) = test_state("replace-same-file");
+        for _ in 0..2 {
+            upload_sprite(
+                &state,
+                "character-1",
+                json!({ "expression": "happy", "image": format!("data:image/png;base64,{TINY_PNG}") }),
+                None,
+            )
+            .expect("upload should succeed");
+        }
+        assert_eq!(sprite_dir_names(&state, "character-1"), ["happy.png"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn persona_save_only_replaces_the_persona_sprite() {
+        let (state, root) = test_state("replace-persona");
+        state
+            .storage
+            .create(
+                "characters",
+                json!({ "id": "shared-id", "data": { "name": "Shared Character" } }),
+            )
+            .expect("character should be created");
+        let character_dir = state.data_dir.join("sprites").join("shared-id");
+        fs::create_dir_all(&character_dir).expect("character dir");
+        fs::write(character_dir.join("sad.jpg"), b"character jpg").expect("character sprite");
+        let persona_dir = state
+            .data_dir
+            .join("sprites")
+            .join("personas")
+            .join("shared-id");
+        fs::create_dir_all(&persona_dir).expect("persona dir");
+        fs::write(persona_dir.join("sad.jpg"), b"persona jpg").expect("persona sprite");
+
+        upload_sprite(
+            &state,
+            "shared-id",
+            json!({ "expression": "sad", "image": format!("data:image/png;base64,{TINY_PNG}") }),
+            Some("persona"),
+        )
+        .expect("upload should succeed");
+
+        assert!(character_dir.join("sad.jpg").exists());
+        assert!(!persona_dir.join("sad.jpg").exists());
+        assert!(persona_dir.join("sad.png").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn bulk_upload_replaces_old_formats_but_keeps_everything_it_wrote() {
+        let (state, root) = test_state("bulk-replace");
+        let dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&dir).expect("sprite dir");
+        fs::write(dir.join("angry.gif"), b"old gif").expect("old gif");
+        fs::write(dir.join("calm.png"), b"other").expect("other sprite");
+
+        let result = upload_sprites(
+            &state,
+            "character-1",
+            json!({
+                "sprites": [
+                    { "expression": "angry", "image": format!("data:image/png;base64,{TINY_PNG}") },
+                    { "expression": "happy", "image": format!("data:image/png;base64,{TINY_PNG}") },
+                    { "expression": "happy", "image": format!("data:image/gif;base64,{TINY_GIF}") }
+                ]
+            }),
+            None,
+        )
+        .expect("bulk upload should succeed");
+
+        assert_eq!(result.get("imported").and_then(Value::as_u64), Some(3));
+        assert_eq!(
+            sprite_dir_names(&state, "character-1"),
+            ["angry.png", "calm.png", "happy.gif", "happy.png"]
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
