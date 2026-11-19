@@ -17,7 +17,7 @@ import {
   normalizeLookupText,
   normalizeMaybeJsonStringArray,
 } from "../../../../shared/lib/tracker-metadata";
-import type { TrackerCardColorEntityLabel } from "../../../../shared/components/ui/TrackerCardColorControls";
+import type { TrackerCardColorEntityLabel } from "../../../../shared/components/ui/tracker-card-color-controls";
 import { isRecord } from "../../../../engine/shared/value-readers";
 
 type TrackerCardColorTargetKind = "persona" | "character";
