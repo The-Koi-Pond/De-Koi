@@ -40,14 +40,18 @@ export function useBrowserLogins({ onAccountChanged }: { onAccountChanged: (prov
   const [busy, setBusy] = useState(false);
   const onAccountChangedRef = useRef(onAccountChanged);
   onAccountChangedRef.current = onAccountChanged;
+  // Counts each provider's logins and logouts, so a session check that answers after one of them is ignored.
+  const accountChanges = useRef<Record<LoginProviderId, number>>({ pygmalion: 0, chartavern: 0 });
 
   useEffect(() => {
     for (const id of SESSION_CHECK_ORDER) {
       const provider = providerById(id);
       const login = provider.login;
       if (!login) continue;
+      const changesWhenSent = accountChanges.current[id];
       siteGet<unknown>(login.sessionPath).then(
         (reply) => {
+          if (accountChanges.current[id] !== changesWhenSent) return;
           const active = isRecord(reply) && reply.active === true;
           const saved = readBrowserSettings().logins[id] === true;
           if (active && !saved) setSettings(saveLogin(id, true));
@@ -72,6 +76,7 @@ export function useBrowserLogins({ onAccountChanged }: { onAccountChanged: (prov
     const login = provider.login;
     if (!login || !isLoginProvider(provider.id)) return false;
     const isToken = login.kind === "token";
+    accountChanges.current[provider.id] += 1;
     setBusy(true);
     try {
       let saved: unknown;
@@ -109,6 +114,7 @@ export function useBrowserLogins({ onAccountChanged }: { onAccountChanged: (prov
   const logOut = useCallback(async (provider: BrowserProvider) => {
     const login = provider.login;
     if (!login || !isLoginProvider(provider.id)) return;
+    accountChanges.current[provider.id] += 1;
     setBusy(true);
     try {
       await sitePost<unknown>(login.logoutPath);

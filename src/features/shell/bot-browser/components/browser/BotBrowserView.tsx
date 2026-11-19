@@ -10,7 +10,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { openExternalUrl } from "../../../../../shared/api/external-link-api";
@@ -96,7 +96,10 @@ export function BotBrowserView() {
   const [minTokens, setMinTokens] = useState("");
   const [maxTokens, setMaxTokens] = useState("");
   const [filters, setFilters] = useState<Record<string, boolean>>({});
-  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  // Each opening of the login dialog gets its own number, so a slow login only closes the dialog it came from.
+  const [loginDialog, setLoginDialog] = useState<number | null>(null);
+  const loginDialogCount = useRef(0);
+  const openLoginDialog = () => setLoginDialog(++loginDialogCount.current);
   const [datacatWarningOpen, setDatacatWarningOpen] = useState(false);
   const [tagImportMode, setTagImportMode] = useState<TagImportMode>("all");
   const [downloading, setDownloading] = useState(false);
@@ -153,7 +156,7 @@ export function BotBrowserView() {
       setMinTokens("");
       setMaxTokens("");
       setFilters({});
-      setLoginDialogOpen(false);
+      setLoginDialog(null);
       closeCharacter();
     },
     [closeCharacter],
@@ -196,7 +199,7 @@ export function BotBrowserView() {
         setPage(1);
         return;
       case "login":
-        if (!loggedIn) setLoginDialogOpen(true);
+        if (!loggedIn) openLoginDialog();
         return;
       case "sort":
         toast.info('Use the "Popular NSFW" sort option to browse NSFW content on Wyvern.');
@@ -360,7 +363,7 @@ export function BotBrowserView() {
               </button>
             </>
           ) : (
-            <button type="button" onClick={() => setLoginDialogOpen(true)} className={toolbarButtonClass}>
+            <button type="button" onClick={openLoginDialog} className={toolbarButtonClass}>
               <LogIn size="0.8125rem" aria-hidden="true" />
               Log in
             </button>
@@ -426,16 +429,17 @@ export function BotBrowserView() {
             />
           ) : (
             <>
-              {result?.notices.map((notice) => (
-                <p
-                  key={notice}
-                  role="note"
-                  className="mb-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-[var(--foreground)]"
-                >
-                  <TriangleAlert size="0.875rem" aria-hidden="true" className="mt-0.5 shrink-0 text-amber-500" />
-                  {notice}
-                </p>
-              ))}
+              {!loading &&
+                result?.notices.map((notice) => (
+                  <p
+                    key={notice}
+                    role="note"
+                    className="mb-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-[var(--foreground)]"
+                  >
+                    <TriangleAlert size="0.875rem" aria-hidden="true" className="mt-0.5 shrink-0 text-amber-500" />
+                    {notice}
+                  </p>
+                ))}
               {loading ? (
                 <div
                   role="status"
@@ -459,7 +463,7 @@ export function BotBrowserView() {
               ) : (
                 <ResultsGrid cards={cards} onOpen={(card) => openCharacter(provider, card)} />
               )}
-              <Pager page={page} pages={pages} pageEmpty={!loading && cards.length === 0} onPage={setPage} />
+              <Pager page={page} pages={pages} pageEmpty={!loading && (result?.pageHits ?? 0) === 0} onPage={setPage} />
             </>
           )}
         </main>
@@ -480,17 +484,18 @@ export function BotBrowserView() {
         )}
       </div>
 
-      {loginDialogOpen && provider.login && (
+      {loginDialog !== null && provider.login && (
         <LoginDialog
           provider={provider}
           loggedIn={loggedIn}
           busy={logins.busy}
-          onClose={() => setLoginDialogOpen(false)}
-          onSave={(value) =>
+          onClose={() => setLoginDialog(null)}
+          onSave={(value) => {
+            const dialog = loginDialog;
             void logins.logIn(provider, value).then((ok) => {
-              if (ok) setLoginDialogOpen(false);
-            })
-          }
+              if (ok) setLoginDialog((current) => (current === dialog ? null : current));
+            });
+          }}
           onLogOut={() => void logins.logOut(provider)}
           onOpenLink={openLink}
         />

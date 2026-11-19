@@ -4,6 +4,7 @@ import {
   confirmEmbeddedLorebookImport,
   readEmbeddedLorebookFromCharacterPayload,
 } from "../../../../shared/lib/character-import";
+import { isRecord } from "../../../../engine/shared/value-readers";
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { parsePngCharacterCard } from "../../../../shared/lib/png-parser";
 import { blobToDataUrl } from "../../../../shared/lib/url-blob";
@@ -34,7 +35,7 @@ interface BotBrowserImportResult {
 export interface BrowserImportRequest {
   provider: BrowserProvider;
   card: BrowserCard;
-  /** The detail shown for this card: undefined when it hasn't arrived, null when the site had none. */
+  /** The detail held for this card; undefined or null when there is none (still loading, none, or failed). */
   openDetail: CharacterDetail | null | undefined;
   tagImportMode: TagImportMode;
 }
@@ -47,14 +48,37 @@ export interface BrowserImportOutcome {
   warnings: string[];
 }
 
+const NOT_A_CARD = "The downloaded file isn't a character card.";
+
+/** The picture type its first bytes say, for PNG, JPEG, GIF and WebP; null for anything else. */
+function imageTypeOf(bytes: Uint8Array): string | null {
+  const ascii = (start: number, end: number) => String.fromCharCode(...bytes.subarray(start, end));
+  if (bytes.length >= 8 && bytes[0] === 0x89 && ascii(1, 4) === "PNG") return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length >= 6 && ascii(0, 4) === "GIF8") return "image/gif";
+  if (bytes.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image/webp";
+  return null;
+}
+
+/** The card's picture as a data URL, refusing an empty reply or bytes that aren't a picture. */
+async function pictureDataUrl(picture: string): Promise<string> {
+  const blob = await fetchBotBrowserAssetBlob(picture);
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  if (bytes.length === 0) throw new Error("the picture came back empty");
+  const type = imageTypeOf(bytes);
+  if (!type) throw new Error("the picture isn't an image");
+  return blobToDataUrl(new Blob([bytes], { type }));
+}
+
 /** A reason for a warning: worded errors as they are, anything else as its own message. */
 export function warningReason(error: unknown): string {
   const ownMessage = error instanceof Error && error.message ? error.message : String(error ?? "unknown error");
   return toUserMessage(error, { fallback: ownMessage });
 }
 
+/** The detail held for the card, else (for providers that do) one fetched now; a fetch that fails means none. */
 async function detailForImport(request: BrowserImportRequest): Promise<CharacterDetail | null> {
-  if (request.openDetail !== undefined) return request.openDetail;
+  if (request.openDetail) return request.openDetail;
   if (!request.provider.importFetchesDetail) return null;
   try {
     return await request.provider.fetchDetail(request.card);
@@ -68,9 +92,23 @@ async function detailForImport(request: BrowserImportRequest): Promise<Character
 async function pngImportBody(request: BrowserImportRequest): Promise<Record<string, unknown>> {
   const { provider, card, tagImportMode } = request;
   if (!provider.downloadPath) throw new Error(`${provider.name} has no card file to download.`);
-  const blob = await fetchSiteBlob(provider.downloadPath(card));
-  const file = new File([blob], "character.png", { type: "image/png" });
-  const { json, imageDataUrl } = await parsePngCharacterCard(file);
+  let blob: Blob;
+  try {
+    blob = await fetchSiteBlob(provider.downloadPath(card));
+  } catch (error) {
+    throw userFacingError(`Couldn't download the character card: ${warningReason(error)}`);
+  }
+  let parsed: Awaited<ReturnType<typeof parsePngCharacterCard>>;
+  try {
+    parsed = await parsePngCharacterCard(new File([blob], "character.png", { type: "image/png" }));
+  } catch (error) {
+    console.warn("[bot-browser] The downloaded card file didn't read as a character card.", error);
+    throw userFacingError(NOT_A_CARD);
+  }
+  // A card's JSON must be an object; a string or a list would spread into nonsense fields.
+  const json: unknown = parsed.json;
+  if (!isRecord(json)) throw userFacingError(NOT_A_CARD);
+  const imageDataUrl = parsed.imageDataUrl;
 
   const detail = await detailForImport(request);
   const merged = detail
@@ -106,7 +144,7 @@ async function builtImportBody(request: BrowserImportRequest, warnings: string[]
   };
   if (card.picture) {
     try {
-      body._avatarDataUrl = await blobToDataUrl(await fetchBotBrowserAssetBlob(card.picture));
+      body._avatarDataUrl = await pictureDataUrl(card.picture);
     } catch (error) {
       warnings.push(`Imported without its picture: ${warningReason(error)}`);
     }

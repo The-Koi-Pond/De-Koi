@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { isRecord } from "../../../../engine/shared/value-readers";
@@ -20,9 +20,13 @@ import { importBrowserCharacter, warningReason, type BrowserImportRequest } from
 export function useBrowserImport() {
   const queryClient = useQueryClient();
   const [importing, setImporting] = useState(false);
+  // State updates land after the click that set them, so a second click in the same turn is stopped here.
+  const running = useRef(false);
 
   const runImport = useCallback(
     async (request: BrowserImportRequest) => {
+      if (running.current) return;
+      running.current = true;
       setImporting(true);
       try {
         const { result, name, warnings } = await importBrowserCharacter(request);
@@ -48,6 +52,7 @@ export function useBrowserImport() {
           }),
         );
       } finally {
+        running.current = false;
         setImporting(false);
       }
     },

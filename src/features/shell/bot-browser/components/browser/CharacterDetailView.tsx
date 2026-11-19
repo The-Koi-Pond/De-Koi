@@ -186,9 +186,9 @@ export function CharacterDetailView({
             {card.tagline && <p className="text-sm text-[var(--foreground)]/85">{card.tagline}</p>}
             {card.tags.length > 0 && (
               <ul aria-label="Tags" className="flex flex-wrap gap-1 pt-1">
-                {card.tags.slice(0, 20).map((tag) => (
+                {card.tags.slice(0, 20).map((tag, index) => (
                   <li
-                    key={tag}
+                    key={`${index}-${tag}`}
                     className="rounded-full border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]"
                   >
                     {tag}
