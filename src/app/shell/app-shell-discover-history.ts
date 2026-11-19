@@ -16,6 +16,18 @@ export function closeDiscoverHistory(history: History, href: string): void {
   history.replaceState(state, "", href);
 }
 
+/**
+ * A chat that becomes the open one (picked from the list, started from a character, made by setup) replaces
+ * Discover, so Discover doesn't stay on top of the new chat. Opening Discover over a chat doesn't change the open
+ * chat, so that doesn't close it.
+ */
+export function useCloseDiscoverWhenChatOpens(activeChatId: string | null, closeDiscover: () => void): void {
+  useEffect(() => {
+    if (!activeChatId) return;
+    closeDiscover();
+  }, [activeChatId, closeDiscover]);
+}
+
 export function useDiscoverHistoryLifecycle(open: boolean, onPopState: () => void): void {
   useEffect(() => {
     if (!open) return;
