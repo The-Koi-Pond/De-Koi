@@ -35,6 +35,16 @@ export function saveSpriteName(name: string, type: SpriteType): string {
   return withoutFullBodyPrefix(normalized);
 }
 
+/**
+ * The save name when the sprite can be saved, or null when it has no name: an empty name, or one that the save rule
+ * empties (`full_` on Expressions). Save, its count and the "Needs a name" mark all use this.
+ */
+export function savableName(name: string, type: SpriteType): string | null {
+  if (name.trim() === "") return null;
+  const saveName = saveSpriteName(name, type);
+  return saveName === "" ? null : saveName;
+}
+
 export const MAX_MATCHED_NAMES = 16;
 
 /**

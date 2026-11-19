@@ -7,6 +7,7 @@ import {
   matchedExpressionNames,
   nameOptions,
   normalizeSpriteName,
+  savableName,
   saveSpriteName,
   spriteNameOptions,
 } from "./sprite-names";
@@ -66,6 +67,14 @@ describe("names", () => {
     expect(saveSpriteName("full_idle", "full-body")).toBe("full_idle");
     expect(saveSpriteName("Full_Idle", "expressions")).toBe("idle");
     expect(saveSpriteName("Very Happy", "expressions")).toBe("very_happy");
+  });
+
+  it("treats a name the save rule empties as no name", () => {
+    expect(savableName("full_", "expressions")).toBeNull();
+    expect(savableName("FULL_", "expressions")).toBeNull();
+    expect(savableName("  ", "full-body")).toBeNull();
+    expect(savableName("full_", "full-body")).toBe("full_");
+    expect(savableName("Happy", "full-body")).toBe("full_happy");
   });
 
   it("cleans and deduplicates the existing portrait names for matched batches", () => {
