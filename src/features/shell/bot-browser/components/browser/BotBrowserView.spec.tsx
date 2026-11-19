@@ -1,3 +1,4 @@
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../../../../../shared/api/api-errors";
@@ -13,6 +14,7 @@ import {
   getByRole,
   labelledField,
   mount,
+  pressKey,
   queryByRole,
   QuietIntersectionObserver,
   settle,
@@ -558,5 +560,163 @@ describe("DataCat", () => {
     expect(queryByRole("dialog")).toBeNull();
     expect(getByRole("button", "DataCat")).toBeTruthy();
     expect(getAllByRole("menuitemradio")).toHaveLength(0);
+  });
+});
+
+describe("review fixes", () => {
+  async function excludeTag(tag: string) {
+    await click(getByRole("button", /^Tags/));
+    await changeValue(byPlaceholder("Search tags"), tag);
+    await click(getByRole("button", `− Block ${tag} from results`));
+    await settle();
+  }
+
+  it("keeps Next when every hit on the page was dropped by this side's tag checks (ruling D)", async () => {
+    mocks.handler = quietSite({
+      "wyvern/search": { results: [{ id: "w1", name: "Scary", tags: ["Horror"] }], total: 200 },
+    });
+    await openBrowser();
+    await pickProvider("ChubAI", "Wyvern");
+    await excludeTag("horror");
+    expect(document.body.textContent).toContain("No characters found");
+    expect(getByRole("button", "Next").hasAttribute("disabled")).toBe(false);
+  });
+
+  it("ignores a session check that answers after a login (fix 4)", async () => {
+    let answerSession: (value: unknown) => void = () => {};
+    window.localStorage.setItem(BROWSER_SETTINGS_KEY, JSON.stringify({ nsfw: {}, logins: {} }));
+    mocks.handler = quietSite({
+      "pygmalion/session": () =>
+        new Promise((resolve) => {
+          answerSession = resolve;
+        }),
+      "pygmalion/set-token": { ok: true },
+      "pygmalion/validate": { valid: true },
+    });
+    await openBrowser();
+    await pickProvider("ChubAI", "Pygmalion");
+    await click(getByRole("button", "Log in"));
+    await changeValue(byPlaceholder<HTMLTextAreaElement>("Paste your Pygmalion auth token"), "tok");
+    await click(getByRole("button", "Save & connect"));
+    await settle();
+    answerSession({ active: false, hasToken: false });
+    await settle();
+    expect(mocks.toast.warning).not.toHaveBeenCalled();
+    expect(JSON.parse(window.localStorage.getItem(BROWSER_SETTINGS_KEY) ?? "{}").logins).toEqual({ pygmalion: true });
+  });
+
+  it("doesn't close a dialog opened after the login that finishes (fix 5)", async () => {
+    let answerSave: (value: unknown) => void = () => {};
+    mocks.handler = quietSite({
+      "pygmalion/set-token": () =>
+        new Promise((resolve) => {
+          answerSave = resolve;
+        }),
+      "pygmalion/validate": { valid: true },
+    });
+    await openBrowser();
+    await pickProvider("ChubAI", "Pygmalion");
+    await click(getByRole("button", "Log in"));
+    await changeValue(byPlaceholder<HTMLTextAreaElement>("Paste your Pygmalion auth token"), "tok");
+    await click(getByRole("button", "Save & connect"));
+    await click(getByRole("button", "Close Pygmalion authentication"));
+    expect(queryByRole("dialog")).toBeNull();
+    await click(getByRole("button", "Log in"));
+    answerSave({ ok: true });
+    await settle();
+    expect(mocks.toast.success).toHaveBeenCalledWith("Logged in to Pygmalion! NSFW content enabled.");
+    expect(getByRole("dialog").textContent).toContain("Pygmalion authentication");
+  });
+
+  it("shows duplicate tags without React key errors (fix 6)", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.handler = quietSite({
+      "chub/search": { data: { nodes: [{ ...chubNode("ink/keeper", "Keeper"), topics: ["t", "t", "T"] }] } },
+    });
+    await openBrowser();
+    await click(tiles()[0]);
+    await settle();
+    expect(document.querySelectorAll("article ul[aria-label='Tags'] li")).toHaveLength(3);
+    expect(errors.mock.calls.filter((call) => /same key/.test(String(call[0])))).toEqual([]);
+    errors.mockRestore();
+  });
+
+  it("sends one import for two clicks in the same turn (fix 9)", async () => {
+    mocks.handler = quietSite({ "pygmalion/character": { character: { personality: { persona: "Once." } } } });
+    await openBrowser();
+    await pickProvider("ChubAI", "Pygmalion");
+    await click(tiles()[0]);
+    await settle();
+    const importButton = getByRole("button", "Import");
+    await act(async () => {
+      importButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      importButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+    expect(mocks.importBodies).toHaveLength(1);
+  });
+
+  it("imports the character that's open, never an earlier one's late detail (decision 1)", async () => {
+    let answerFirst: (value: unknown) => void = () => {};
+    mocks.handler = quietSite({
+      "pygmalion/search": {
+        characters: [
+          { id: "p1", displayName: "First" },
+          { id: "p2", displayName: "Second" },
+        ],
+      },
+      "pygmalion/character": (request: SentRequest) =>
+        localOf(request).endsWith("id=p1")
+          ? new Promise((resolve) => {
+              answerFirst = resolve;
+            })
+          : { character: { personality: { persona: "Second's persona." } } },
+    });
+    await openBrowser();
+    await pickProvider("ChubAI", "Pygmalion");
+    await click(tiles()[0]);
+    await click(getByRole("button", "Back to results"));
+    await click(tiles()[1]);
+    await settle();
+    await click(getByRole("button", "Import"));
+    answerFirst({ character: { personality: { persona: "First's persona." } } });
+    await settle();
+    expect(mocks.importBodies).toHaveLength(1);
+    expect(mocks.importBodies[0]).toMatchObject({
+      name: "Second",
+      description: "Second's persona.",
+      _botBrowserSource: "pygmalion:p2",
+    });
+    expect(JSON.stringify(mocks.importBodies[0])).not.toContain("First");
+  });
+
+  it("hides the last search's notices while the next one loads (fix 10)", async () => {
+    let answerRecent: ((value: unknown) => void) | null = null;
+    mocks.handler = quietSite({
+      "datacat/recent": () =>
+        answerRecent === null
+          ? { characters: [{ id: "d1", name: "Moth" }] }
+          : new Promise((resolve) => {
+              answerRecent = resolve;
+            }),
+    });
+    await openBrowser();
+    await click(getByRole("button", "ChubAI"));
+    await click(getByRole("menuitemradio", "DataCat"));
+    const continueButton = queryByRole("button", "Continue to DataCat");
+    if (continueButton) await click(continueButton);
+    await settle();
+    await click(getByRole("button", /^Tags/));
+    const box = byPlaceholder("Search tags");
+    await changeValue(box, "zzqx");
+    await pressKey(box, "Enter");
+    await settle();
+    expect(getByRole("note").textContent).toContain("Some tags weren't applied: zzqx.");
+
+    answerRecent = () => {};
+    await click(getByRole("button", "Refresh"));
+    await settle();
+    expect(getByRole("status").textContent).toContain("Searching...");
+    expect(queryByRole("note")).toBeNull();
   });
 });

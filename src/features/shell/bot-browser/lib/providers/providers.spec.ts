@@ -498,3 +498,53 @@ describe("DataCat", () => {
     expect(await datacatProvider.fetchDetail({ ...card, id: "" })).toBeNull();
   });
 });
+
+describe("spec-writer rulings and odd replies", () => {
+  it("uses a DataCat download that answered with data, even when nothing in it is usable (ruling A)", async () => {
+    const card = { id: "d1", raw: {} } as BrowserCard;
+    api.replies.set("datacat/download/", { data: { description: "", alternate_greetings: [] } });
+    api.replies.set("datacat/character/", { character: { personality: "Should not be read." } });
+    expect(await datacatProvider.fetchDetail(card)).toBeNull();
+    expect(api.calls).toEqual(["datacat/download/d1"]);
+  });
+
+  it("keeps numeric ids as text in cards, links and detail paths (ruling C)", async () => {
+    api.replies.set("janny/search", { results: [{ hits: [{ id: 42, name: "Num" }] }] });
+    const [janny] = (await jannyProvider.search(criteria({ sort: "newest" }))).cards;
+    expect([janny.id, janny.link]).toEqual(["42", "https://jannyai.com/characters/42_character-num"]);
+    api.replies.set("janny/character/", { character: { personality: "p" } });
+    await jannyProvider.fetchDetail(janny);
+    expect(api.calls.at(-1)).toBe("janny/character/42?slug=character-num");
+
+    api.replies.set("pygmalion/search", { characters: [{ id: 7 }] });
+    const [pyg] = (await pygmalionProvider.search(criteria({ sort: "downloads" }))).cards;
+    expect([pyg.id, pyg.link]).toEqual(["7", "https://pygmalion.chat/character/7"]);
+
+    api.replies.set("wyvern/search", { results: [{ id: 0 }] });
+    expect((await wyvernProvider.search(criteria({ sort: "popular" }))).cards[0].id).toBe("0");
+
+    api.replies.set("datacat/tags", []);
+    api.replies.set("datacat/recent", { characters: [{ id: 99, name: "Moth" }] });
+    const [datacat] = (await datacatProvider.search(criteria({ sort: "relevance" }))).cards;
+    expect([datacat.id, datacat.link]).toEqual(["99", "https://datacat.run/characters/99"]);
+
+    api.replies.set("pygmalion/search", { characters: [{ id: null }, { id: "" }] });
+    expect((await pygmalionProvider.search(criteria())).cards.map((card) => card.id)).toEqual(["", ""]);
+  });
+
+  it("counts the site's hits for the page before tag checks on this side (ruling D)", async () => {
+    api.replies.set("wyvern/search", { results: [{ id: "w1", tags: ["Horror"] }], total: 100 });
+    const page = await wyvernProvider.search(criteria({ sort: "popular", excludeTags: ["horror"] }));
+    expect([page.cards.length, page.pageHits]).toEqual([0, 1]);
+  });
+
+  it("doesn't fail DataCat Fresh over an odd unavailableWindows, and matches thisWeek exactly (fix 1)", async () => {
+    api.replies.set("datacat/tags", []);
+    for (const unavailableWindows of [{ thisWeek: true }, 3, "thisWeek", ["thisWeekend"], null]) {
+      api.replies.set("datacat/fresh", { last24h: [{ id: "f1" }], fallback: { partial: true, unavailableWindows } });
+      const page = await datacatProvider.search(criteria({ sort: "fresh" }));
+      expect(page.notices, JSON.stringify(unavailableWindows)).toEqual([]);
+      expect(page.cards).toHaveLength(1);
+    }
+  });
+});

@@ -328,3 +328,139 @@ describe("built imports", () => {
     ).rejects.toThrow("Import failed");
   });
 });
+
+describe("review fixes", () => {
+  it("fetches the detail now whenever none is held, and ignores a failed fetch (ruling B)", async () => {
+    mocks.replies.set("chub/download/", siteCardPng(SITE_CARD));
+    mocks.replies.set("chub/character/", { data: { node: { definition: { scenario: "Fetched now." } } } });
+    await importBrowserCharacter({ provider: chubProvider, card: card(), openDetail: null, tagImportMode: "all" });
+    expect(mocks.calls).toEqual(["chub/download/maker/lantern", "chub/character/maker/lantern"]);
+    expect(mocks.importBodies[0]).toMatchObject({ data: { scenario: "Fetched now." } });
+
+    mocks.calls.length = 0;
+    mocks.replies.set("wyvern/character/", new Error("Upstream returned 500"));
+    await importBrowserCharacter({
+      provider: wyvernProvider,
+      card: card({ id: "w1" }),
+      openDetail: null,
+      tagImportMode: "all",
+    });
+    expect(mocks.calls).toEqual(["wyvern/character/w1"]);
+    expect(mocks.importBodies[1]).toMatchObject({
+      name: "Lantern Keeper",
+      description: "",
+      _botBrowserSource: "wyvern:w1",
+    });
+
+    mocks.calls.length = 0;
+    mocks.replies.set("chartavern/download/", siteCardPng({ name: "Flat" }));
+    await importBrowserCharacter({
+      provider: chartavernProvider,
+      card: card({ id: "maker/host" }),
+      openDetail: null,
+      tagImportMode: "all",
+    });
+    expect(mocks.calls).toEqual(["chartavern/download/maker/host"]);
+  });
+
+  it("keeps a numeric id in the source and provider markers (ruling C)", async () => {
+    mocks.replies.set("pygmalion/search", { characters: [{ id: 7, displayName: "Seven" }] });
+    const [seven] = (
+      await pygmalionProvider.search({
+        search: "",
+        sort: "downloads",
+        page: 1,
+        nsfw: false,
+        ascending: false,
+        minTokens: "",
+        maxTokens: "",
+        filters: {},
+        includeTags: [],
+        excludeTags: [],
+      })
+    ).cards;
+    await importBrowserCharacter({
+      provider: pygmalionProvider,
+      card: seven,
+      openDetail: { description: "d" },
+      tagImportMode: "all",
+    });
+    expect(mocks.importBodies[0]).toMatchObject({
+      _botBrowserSource: "pygmalion:7",
+      extensions: { pygmalion: { id: "7" } },
+    });
+  });
+
+  it("says why a card download or its file failed (fix 2)", async () => {
+    mocks.replies.set("chub/download/", new Error("Upstream returned 404 Not Found"));
+    await expect(
+      importBrowserCharacter({ provider: chubProvider, card: card(), openDetail: null, tagImportMode: "all" }),
+    ).rejects.toMatchObject({
+      message: "Couldn't download the character card: Upstream returned 404 Not Found",
+      code: "user_facing",
+    });
+
+    mocks.replies.set("chub/download/", { base64: TINY_PNG_BASE64, mimeType: "image/png" });
+    await expect(
+      importBrowserCharacter({ provider: chubProvider, card: card(), openDetail: null, tagImportMode: "all" }),
+    ).rejects.toMatchObject({ message: "The downloaded file isn't a character card.", code: "user_facing" });
+    expect(mocks.importBodies).toEqual([]);
+  });
+
+  it("refuses a card whose JSON isn't an object (fix 7)", async () => {
+    for (const json of ["just text", ["a", "b"]]) {
+      mocks.replies.set("chub/download/", siteCardPng(json));
+      await expect(
+        importBrowserCharacter({
+          provider: chubProvider,
+          card: card(),
+          openDetail: { description: "d" },
+          tagImportMode: "all",
+        }),
+      ).rejects.toThrow("The downloaded file isn't a character card.");
+    }
+    expect(mocks.importBodies).toEqual([]);
+  });
+
+  it("never sends an empty or non-image picture (fix 3)", async () => {
+    const cases: Array<[unknown, string]> = [
+      [{ base64: "", mimeType: "image/png" }, "Imported without its picture: the picture came back empty"],
+      [
+        { base64: btoa("<html>nope</html>"), mimeType: "image/jpeg" },
+        "Imported without its picture: the picture isn't an image",
+      ],
+    ];
+    for (const [reply, warning] of cases) {
+      mocks.importBodies.length = 0;
+      mocks.replies.set("janny/avatar/", reply);
+      const outcome = await importBrowserCharacter({
+        provider: jannyProvider,
+        card: card({ id: "j1", picture: "tauri-api:/bot-browser/janny/avatar/j1.webp" }),
+        openDetail: { description: "d" },
+        tagImportMode: "all",
+      });
+      expect(mocks.importBodies[0]).not.toHaveProperty("_avatarDataUrl");
+      expect(outcome.warnings).toEqual([warning]);
+    }
+
+    const riff = new Uint8Array([
+      ...new TextEncoder().encode("RIFF"),
+      0,
+      0,
+      0,
+      0,
+      ...new TextEncoder().encode("WEBPVP8 "),
+    ]);
+    let binary = "";
+    for (const byte of riff) binary += String.fromCharCode(byte);
+    mocks.importBodies.length = 0;
+    mocks.replies.set("janny/avatar/", { base64: btoa(binary), mimeType: "application/octet-stream" });
+    await importBrowserCharacter({
+      provider: jannyProvider,
+      card: card({ id: "j1", picture: "tauri-api:/bot-browser/janny/avatar/j1.webp" }),
+      openDetail: { description: "d" },
+      tagImportMode: "all",
+    });
+    expect(mocks.importBodies[0]._avatarDataUrl).toMatch(/^data:image\/webp;base64,/);
+  });
+});
