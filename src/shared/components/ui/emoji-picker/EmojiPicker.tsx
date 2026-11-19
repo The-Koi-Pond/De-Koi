@@ -50,16 +50,25 @@ interface EmojiPanelProps extends Omit<EmojiPickerProps, "open"> {
 /** Mounted only while open, so every opening starts with an empty search (decision 5). */
 function EmojiPanel({ onClose, onSelect, anchorRef, containerRef, activeIndex, onActiveIndexChange }: EmojiPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
+  const needle = normalizeQuery(query);
   const [position, setPosition] = useState<CSSProperties>({ bottom: 0, left: 0 });
 
   useLayoutEffect(() => {
     setPosition(measurePosition(anchorRef?.current ?? null, containerRef?.current ?? null));
   }, [anchorRef, containerRef]);
 
+  // A new tab or a new search starts the grid at the top.
+  useLayoutEffect(() => {
+    if (scrollerRef.current) scrollerRef.current.scrollTop = 0;
+  }, [activeIndex, needle]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      // Escape while an input method is composing belongs to the composition, not the picker.
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      onClose();
     };
     // Any press outside the panel and the anchor closes it, with or without an anchor (decision 7).
     const onMouseDown = (event: MouseEvent) => {
@@ -76,9 +85,7 @@ function EmojiPanel({ onClose, onSelect, anchorRef, containerRef, activeIndex, o
     };
   }, [onClose, anchorRef]);
 
-  const searching = normalizeQuery(query) !== "";
-  const active = EMOJI_CATEGORIES[activeIndex];
-  const sections: EmojiSection[] = searching ? searchEmojis(query) : [active];
+  const sections: EmojiSection[] = needle ? searchEmojis(needle) : [EMOJI_CATEGORIES[activeIndex]];
 
   return (
     <div
@@ -123,7 +130,7 @@ function EmojiPanel({ onClose, onSelect, anchorRef, containerRef, activeIndex, o
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2 py-2">
+      <div ref={scrollerRef} className="flex-1 overflow-y-auto px-2 py-2">
         {sections.length === 0 ? (
           <p className="py-8 text-center text-xs text-[var(--muted-foreground)]">No emojis found</p>
         ) : (

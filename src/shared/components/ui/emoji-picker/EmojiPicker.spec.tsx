@@ -94,6 +94,17 @@ function press(element: Element) {
   });
 }
 
+/** The scrolling grid: the panel's last child. */
+function scroller(): HTMLElement {
+  return panel()!.lastElementChild as HTMLElement;
+}
+
+function keyDown(init: KeyboardEventInit) {
+  act(() => {
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init }));
+  });
+}
+
 function emojiButton(emoji: string): HTMLButtonElement {
   return [...panel()!.querySelectorAll<HTMLButtonElement>("section button")].find(
     (button) => button.textContent === emoji,
@@ -233,6 +244,15 @@ describe("EmojiPicker", () => {
       expect(onClose).toHaveBeenCalledTimes(1);
     });
 
+    it("ignores Escape while an input method is composing", () => {
+      render();
+      keyDown({ key: "Escape", isComposing: true });
+      keyDown({ key: "Escape", keyCode: 229 });
+      expect(onClose).not.toHaveBeenCalled();
+      keyDown({ key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
     it("closes on a press outside, but not on a press inside the panel or on the anchor", () => {
       const anchor = elementAt(null);
       const outside = elementAt(null);
@@ -253,6 +273,31 @@ describe("EmojiPicker", () => {
         document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       });
       expect(onClose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("grid scroll", () => {
+    it("starts at the top after a tab click", () => {
+      render();
+      click(tab("Symbols"));
+      const grid = scroller();
+      grid.scrollTop = 500;
+      click(tab("Food"));
+      expect(scroller()).toBe(grid);
+      expect(grid.scrollTop).toBe(0);
+    });
+
+    it("starts at the top when the search changes, and keeps its place for padding-only edits", () => {
+      render();
+      const grid = scroller();
+      grid.scrollTop = 300;
+      type("face");
+      expect(grid.scrollTop).toBe(0);
+      grid.scrollTop = 200;
+      type("face ");
+      expect(grid.scrollTop).toBe(200);
+      type("");
+      expect(grid.scrollTop).toBe(0);
     });
   });
 

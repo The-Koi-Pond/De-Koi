@@ -100,4 +100,11 @@ describe("emoji search", () => {
     expect(searchEmojis("   ")).toEqual([]);
     expect(searchEmojis("xyzzy")).toEqual([]);
   });
+
+  it("matches inside one keyword phrase, never across the commas between phrases", () => {
+    expect(searchEmojis(",")).toEqual([]);
+    expect(searchEmojis("e, ")).toEqual([]);
+    expect(searchEmojis("face, happy")).toEqual([]);
+    expect(searchEmojis("heart eyes").flatMap((section) => section.emojis)).toEqual(["😍", "😻"]);
+  });
 });
