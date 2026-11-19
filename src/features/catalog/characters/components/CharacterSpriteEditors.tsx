@@ -1,6 +1,4 @@
-import type { SpriteInfo } from "../../sprites/index";
-import { SpriteFrameEditor } from "../../../../shared/components/ui/SpriteFrameEditor";
-import { SpriteWandCleanupEditor } from "../../../../shared/components/ui/sprite-wand-cleanup/SpriteWandCleanupEditor";
+import { SpriteCleanupEditor, SpriteFrameEditor, type SpriteInfo } from "../../sprites/index";
 
 export function CharacterSpriteEditors({
   framingSprite,
@@ -18,9 +16,9 @@ export function CharacterSpriteEditors({
   wandCleanupSprite: SpriteInfo | null;
   savingWandCleanup: boolean;
   displayExpression: (stored: string) => string;
-  onApplyFrame: (croppedDataUrl: string) => void;
+  onApplyFrame: (croppedDataUrl: string) => void | Promise<void>;
   onCloseFrame: () => void;
-  onApplyWandCleanup: (cleanedDataUrl: string) => void;
+  onApplyWandCleanup: (cleanedDataUrl: string) => void | Promise<void>;
   onCloseWandCleanup: () => void;
 }) {
   return (
@@ -36,7 +34,7 @@ export function CharacterSpriteEditors({
       )}
 
       {wandCleanupSprite && (
-        <SpriteWandCleanupEditor
+        <SpriteCleanupEditor
           imageUrl={wandCleanupSprite.url}
           label={displayExpression(wandCleanupSprite.expression)}
           applying={savingWandCleanup}

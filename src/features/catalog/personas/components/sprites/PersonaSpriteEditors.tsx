@@ -1,6 +1,4 @@
-import { SpriteFrameEditor } from "../../../../../shared/components/ui/SpriteFrameEditor";
-import { SpriteWandCleanupEditor } from "../../../../../shared/components/ui/sprite-wand-cleanup/SpriteWandCleanupEditor";
-import type { SpriteInfo } from "../../../sprites/index";
+import { SpriteCleanupEditor, SpriteFrameEditor, type SpriteInfo } from "../../../sprites/index";
 
 interface PersonaSpriteEditorsProps {
   framingSprite: SpriteInfo | null;
@@ -8,9 +6,9 @@ interface PersonaSpriteEditorsProps {
   wandCleanupSprite: SpriteInfo | null;
   savingWandCleanup: boolean;
   displayExpression: (expression: string) => string;
-  onApplySpriteFrame: (croppedDataUrl: string) => void;
+  onApplySpriteFrame: (croppedDataUrl: string) => void | Promise<void>;
   onCloseFrame: () => void;
-  onApplyWandCleanup: (cleanedDataUrl: string) => void;
+  onApplyWandCleanup: (cleanedDataUrl: string) => void | Promise<void>;
   onCloseWandCleanup: () => void;
 }
 
@@ -38,7 +36,7 @@ export function PersonaSpriteEditors({
       )}
 
       {wandCleanupSprite && (
-        <SpriteWandCleanupEditor
+        <SpriteCleanupEditor
           imageUrl={wandCleanupSprite.url}
           label={displayExpression(wandCleanupSprite.expression)}
           applying={savingWandCleanup}
