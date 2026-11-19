@@ -15,6 +15,8 @@ interface PersonaSpriteUploadPanelProps {
   savedCleanupStrength: number;
   folderProgress: { done: number; total: number } | null;
   lastCleanupRestorePointId: string | null;
+  /** The sprite an editor save's restore point undoes; null when the restore point is a cleanup's. */
+  lastEditedSprite: string | null;
   restoringCleanup: boolean;
   spriteGenerationUnavailable: boolean;
   spriteGenerationReason: string;
@@ -47,6 +49,7 @@ export function PersonaSpriteUploadPanel({
   savedCleanupStrength,
   folderProgress,
   lastCleanupRestorePointId,
+  lastEditedSprite,
   restoringCleanup,
   spriteGenerationUnavailable,
   spriteGenerationReason,
@@ -188,7 +191,11 @@ export function PersonaSpriteUploadPanel({
       )}
       {lastCleanupRestorePointId && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs text-[var(--muted-foreground)]">
-          <span>Last cleanup has a restore point.</span>
+          <span>
+            {lastEditedSprite
+              ? `Your edit to ${lastEditedSprite} has a restore point.`
+              : "Last cleanup has a restore point."}
+          </span>
           <button
             type="button"
             onClick={onRestoreLastCleanup}
@@ -196,7 +203,7 @@ export function PersonaSpriteUploadPanel({
             className="flex items-center gap-1.5 rounded-md bg-[var(--card)] px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
           >
             {restoringCleanup ? <Loader2 size="0.75rem" className="animate-spin" /> : <RotateCcw size="0.75rem" />}
-            Undo Cleanup
+            {lastEditedSprite ? "Undo Edit" : "Undo Cleanup"}
           </button>
         </div>
       )}

@@ -13,6 +13,11 @@ export interface SpriteInfo {
   url: string;
 }
 
+/** A single sprite save. `restorePointId` is set when the save asked to keep the replaced file. */
+export interface SpriteUploadResult extends SpriteInfo {
+  restorePointId?: string;
+}
+
 export interface SpriteUploadItem {
   expression: string;
   image: string;
@@ -38,6 +43,8 @@ export interface SpriteCleanupResult {
 export interface SpriteCleanupRestoreResult {
   restored: number;
   failed: Array<{ expression: string; error: string }>;
+  /** Sprites saved, edited or deleted after the restore point; nothing was restored until the call confirms. */
+  changedSince?: string[];
   sprites: SpriteInfo[];
   error?: string;
 }
@@ -98,13 +105,16 @@ export function usePersonaSprites(spriteOwnerId: string | null) {
 export function useUploadSprite() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (variables: SpriteOwnerVariables & { expression: string; image: string }) => {
+    mutationFn: (
+      variables: SpriteOwnerVariables & { expression: string; image: string; keepRestorePoint?: boolean },
+    ) => {
       const owner = getSpriteOwner(variables);
-      return spriteApi.upload<SpriteInfo>(
+      return spriteApi.upload<SpriteUploadResult>(
         owner.id,
         {
           expression: variables.expression,
           image: variables.image,
+          ...(variables.keepRestorePoint ? { keepRestorePoint: true } : {}),
         },
         { ownerType: owner.type },
       );
@@ -192,12 +202,13 @@ export function useCleanupSavedSprites() {
 export function useRestoreSpriteCleanupPoint() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (variables: SpriteOwnerVariables & { restorePointId: string }) => {
+    mutationFn: (variables: SpriteOwnerVariables & { restorePointId: string; overwriteChanged?: boolean }) => {
       const owner = getSpriteOwner(variables);
       return spriteApi.cleanupRestore<SpriteCleanupRestoreResult>(
         owner.id,
         {
           restorePointId: variables.restorePointId,
+          ...(variables.overwriteChanged ? { overwriteChanged: true } : {}),
         },
         { ownerType: owner.type },
       );

@@ -46,6 +46,7 @@ export const CLEANUP_TEXT = {
   wandDefaults: "Wand settings reset",
   pickOn: "Click the sprite to pick a brush color",
   pickOff: "Brush color picker canceled",
+  pickSeeThrough: "That pixel is see-through. Pick a visible one.",
   loadFailed: "Sprite image could not be loaded. Try again.",
   saveFailed: "Couldn't save sprite cleanup. Try again.",
 } as const;

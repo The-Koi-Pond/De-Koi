@@ -344,8 +344,12 @@ test("scenario 8: Color strokes, picking a colour, and picking a see-through pix
   await expect(dialog.getByRole("button", { name: "Fit to view" })).toHaveText("156%");
   await dialog.getByRole("button", { name: "Pick" }).click();
   await press(page, dialog, A_WIDTH, { x: 3, y: 92 });
-  await expect(dialog.getByRole("status")).toHaveText("Brush color picked: rgba(0, 0, 0, 0)");
-  await expect(dialog.getByLabel("Brush color")).toHaveValue("#000000");
+  // Decision 11 (sprite-editors.md): Pick refuses a see-through pixel instead of taking its hidden black. Choosing
+  // black by hand (which also stops picking) keeps the stroke, and so the recorded upload, the same.
+  await expect(dialog.getByRole("status")).toHaveText("That pixel is see-through. Pick a visible one.");
+  await expect(dialog.getByLabel("Brush color")).toHaveValue("#5a5bae");
+  await dialog.getByLabel("Brush color").fill("#000000");
+  await expect(dialog.getByRole("button", { name: "Pick" })).toHaveAttribute("aria-pressed", "false");
   await stroke(page, dialog, A_WIDTH, [
     { x: 60, y: 20 },
     { x: 70, y: 30 },

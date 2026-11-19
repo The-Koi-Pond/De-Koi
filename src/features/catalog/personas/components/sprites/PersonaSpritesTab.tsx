@@ -11,6 +11,7 @@ import {
   spriteKeys,
   SpriteGenerationDialog,
   type SpriteInfo,
+  restoreSpritePointAskingFirst,
   useCleanupSavedSprites,
   useDeleteSprite,
   useExportSpritesArchive,
@@ -64,6 +65,8 @@ export function PersonaSpritesTab({
   const [savedCleanupStrength, setSavedCleanupStrength] = useState(35);
   const [restoringCleanup, setRestoringCleanup] = useState(false);
   const [lastCleanupRestorePointId, setLastCleanupRestorePointId] = useState<string | null>(null);
+  // Set when the restore point is an editor save's: the sprite it undoes. Null for a cleanup's.
+  const [lastEditedSprite, setLastEditedSprite] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [framingSprite, setFramingSprite] = useState<SpriteInfo | null>(null);
   const [savingFrame, setSavingFrame] = useState(false);
@@ -315,6 +318,7 @@ export function PersonaSpritesTab({
 
       if (result.processed > 0) {
         setLastCleanupRestorePointId(result.restorePointId ?? null);
+        setLastEditedSprite(null);
         toast.success(`Cleaned ${result.processed} saved sprite${result.processed === 1 ? "" : "s"} .`);
       }
       if (result.failed.length > 0) {
@@ -333,15 +337,19 @@ export function PersonaSpritesTab({
     if (!lastCleanupRestorePointId) return;
     setRestoringCleanup(true);
     try {
-      const result = await restoreSpriteCleanupPoint.mutateAsync({
-        spriteOwnerId: personaId,
-        ownerType: "persona",
-        restorePointId: lastCleanupRestorePointId,
-      });
+      const result = await restoreSpritePointAskingFirst(
+        (overwriteChanged) =>
+          restoreSpriteCleanupPoint.mutateAsync({
+            spriteOwnerId: personaId,
+            ownerType: "persona",
+            restorePointId: lastCleanupRestorePointId,
+            overwriteChanged,
+          }),
+        displayExpression,
+      );
+      if (!result) return;
       if (result.restored > 0) {
-        toast.success(
-          `Restored ${result.restored} sprite${result.restored === 1 ? "" : "s"} from the cleanup restore point.`,
-        );
+        toast.success(`Restored ${result.restored} sprite${result.restored === 1 ? "" : "s"} from the restore point.`);
       }
       if (result.failed.length > 0) {
         toast.warning(
@@ -351,11 +359,21 @@ export function PersonaSpritesTab({
         setLastCleanupRestorePointId(null);
       }
     } catch (err) {
-      toast.error(getErrorMessage(err, "Couldn't restore sprite cleanup point. Try again."));
+      toast.error(getErrorMessage(err, "Couldn't restore the sprites. Try again."));
     } finally {
       setRestoringCleanup(false);
     }
-  }, [lastCleanupRestorePointId, personaId, restoreSpriteCleanupPoint]);
+  }, [displayExpression, lastCleanupRestorePointId, personaId, restoreSpriteCleanupPoint]);
+
+  // An editor save's restore point replaces the older offer: undoing a cleanup after it would overwrite the edit.
+  const rememberEditRestorePoint = useCallback(
+    (restorePointId: string | undefined, expression: string) => {
+      if (!restorePointId) return;
+      setLastCleanupRestorePointId(restorePointId);
+      setLastEditedSprite(displayExpression(expression));
+    },
+    [displayExpression],
+  );
 
   const handleApplySpriteFrame = useCallback(
     async (croppedDataUrl: string) => {
@@ -363,12 +381,14 @@ export function PersonaSpritesTab({
 
       setSavingFrame(true);
       try {
-        await uploadSprite.mutateAsync({
+        const saved = await uploadSprite.mutateAsync({
           spriteOwnerId: personaId,
           ownerType: "persona",
           expression: framingSprite.expression,
           image: croppedDataUrl,
+          keepRestorePoint: true,
         });
+        rememberEditRestorePoint(saved.restorePointId, framingSprite.expression);
         toast.success(`Framed ${displayExpression(framingSprite.expression)} sprite.`);
         setFramingSprite(null);
       } catch (error) {
@@ -377,7 +397,7 @@ export function PersonaSpritesTab({
         setSavingFrame(false);
       }
     },
-    [displayExpression, framingSprite, personaId, uploadSprite],
+    [displayExpression, framingSprite, personaId, rememberEditRestorePoint, uploadSprite],
   );
 
   const handleApplyWandCleanup = useCallback(
@@ -386,12 +406,14 @@ export function PersonaSpritesTab({
 
       setSavingWandCleanup(true);
       try {
-        await uploadSprite.mutateAsync({
+        const saved = await uploadSprite.mutateAsync({
           spriteOwnerId: personaId,
           ownerType: "persona",
           expression: wandCleanupSprite.expression,
           image: cleanedDataUrl,
+          keepRestorePoint: true,
         });
+        rememberEditRestorePoint(saved.restorePointId, wandCleanupSprite.expression);
         toast.success(`Cleaned ${displayExpression(wandCleanupSprite.expression)} sprite.`);
         setWandCleanupSprite(null);
       } catch (error) {
@@ -400,7 +422,7 @@ export function PersonaSpritesTab({
         setSavingWandCleanup(false);
       }
     },
-    [displayExpression, personaId, uploadSprite, wandCleanupSprite],
+    [displayExpression, personaId, rememberEditRestorePoint, uploadSprite, wandCleanupSprite],
   );
 
   return (
@@ -464,6 +486,7 @@ export function PersonaSpritesTab({
         savedCleanupStrength={savedCleanupStrength}
         folderProgress={folderProgress}
         lastCleanupRestorePointId={lastCleanupRestorePointId}
+        lastEditedSprite={lastEditedSprite}
         restoringCleanup={restoringCleanup}
         spriteGenerationUnavailable={spriteGenerationUnavailable}
         spriteGenerationReason={spriteGenerationReason}

@@ -9,6 +9,7 @@ use crate::storage_commands::media_uploads::{
 };
 
 use image::{DynamicImage, GenericImageView, ImageFormat, ImageReader, Limits, Rgba, RgbaImage};
+use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::env;
 use std::io::Cursor;
@@ -502,10 +503,102 @@ pub(crate) fn upload_sprite(
         .ok_or_else(|| AppError::invalid_input("No image data provided"))?;
     let (bytes, ext) = decode_image_value(image)?;
     fs::create_dir_all(&dir)?;
-    let path = dir.join(format!("{expression}.{ext}"));
-    write_managed_file_atomically(&path, &bytes)?;
-    remove_replaced_sprite_files(&dir, raw_expression, &expression, &[path.as_path()])?;
-    sprite_info_from_path(&path, owner_kind, character_id)
+    let output_filename = format!("{expression}.{ext}");
+    let path = dir.join(&output_filename);
+    // The saved-sprite editors ask for a restore point, so an edit can be undone like a cleanup.
+    let restore_point = if body.get("keepRestorePoint").and_then(Value::as_bool) == Some(true) {
+        stage_upload_restore_point(&dir, raw_expression, &expression, &output_filename)?
+    } else {
+        None
+    };
+    let saved = write_managed_file_atomically(&path, &bytes).and_then(|()| {
+        remove_replaced_sprite_files(&dir, raw_expression, &expression, &[path.as_path()])
+    });
+    if let Err(error) = saved {
+        if let Some((restore_point_dir, _, _)) = &restore_point {
+            let _ = fs::remove_dir_all(restore_point_dir);
+        }
+        return Err(error);
+    }
+    let mut info = sprite_info_from_path(&path, owner_kind, character_id)?;
+    if let Some((restore_point_dir, restore_point_id, entries)) = restore_point {
+        let entries = entries
+            .into_iter()
+            .map(|mut entry| {
+                entry["cleanedSha256"] = json!(sha256_hex(&bytes));
+                entry
+            })
+            .collect::<Vec<_>>();
+        write_restore_point_manifest(&restore_point_dir, &restore_point_id, entries)?;
+        prune_sprite_cleanup_restore_points(
+            &dir,
+            SPRITE_CLEANUP_RESTORE_POINT_LIMIT,
+            Some(restore_point_id.as_str()),
+        );
+        if let Some(object) = info.as_object_mut() {
+            object.insert("restorePointId".to_string(), json!(restore_point_id));
+        }
+    }
+    Ok(info)
+}
+
+/// Copies the files a save under `expression` will replace into a new restore point, in the same layout as a
+/// cleanup's, so `restore_sprite_cleanup_point` can put them back. None when nothing is replaced (a new sprite).
+fn stage_upload_restore_point(
+    dir: &Path,
+    raw_expression: &str,
+    expression: &str,
+    output_filename: &str,
+) -> AppResult<Option<(PathBuf, String, Vec<Value>)>> {
+    let raw_expression = raw_expression.trim();
+    let replaced = sprite_file_paths(dir)?
+        .into_iter()
+        .filter(|path| {
+            let stem = expression_from_path(path);
+            stem == expression || (!raw_expression.is_empty() && stem == raw_expression)
+        })
+        .collect::<Vec<_>>();
+    if replaced.is_empty() {
+        return Ok(None);
+    }
+    let restore_point_id = format!("{}-{}", now_millis(), new_id());
+    let restore_point_dir = sprite_cleanup_restore_points_dir(dir).join(&restore_point_id);
+    fs::create_dir_all(&restore_point_dir)?;
+    let mut entries = Vec::new();
+    for path in replaced {
+        let filename = file_name(&path)?;
+        if let Err(error) = fs::copy(&path, restore_point_dir.join(&filename)) {
+            let _ = fs::remove_dir_all(&restore_point_dir);
+            return Err(error.into());
+        }
+        entries.push(json!({
+            "expression": expression_from_path(&path),
+            "originalFilename": filename,
+            "cleanedFilename": output_filename,
+            "restorePointFilename": filename
+        }));
+    }
+    Ok(Some((restore_point_dir, restore_point_id, entries)))
+}
+
+fn write_restore_point_manifest(
+    restore_point_dir: &Path,
+    id: &str,
+    entries: Vec<Value>,
+) -> AppResult<()> {
+    let manifest_bytes = serde_json::to_vec_pretty(&json!({
+        "id": id,
+        "createdAt": now_iso(),
+        "entries": entries
+    }))?;
+    write_managed_file_atomically(&restore_point_dir.join("manifest.json"), &manifest_bytes)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// A saved sprite has one file. After a save under `expression`, remove the files it replaces: the same name with
@@ -725,7 +818,8 @@ pub(crate) fn clean_saved_sprites(
                     "expression": expression,
                     "originalFilename": filename,
                     "cleanedFilename": output_filename,
-                    "restorePointFilename": filename
+                    "restorePointFilename": filename,
+                    "cleanedSha256": sha256_hex(&cleaned.bytes)
                 }));
                 if cleaned.engine == "backgroundremover" {
                     background_remover_processed += 1;
@@ -740,12 +834,7 @@ pub(crate) fn clean_saved_sprites(
     if entries.is_empty() {
         let _ = fs::remove_dir_all(&restore_point_dir);
     } else {
-        let manifest_bytes = serde_json::to_vec_pretty(&json!({
-            "id": restore_point_id,
-            "createdAt": now_iso(),
-            "entries": entries
-        }))?;
-        write_managed_file_atomically(&restore_point_dir.join("manifest.json"), &manifest_bytes)?;
+        write_restore_point_manifest(&restore_point_dir, &restore_point_id, entries)?;
         prune_sprite_cleanup_restore_points(
             &dir,
             SPRITE_CLEANUP_RESTORE_POINT_LIMIT,
@@ -783,14 +872,27 @@ pub(crate) fn restore_sprite_cleanup_point(
         return Err(AppError::not_found("Cleanup restore point was not found"));
     }
     let manifest: Value = serde_json::from_slice(&fs::read(&manifest_path)?)?;
-    let mut restored = 0usize;
-    let mut failed = Vec::new();
-    for entry in manifest
+    let entries = manifest
         .get("entries")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default()
-    {
+        .unwrap_or_default();
+    // A sprite saved, edited or deleted after this restore point was made would be overwritten without a word, so
+    // report those sprites and restore nothing until the caller confirms with `overwriteChanged`.
+    if body.get("overwriteChanged").and_then(Value::as_bool) != Some(true) {
+        let changed = sprites_changed_since_restore_point(&dir, &entries);
+        if !changed.is_empty() {
+            return Ok(json!({
+                "restored": 0,
+                "failed": [],
+                "changedSince": changed,
+                "sprites": list_sprites_for_dir(&dir, owner_kind, character_id)?
+            }));
+        }
+    }
+    let mut restored = 0usize;
+    let mut failed = Vec::new();
+    for entry in entries {
         let expression = entry
             .get("expression")
             .and_then(Value::as_str)
@@ -839,9 +941,42 @@ pub(crate) fn restore_sprite_cleanup_point(
             "No saved sprites were restored",
         ));
     }
-    Ok(
-        json!({ "restored": restored, "failed": failed, "sprites": list_sprites_for_dir(&dir, owner_kind, character_id)? }),
-    )
+    Ok(json!({
+        "restored": restored,
+        "failed": failed,
+        "changedSince": [],
+        "sprites": list_sprites_for_dir(&dir, owner_kind, character_id)?
+    }))
+}
+
+/// The expressions whose saved file no longer matches what the restore point recorded writing: changed by a later
+/// save or deleted. Entries from restore points made before the hash was recorded are not checked.
+fn sprites_changed_since_restore_point(dir: &Path, entries: &[Value]) -> Vec<String> {
+    let mut changed = Vec::new();
+    for entry in entries {
+        let (Some(expected), Some(cleaned_filename)) = (
+            entry.get("cleanedSha256").and_then(Value::as_str),
+            entry.get("cleanedFilename").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        if validate_safe_segment(cleaned_filename, "restore point filename").is_err() {
+            continue;
+        }
+        let current = fs::read(dir.join(cleaned_filename)).map(|bytes| sha256_hex(&bytes));
+        if current.as_deref().ok() == Some(expected) {
+            continue;
+        }
+        let expression = entry
+            .get("expression")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if !changed.contains(&expression) {
+            changed.push(expression);
+        }
+    }
+    changed
 }
 
 pub(crate) fn delete_sprite(
@@ -4540,6 +4675,148 @@ mod sprite_upload_tests {
         assert!(namespace_dir.exists());
         assert!(namespace_dir.join("personas").exists());
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn editor_save(
+        state: &AppState,
+        expression: &str,
+        image: &str,
+        keep_restore_point: bool,
+    ) -> Value {
+        upload_sprite(
+            state,
+            "character-1",
+            json!({ "expression": expression, "image": image, "keepRestorePoint": keep_restore_point }),
+            None,
+        )
+        .expect("upload should succeed")
+    }
+
+    fn restore(state: &AppState, restore_point_id: &str, overwrite_changed: bool) -> Value {
+        restore_sprite_cleanup_point(
+            state,
+            "character-1",
+            json!({ "restorePointId": restore_point_id, "overwriteChanged": overwrite_changed }),
+            None,
+        )
+        .expect("restore should succeed")
+    }
+
+    #[test]
+    fn an_editor_save_keeps_a_restore_point_that_undoes_it() {
+        let (state, root) = test_state("editor-restore-point");
+        let dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&dir).expect("sprite dir");
+        fs::write(dir.join("sad.jpg"), b"old jpeg").expect("old jpg");
+
+        let saved = editor_save(
+            &state,
+            "sad",
+            &format!("data:image/png;base64,{TINY_PNG}"),
+            true,
+        );
+        let restore_point_id = saved
+            .get("restorePointId")
+            .and_then(Value::as_str)
+            .expect("an editor save over a sprite keeps a restore point")
+            .to_string();
+        assert_eq!(sprite_dir_names(&state, "character-1"), ["sad.png"]);
+
+        let result = restore(&state, &restore_point_id, false);
+
+        assert_eq!(result.get("restored").and_then(Value::as_u64), Some(1));
+        assert_eq!(sprite_dir_names(&state, "character-1"), ["sad.jpg"]);
+        assert_eq!(
+            fs::read(dir.join("sad.jpg")).expect("restored jpg"),
+            b"old jpeg"
+        );
+        assert!(!sprite_cleanup_restore_points_dir(&dir)
+            .join(&restore_point_id)
+            .exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn plain_uploads_and_new_sprites_keep_no_restore_point() {
+        let (state, root) = test_state("no-restore-point");
+        let dir = state.data_dir.join("sprites").join("character-1");
+        let image = format!("data:image/png;base64,{TINY_PNG}");
+
+        let new_sprite = editor_save(&state, "happy", &image, true);
+        let replaced_without_asking = editor_save(&state, "happy", &image, false);
+
+        assert!(new_sprite.get("restorePointId").is_none());
+        assert!(replaced_without_asking.get("restorePointId").is_none());
+        assert!(!sprite_cleanup_restore_points_dir(&dir).exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn restoring_over_a_sprite_saved_since_asks_first() {
+        let (state, root) = test_state("changed-since");
+        let dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&dir).expect("sprite dir");
+        fs::write(dir.join("sad.jpg"), b"old jpeg").expect("old jpg");
+        let saved = editor_save(
+            &state,
+            "sad",
+            &format!("data:image/png;base64,{TINY_PNG}"),
+            true,
+        );
+        let restore_point_id = saved
+            .get("restorePointId")
+            .and_then(Value::as_str)
+            .expect("restore point")
+            .to_string();
+        // A later save of the same sprite, from anywhere (another editor save, a generation run, an upload).
+        editor_save(
+            &state,
+            "sad",
+            &format!("data:image/gif;base64,{TINY_GIF}"),
+            false,
+        );
+
+        let asked = restore(&state, &restore_point_id, false);
+
+        assert_eq!(asked.get("restored").and_then(Value::as_u64), Some(0));
+        assert_eq!(asked.get("changedSince"), Some(&json!(["sad"])));
+        assert_eq!(sprite_dir_names(&state, "character-1"), ["sad.gif"]);
+        assert!(sprite_cleanup_restore_points_dir(&dir)
+            .join(&restore_point_id)
+            .exists());
+
+        let confirmed = restore(&state, &restore_point_id, true);
+
+        assert_eq!(confirmed.get("restored").and_then(Value::as_u64), Some(1));
+        assert_eq!(confirmed.get("changedSince"), Some(&json!([])));
+        assert!(sprite_dir_names(&state, "character-1").contains(&"sad.jpg".to_string()));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn restoring_a_sprite_deleted_since_asks_first() {
+        let (state, root) = test_state("deleted-since");
+        let dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&dir).expect("sprite dir");
+        fs::write(dir.join("sad.png"), b"old png").expect("old png");
+        let saved = editor_save(
+            &state,
+            "sad",
+            &format!("data:image/png;base64,{TINY_PNG}"),
+            true,
+        );
+        let restore_point_id = saved
+            .get("restorePointId")
+            .and_then(Value::as_str)
+            .expect("restore point")
+            .to_string();
+        fs::remove_file(dir.join("sad.png")).expect("delete the edited sprite");
+
+        let asked = restore(&state, &restore_point_id, false);
+
+        assert_eq!(asked.get("changedSince"), Some(&json!(["sad"])));
+        assert!(sprite_dir_names(&state, "character-1").is_empty());
         let _ = fs::remove_dir_all(root);
     }
 }
