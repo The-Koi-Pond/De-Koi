@@ -502,12 +502,12 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
     if (slicing) return;
     setSlicing(true);
     try {
-      const recut = await recutSprites(sprites, sheets, slice);
-      const pictureById = new Map(recut.map((sprite) => [sprite.id, sprite.original]));
+      // The new picture becomes both the original and the shown one, so frames and cleanup are gone.
+      const pictures = await recutSprites(sprites, sheets, slice);
       setSprites((current) =>
         current.map((sprite) => {
-          const picture = pictureById.get(sprite.id);
-          return picture && picture !== sprite.original ? { ...sprite, original: picture, shown: picture } : sprite;
+          const picture = pictures.get(sprite.id);
+          return picture ? { ...sprite, original: picture, shown: picture } : sprite;
         }),
       );
       setCleanupApplied(false);
