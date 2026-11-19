@@ -800,11 +800,24 @@ pub(crate) fn delete_sprite(
     let normalized = normalize_sprite_expression(expression);
     let mut deleted = false;
     if dir.exists() {
-        for path in sprite_file_paths(&dir)? {
-            if expression_from_path(&path) == normalized {
-                fs::remove_file(path)?;
-                deleted = true;
-            }
+        let paths = sprite_file_paths(&dir)?;
+        // The tab sends the name as listed, which is the file's own name: a hand-placed `Very Happy.png` lists as
+        // `Very Happy`, which the name rule would turn into `very_happy` and never find. That exact name wins, so
+        // deleting it leaves a separate `very_happy.png` alone; otherwise the name rule's form is used.
+        let exact = expression.trim();
+        let matches_exact =
+            |path: &PathBuf| !exact.is_empty() && expression_from_path(path) == exact;
+        let targets: Vec<PathBuf> = if paths.iter().any(matches_exact) {
+            paths.into_iter().filter(matches_exact).collect()
+        } else {
+            paths
+                .into_iter()
+                .filter(|path| expression_from_path(path) == normalized)
+                .collect()
+        };
+        for path in targets {
+            fs::remove_file(path)?;
+            deleted = true;
         }
     }
     if !deleted && owner_kind == SpriteOwnerKind::Character {
@@ -4066,6 +4079,44 @@ mod sprite_upload_tests {
         let state = AppState::from_data_dir_with_resource_dir(data_dir, Vec::new(), None)
             .expect("test state should initialize");
         (state, root)
+    }
+
+    #[test]
+    fn deleting_a_hand_placed_name_removes_that_file_only() {
+        let (state, root) = test_state("delete-hand-placed");
+        let dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&dir).expect("sprite dir");
+        fs::write(dir.join("Very Happy.png"), b"hand placed").expect("hand-placed sprite");
+        fs::write(dir.join("very_happy.png"), b"other").expect("separate sprite");
+        fs::write(dir.join("sad.jpg"), b"other").expect("other sprite");
+
+        let result = delete_sprite(&state, "character-1", "Very Happy", None)
+            .expect("delete should succeed");
+
+        assert_eq!(result.get("deleted").and_then(Value::as_bool), Some(true));
+        assert!(!dir.join("Very Happy.png").exists());
+        assert!(dir.join("very_happy.png").exists());
+        assert!(dir.join("sad.jpg").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn deleting_by_the_rule_form_still_finds_every_format() {
+        let (state, root) = test_state("delete-rule-form");
+        let dir = state.data_dir.join("sprites").join("character-1");
+        fs::create_dir_all(&dir).expect("sprite dir");
+        fs::write(dir.join("happy.png"), b"png").expect("png");
+        fs::write(dir.join("happy.jpg"), b"jpg").expect("jpg");
+        fs::write(dir.join("happy_2.png"), b"other").expect("other sprite");
+
+        let result =
+            delete_sprite(&state, "character-1", " Happy ", None).expect("delete should succeed");
+
+        assert_eq!(result.get("deleted").and_then(Value::as_bool), Some(true));
+        assert!(!dir.join("happy.png").exists());
+        assert!(!dir.join("happy.jpg").exists());
+        assert!(dir.join("happy_2.png").exists());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
