@@ -58,8 +58,14 @@ export const SIDE_STEPS: ReadonlyArray<readonly [number, number]> = [
 ];
 export const ALL_STEPS: ReadonlyArray<readonly [number, number]> = [...SIDE_STEPS, [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
+/**
+ * 1/√2 as `1 / Math.SQRT2` (0.7071067811865475). `Math.SQRT1_2` is one bit larger, which moves a few recorded
+ * results by one.
+ */
+const CORNER_WEIGHT = 1 / Math.SQRT2;
+
 /** Weight of a 3×3 block cell for the smoothing passes: sides 1, corners 1/√2 (the centre is set by each caller). */
 export function blockWeight(dx: number, dy: number, centre: number): number {
   if (dx === 0 && dy === 0) return centre;
-  return dx === 0 || dy === 0 ? 1 : Math.SQRT1_2;
+  return dx === 0 || dy === 0 ? 1 : CORNER_WEIGHT;
 }

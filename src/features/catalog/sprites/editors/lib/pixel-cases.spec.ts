@@ -51,6 +51,10 @@ interface StrokeCase {
 
 const pictures = recorded.pictures as Record<string, RecordedPicture>;
 const cases = recorded.cases as Array<WandCase | StrokeCase>;
+/** Wand clicks on small random pictures, each carrying its own picture. */
+const randomWandCases = recorded.randomWandCases as unknown as Array<
+  Omit<WandCase, "picture" | "clickName"> & { trial: number; picture: RecordedPicture }
+>;
 
 function decode(picture: RecordedPicture): RgbaPicture {
   const data = new Uint8ClampedArray(inflateSync(Buffer.from(picture.rgba, "base64")));
@@ -130,5 +134,14 @@ describe("recorded pixel cases", () => {
     }
     expect(count).toBe(entry.count);
     expect(sha256(current)).toBe(entry.outputSha256);
+  });
+
+  it.each(randomWandCases.map((entry) => [`random trial ${entry.trial}`, entry] as const))("%s", (_name, entry) => {
+    const source = decode(entry.picture);
+    expect(sha256(source)).toBe(entry.picture.sha256);
+    const result = removeWandArea(source, entry.click[0], entry.click[1], entry.settings);
+    expect(result.removed).toBe(entry.removed);
+    expect([...result.target]).toEqual(entry.target);
+    expect(sha256(result.picture)).toBe(entry.outputSha256);
   });
 });
