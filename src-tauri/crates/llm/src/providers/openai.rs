@@ -1514,7 +1514,7 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
     }
     if request.connection.provider == "nanogpt" {
         normalize_nanogpt_glm_52_reasoning_effort(body, &request.connection.model);
-        normalize_nanogpt_no_reasoning_effort(body, &request.connection.model);
+        normalize_nanogpt_no_reasoning_effort(body, &request.connection.model, &request.parameters);
     }
     if request.connection.provider == "mistral" {
         if let Some(body) = body.as_object_mut() {
@@ -1570,11 +1570,18 @@ fn normalize_nanogpt_glm_52_reasoning_effort(body: &mut Value, model: &str) {
 }
 
 /// NanoGPT rejects reasoning_effort "none" for Claude and Gemini models with a
-/// 400 (seen for claude-opus-4.7, gemini-3.8-flash and gemini-4-argon). Claude
-/// does not think unless asked, so leaving the field out means the same thing.
-/// Gemini 3 and later cannot switch thinking off; "low" is the lowest level all
-/// of them accept. Older Gemini models are left as they were.
-fn normalize_nanogpt_no_reasoning_effort(body: &mut Value, model: &str) {
+/// 400 (seen for claude-opus-4.7, claude-haiku-5.5, gemini-3.8-flash and
+/// gemini-4-argon). Gemini 3 and later cannot switch thinking off; "low" is the
+/// lowest level all of them accept. Older Gemini models are left as they were.
+///
+/// Claude only thinks when asked, as on Anthropic's own API: an effort, a
+/// reasoning token budget, or "show thoughts". Through NanoGPT, Claude Haiku 5.5
+/// thinks on long prompts unless told not to, even with no reasoning field: a
+/// 19k-character memory capture capped at 900 tokens spent the whole cap
+/// thinking and stopped mid-answer. `reasoning: { enabled: false }` switches it
+/// off (checked on Haiku 4.5 and 5.5, Sonnet 4.6 and Opus 4.7), so Claude gets
+/// that whenever it wasn't asked to think or was asked for "none".
+fn normalize_nanogpt_no_reasoning_effort(body: &mut Value, model: &str, parameters: &Value) {
     let Some(object) = body.as_object_mut() else {
         return;
     };
@@ -1584,20 +1591,66 @@ fn normalize_nanogpt_no_reasoning_effort(body: &mut Value, model: &str) {
             .and_then(Value::as_str)
             .is_some_and(|effort| effort.eq_ignore_ascii_case("none"))
     });
-    if !asks_for_none {
+    if model.to_ascii_lowercase().contains("claude") {
+        if asks_for_none {
+            object.remove("reasoning_effort");
+            object.remove("reasoningEffort");
+        }
+        if !nanogpt_claude_asks_to_think(object, parameters) {
+            switch_nanogpt_thinking_off(object);
+        }
         return;
     }
-    let replacement = if model.to_ascii_lowercase().contains("claude") {
-        None
-    } else if gemini_major_version(model).is_some_and(|major| major >= 3) {
-        Some("low")
-    } else {
+    if !(asks_for_none && gemini_major_version(model).is_some_and(|major| major >= 3)) {
         return;
-    };
-    object.remove("reasoning_effort");
+    }
     object.remove("reasoningEffort");
-    if let Some(effort) = replacement {
-        object.insert("reasoning_effort".to_string(), json!(effort));
+    object.insert("reasoning_effort".to_string(), json!("low"));
+}
+
+fn nanogpt_claude_asks_to_think(
+    object: &serde_json::Map<String, Value>,
+    parameters: &Value,
+) -> bool {
+    let budget_set = param_i64(
+        parameters,
+        &[
+            "thinkingBudget",
+            "thinking_budget",
+            "reasoningMaxTokens",
+            "reasoning_max_tokens",
+        ],
+    )
+    .is_some_and(|budget| budget > 0);
+    let effort_set = ["reasoning_effort", "reasoningEffort"]
+        .iter()
+        .any(|key| object.get(*key).and_then(Value::as_str).is_some());
+    let reasoning = object.get("reasoning").and_then(Value::as_object);
+    let reasoning_asks = reasoning.is_some_and(|reasoning| {
+        reasoning
+            .get("effort")
+            .and_then(Value::as_str)
+            .is_some_and(|effort| !effort.eq_ignore_ascii_case("none"))
+            || reasoning
+                .get("max_tokens")
+                .and_then(Value::as_i64)
+                .is_some_and(|budget| budget > 0)
+            || reasoning.get("enabled").and_then(Value::as_bool) == Some(true)
+            // "Show thoughts" on: the reasoning is wanted.
+            || reasoning.get("exclude").and_then(Value::as_bool) == Some(false)
+    });
+    budget_set || effort_set || reasoning_asks
+}
+
+fn switch_nanogpt_thinking_off(object: &mut serde_json::Map<String, Value>) {
+    match object.get_mut("reasoning").and_then(Value::as_object_mut) {
+        Some(reasoning) => {
+            reasoning.remove("effort");
+            reasoning.insert("enabled".to_string(), json!(false));
+        }
+        None => {
+            object.insert("reasoning".to_string(), json!({ "enabled": false }));
+        }
     }
 }
 

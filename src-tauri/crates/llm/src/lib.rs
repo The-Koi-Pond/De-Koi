@@ -4175,18 +4175,102 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
-    fn nanogpt_claude_omits_unsupported_no_reasoning_effort() {
+    fn nanogpt_claude_switches_thinking_off_instead_of_no_reasoning_effort() {
+        for model in ["anthropic/claude-opus-4.7", "anthropic/claude-haiku-5.5"] {
+            let request = request_for("nanogpt", model, summary_style_no_reasoning_parameters());
+            let mut body = json!({});
+
+            apply_openai_parameters(&mut body, &request);
+
+            assert!(body.get("reasoning_effort").is_none(), "model {model}");
+            assert!(body.get("reasoningEffort").is_none(), "model {model}");
+            assert_eq!(
+                body["reasoning"],
+                json!({ "exclude": true, "enabled": false }),
+                "model {model}"
+            );
+        }
+    }
+
+    #[test]
+    fn nanogpt_claude_plain_no_reasoning_effort_switches_thinking_off() {
         let request = request_for(
             "nanogpt",
-            "anthropic/claude-opus-4.7",
-            summary_style_no_reasoning_parameters(),
+            "anthropic/claude-haiku-5.5",
+            json!({ "reasoningEffort": "none", "maxTokens": 900 }),
         );
         let mut body = json!({});
 
         apply_openai_parameters(&mut body, &request);
 
         assert!(body.get("reasoning_effort").is_none());
-        assert!(body.get("reasoningEffort").is_none());
+        assert_eq!(body["reasoning"], json!({ "enabled": false }));
+    }
+
+    #[test]
+    fn nanogpt_claude_switches_thinking_off_when_not_asked_to_think() {
+        // A background helper call sends only temperature and a token cap.
+        for parameters in [
+            json!({ "temperature": 0, "maxTokens": 900 }),
+            json!({ "showThoughts": false }),
+        ] {
+            let request = request_for("nanogpt", "anthropic/claude-haiku-5.5", parameters.clone());
+            let mut body = json!({});
+
+            apply_openai_parameters(&mut body, &request);
+
+            assert_eq!(
+                body["reasoning"]["enabled"],
+                json!(false),
+                "parameters {parameters}"
+            );
+            assert!(
+                body.get("reasoning_effort").is_none(),
+                "parameters {parameters}"
+            );
+        }
+    }
+
+    #[test]
+    fn nanogpt_claude_thinks_when_asked() {
+        for parameters in [
+            json!({ "reasoningEffort": "low" }),
+            json!({ "reasoningEffort": "high", "showThoughts": false }),
+            json!({ "showThoughts": true }),
+            json!({ "thinkingBudget": 2048 }),
+            json!({ "reasoning": { "effort": "medium" } }),
+        ] {
+            let request = request_for("nanogpt", "anthropic/claude-sonnet-4.6", parameters.clone());
+            let mut body = json!({});
+
+            apply_openai_parameters(&mut body, &request);
+
+            assert_ne!(
+                body["reasoning"]["enabled"],
+                json!(false),
+                "parameters {parameters}"
+            );
+        }
+    }
+
+    #[test]
+    fn nanogpt_non_claude_models_get_no_thinking_switch() {
+        for model in [
+            "google/gemini-4-argon",
+            "z-ai/glm-5.3-flash-uncensored",
+            "moonshotai/kimi-k2.5",
+        ] {
+            let request = request_for(
+                "nanogpt",
+                model,
+                json!({ "temperature": 0, "maxTokens": 900 }),
+            );
+            let mut body = json!({});
+
+            apply_openai_parameters(&mut body, &request);
+
+            assert!(body.get("reasoning").is_none(), "model {model}");
+        }
     }
 
     #[test]
