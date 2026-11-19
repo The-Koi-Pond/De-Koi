@@ -63,7 +63,9 @@ vi.mock("../../../catalog/chats", () => ({
     isPending: mocks.chatHistoryPending.current,
   }),
 }));
-vi.mock("../../../catalog/chat-presets", () => ({ useApplyUserStarredChatPreset: () => mocks.applyPreset }));
+vi.mock("../../../catalog/chat-presets", () => ({
+  applyUserStarredChatPreset: (_queryClient: unknown, input: unknown) => mocks.applyPreset(input),
+}));
 vi.mock("../../../../shared/api/remote-runtime", () => ({
   hasEmbeddedTauriRuntime: () => mocks.embedded.current,
   sameOriginRemoteRuntimeUrl: () => mocks.sameOriginRuntimeUrl.current,

@@ -7,11 +7,9 @@ import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { connectionKeys } from "../query-keys";
 import { chatKeys } from "../../chats/query-keys";
 
-import {
-  createConnectionSchema,
-  type CreateConnectionInput,
-  updateConnectionSchema,
-} from "../../../../engine/contracts/schemas/connection.schema";
+import type { CreateConnectionInput } from "../../../../engine/contracts/schemas/connection.schema";
+// Loaded on use: zod and the connection schemas are not needed to boot the app shell.
+const loadConnectionSchemas = () => import("../../../../engine/contracts/schemas/connection.schema");
 import { connectionCatalogApi, type AvailableConnectionSummary } from "../../../../shared/api/connection-catalog-api";
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
@@ -80,8 +78,8 @@ export function useConnection(id: string | null) {
 export function useCreateConnection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateConnectionVariables) =>
-      storageApi.create("connections", createConnectionSchema.parse(data)),
+    mutationFn: async (data: CreateConnectionVariables) =>
+      storageApi.create("connections", (await loadConnectionSchemas()).createConnectionSchema.parse(data)),
     onSuccess: () => qc.invalidateQueries({ queryKey: connectionKeys.list() }),
   });
 }
@@ -89,8 +87,12 @@ export function useCreateConnection() {
 export function useUpdateConnection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string } & Record<string, unknown>) =>
-      storageApi.update("connections", assertStoredConnectionId(id), updateConnectionSchema.parse(data)),
+    mutationFn: async ({ id, ...data }: { id: string } & Record<string, unknown>) =>
+      storageApi.update(
+        "connections",
+        assertStoredConnectionId(id),
+        (await loadConnectionSchemas()).updateConnectionSchema.parse(data),
+      ),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: connectionKeys.list() });
       qc.invalidateQueries({ queryKey: connectionKeys.detail(variables.id) });

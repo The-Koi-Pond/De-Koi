@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { toast } from "sonner";
 
-import { createChatSchema } from "../../../../engine/contracts/schemas/chat.schema";
 import type { Chat } from "../../../../engine/contracts/types/chat";
 import { clearChatActivity } from "../../../../engine/modes/chat/autonomous/activity-state";
 import { ApiError } from "../../../../shared/api/api-errors";
@@ -89,7 +88,7 @@ function patchAffectsActiveLorebooks(patch: Record<string, unknown>): boolean {
 export function useCreateChat() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: {
+    mutationFn: async (data: {
       name: string;
       mode: string;
       characterIds?: string[];
@@ -97,7 +96,11 @@ export function useCreateChat() {
       connectionId?: string | null;
       personaId?: string | null;
       promptPresetId?: string | null;
-    }) => storageApi.create<Chat>("chats", createChatSchema.parse(data)),
+    }) =>
+      storageApi.create<Chat>(
+        "chats",
+        (await import("../../../../engine/contracts/schemas/chat.schema")).createChatSchema.parse(data),
+      ),
     onSuccess: (chat, variables) => {
       if (chat) upsertChatCacheRecord(qc, chat);
       qc.invalidateQueries({ queryKey: chatKeys.list() });

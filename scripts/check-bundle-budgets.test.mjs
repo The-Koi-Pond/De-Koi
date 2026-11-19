@@ -66,13 +66,15 @@ test("counts the home screen's lazy chunks and their static imports in homeJs", 
         "src/game.ts": { file: "assets/game.js", name: "game", isDynamicEntry: true },
       }),
     ],
+    // The home chunk is found by the module it holds, so a merged chunk with another name still counts.
+    [".vite/home-chunks.json", JSON.stringify({ "src/app/Shell.tsx": "assets/Shell.js" })],
     ["assets/entry.js", "entry".repeat(100)],
     ["assets/Shell.js", "shell".repeat(100)],
     ["assets/chat-ui.js", "chat".repeat(100)],
     ["assets/game.js", "game".repeat(100)],
   ]);
 
-  const result = evaluateBundleBudgets(files, { homeJs: 1 }, ["Shell"]);
+  const result = evaluateBundleBudgets(files, { homeJs: 1 });
 
   assert.deepEqual(result.homeFiles.sort(), ["assets/Shell.js", "assets/chat-ui.js", "assets/entry.js"]);
   assert.ok(result.homeJs > result.startupJs);
@@ -82,14 +84,29 @@ test("counts the home screen's lazy chunks and their static imports in homeJs", 
   );
 });
 
-test("fails homeJs when a named home chunk is missing from the manifest", () => {
+test("fails homeJs when a home module's chunk is missing from the build", () => {
+  const files = new Map([
+    ["index.html", '<script type="module" src="/assets/entry.js"></script>'],
+    [".vite/manifest.json", JSON.stringify({ "src/main.ts": { file: "assets/entry.js", isEntry: true } })],
+    [".vite/home-chunks.json", JSON.stringify({ "src/app/AppExperience.tsx": null, "src/gone.tsx": "assets/gone.js" })],
+    ["assets/entry.js", "entry".repeat(100)],
+  ]);
+
+  const result = evaluateBundleBudgets(files, { homeJs: Number.MAX_SAFE_INTEGER });
+
+  assert.deepEqual(result.violations, [
+    { category: "homeJs", missingChunks: ["src/app/AppExperience.tsx", "src/gone.tsx"] },
+  ]);
+});
+
+test("fails homeJs when the build did not record the home chunks", () => {
   const files = new Map([
     ["index.html", '<script type="module" src="/assets/entry.js"></script>'],
     [".vite/manifest.json", JSON.stringify({ "src/main.ts": { file: "assets/entry.js", isEntry: true } })],
     ["assets/entry.js", "entry".repeat(100)],
   ]);
 
-  const result = evaluateBundleBudgets(files, { homeJs: Number.MAX_SAFE_INTEGER }, ["AppExperience"]);
+  const result = evaluateBundleBudgets(files, { homeJs: Number.MAX_SAFE_INTEGER });
 
-  assert.deepEqual(result.violations, [{ category: "homeJs", missingChunks: ["AppExperience"] }]);
+  assert.deepEqual(result.violations, [{ category: "homeJs", missingChunks: [".vite/home-chunks.json"] }]);
 });

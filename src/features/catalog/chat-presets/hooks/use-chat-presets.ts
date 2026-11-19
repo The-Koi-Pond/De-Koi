@@ -1,8 +1,7 @@
 // ──────────────────────────────────────────────
 // React Query: Chat Preset hooks
 // ──────────────────────────────────────────────
-import { useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { chatPresetKeys } from "../query-keys";
 import {
@@ -294,46 +293,51 @@ async function runChatPresetApplication<T>(chatId: string, task: () => Promise<T
 }
 
 /** Apply a preset's settings to an existing chat. Refetches the chat afterward. */
-export function useApplyChatPreset() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ presetId, chatId }: { presetId: string; chatId: string }) =>
-      runChatPresetApplication(chatId, async () => {
-        const [preset, chat] = await Promise.all([
-          storageApi.get<ChatPreset>("chat-presets", presetId),
-          storageApi.get<Chat>("chats", chatId),
-        ]);
-        if (!preset) throw new Error(`Chat preset ${presetId} was not found`);
-        if (!chat) throw new Error(`Chat ${chatId} was not found`);
+function applyChatPresetToChat({ presetId, chatId }: { presetId: string; chatId: string }): Promise<Chat> {
+  return runChatPresetApplication(chatId, async () => {
+    const [preset, chat] = await Promise.all([
+      storageApi.get<ChatPreset>("chat-presets", presetId),
+      storageApi.get<Chat>("chats", chatId),
+    ]);
+    if (!preset) throw new Error(`Chat preset ${presetId} was not found`);
+    if (!chat) throw new Error(`Chat ${chatId} was not found`);
 
-        return storageApi.update<Chat>("chats", chatId, buildChatPresetApplicationPatch(preset, chat));
-      }),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
-      qc.invalidateQueries({ queryKey: chatKeys.list() });
-    },
+    return storageApi.update<Chat>("chats", chatId, buildChatPresetApplicationPatch(preset, chat));
   });
 }
 
-export function useApplyUserStarredChatPreset() {
-  const queryClient = useQueryClient();
-  const { mutateAsync: applyChatPreset } = useApplyChatPreset();
+function invalidateChatAfterPresetApplication(qc: QueryClient, chatId: string): void {
+  qc.invalidateQueries({ queryKey: chatKeys.detail(chatId) });
+  qc.invalidateQueries({ queryKey: chatKeys.list() });
+}
 
-  return useCallback(
-    async ({ mode, chatId }: { mode: ChatMode; chatId: string }): Promise<ChatPreset | null> => {
-      const presets = await queryClient.fetchQuery({
-        queryKey: chatPresetKeys.list(null),
-        queryFn: () => listChatPresets(null),
-        staleTime: 60_000,
-      });
-      const starred = findUserStarredChatPreset(presets, mode);
-      if (!starred) return null;
+export function useApplyChatPreset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: applyChatPresetToChat,
+    onSuccess: (_data, variables) => invalidateChatAfterPresetApplication(qc, variables.chatId),
+  });
+}
 
-      await applyChatPreset({ presetId: starred.id, chatId });
-      return starred;
-    },
-    [applyChatPreset, queryClient],
-  );
+/**
+ * Applies the user's starred preset for `mode` to a new chat, if they starred one. A plain function, not a hook,
+ * so the setup journey can load chat presets (and the zod schemas they check with) only when it starts a chat.
+ */
+export async function applyUserStarredChatPreset(
+  queryClient: QueryClient,
+  { mode, chatId }: { mode: ChatMode; chatId: string },
+): Promise<ChatPreset | null> {
+  const presets = await queryClient.fetchQuery({
+    queryKey: chatPresetKeys.list(null),
+    queryFn: () => listChatPresets(null),
+    staleTime: 60_000,
+  });
+  const starred = findUserStarredChatPreset(presets, mode);
+  if (!starred) return null;
+
+  await applyChatPresetToChat({ presetId: starred.id, chatId });
+  invalidateChatAfterPresetApplication(queryClient, chatId);
+  return starred;
 }
 
 type RoleplayWorkflowProfileStorage = Pick<StorageGateway, "get" | "updateChatIfUnchanged">;

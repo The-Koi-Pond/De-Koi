@@ -1,4 +1,4 @@
-import { appSettingsResponseSchema } from "../../engine/contracts/schemas/app-settings.schema";
+import { readAppSettingsValue } from "../../engine/contracts/app-settings-value";
 import {
   CONVERSATION_SETTINGS_ID,
   DEFAULT_CONVERSATION_SETTINGS,
@@ -15,8 +15,7 @@ type AppSettingsRecord = {
 async function readSettingsRecord(): Promise<ConversationSettings> {
   const record = await storageApi.get<AppSettingsRecord>("app-settings", CONVERSATION_SETTINGS_ID);
   if (!record) return DEFAULT_CONVERSATION_SETTINGS;
-  const parsed = appSettingsResponseSchema.safeParse(record ?? { value: null });
-  return normalizeConversationSettings(parsed.success ? parsed.data.value : null);
+  return normalizeConversationSettings(readAppSettingsValue(record));
 }
 
 /**
