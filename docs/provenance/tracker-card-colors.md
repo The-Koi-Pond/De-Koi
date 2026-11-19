@@ -1,6 +1,6 @@
 # Tracker Card Color Controls: Behavior Spec
 
-Status: proposed 2026-11-19 (decisions as recommended). Part of the code
+Status: agreed 2026-11-19 (decisions as recommended). Part of the code
 provenance plan (`docs/code-provenance-plan.md`, tracked in #1580).
 
 This spec describes the tracker card color controls: the panel that picks where
@@ -156,8 +156,9 @@ It shows:
 - three swatches, Display, Accent, Surface in that order (hidden from screen
   readers), each showing its effective color: a value containing `gradient(` is
   used as a CSS `background`, any other non-empty value as `background-color`,
-  and no value shows a small checkerboard. A swatch whose channel is off is
-  dimmed (35% opacity);
+  and no value shows a small checkerboard. A spaces-only value counts as a
+  value here (an invalid color, so the swatch shows neither a color nor the
+  checkerboard). A swatch whose channel is off is dimmed (35% opacity);
 - a chevron that points down when expanded and right when collapsed.
 
 ## Body
@@ -204,8 +205,9 @@ Shown only while expanded. Groups, top to bottom:
      <Channel>" when off), checked when the channel is on, disabled when the
      row has no paint or the controls are disabled;
    - a **strength slider** 0–100, disabled unless the channel is on and the row
-     has paint (and the controls aren't disabled); while disabled it shows 0
-     (the stored strength doesn't change);
+     has paint (and the controls aren't disabled); while the channel is off or
+     the row has no paint it shows 0 (the stored strength doesn't change); when
+     only the whole panel is disabled it shows the real strength;
    - a **value label**: `off` when the channel is off, else `none` when the row
      has no paint, else "<strength>%".
 

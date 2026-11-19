@@ -10,3 +10,6 @@ pr-evidence
 .env
 .marinara-legacy-profile-import.json
 pnpm-lock.yaml
+
+# Black-box recordings: kept on one line so they are not counted as code lines by the provenance report.
+src/shared/components/ui/tracker-card-color-controls/test-fixtures/
