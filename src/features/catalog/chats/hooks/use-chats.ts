@@ -6,11 +6,9 @@ import { useQuery, useInfiniteQuery, useQueryClient, type InfiniteData, type Que
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { toast } from "sonner";
 import { chatKeys } from "../query-keys";
-import {
-  createMessageSchema,
-  summariesPatchSchema,
-  type CreateMessageInput,
-} from "../../../../engine/contracts/schemas/chat.schema";
+import type { CreateMessageInput } from "../../../../engine/contracts/schemas/chat.schema";
+// Loaded on use: zod and the chat schemas are not needed to boot the app shell.
+const loadChatSchemas = () => import("../../../../engine/contracts/schemas/chat.schema");
 import { appendChatSummaryEntryToMetadata } from "../../../../engine/shared/text/chat-summary-entries";
 import { chatCommandApi } from "../../../../shared/api/chat-command-api";
 import { canonicalMemoryApi } from "../../../../shared/api/canonical-memory-api";
@@ -576,14 +574,14 @@ export function useUpdateChat() {
 export function useUpdateChatSummaries() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       id,
       ...body
     }: {
       id: string;
       daySummaries?: Record<string, DaySummaryEntry>;
       weekSummaries?: Record<string, WeekSummaryEntry>;
-    }) => storageApi.patchChatSummaries<Chat>(id, summariesPatchSchema.parse(body)),
+    }) => storageApi.patchChatSummaries<Chat>(id, (await loadChatSchemas()).summariesPatchSchema.parse(body)),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: chatKeys.detail(vars.id) });
     },
@@ -609,8 +607,8 @@ export function useBackfillConversationSummaries() {
 export function useCreateMessage(chatId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateMessageMutationInput) => {
-      const payload = createMessageSchema.parse({ chatId: chatId!, ...data });
+    mutationFn: async (data: CreateMessageMutationInput) => {
+      const payload = (await loadChatSchemas()).createMessageSchema.parse({ chatId: chatId!, ...data });
       return storageApi.createChatMessage<Message>(payload.chatId, payload);
     },
     onMutate: async (data) => {

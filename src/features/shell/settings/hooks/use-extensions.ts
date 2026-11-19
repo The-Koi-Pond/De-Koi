@@ -4,12 +4,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { storageApi } from "../../../../shared/api/storage-api";
-import {
-  createExtensionSchema,
-  updateExtensionSchema,
-  type CreateExtensionInput,
-  type UpdateExtensionInput,
-} from "../../../../engine/contracts/schemas/extension.schema";
+import type { CreateExtensionInput, UpdateExtensionInput } from "../../../../engine/contracts/schemas/extension.schema";
+// Loaded on use: zod and the extension schemas are not needed to boot the app shell.
+const loadExtensionSchemas = () => import("../../../../engine/contracts/schemas/extension.schema");
 import type { InstalledExtension } from "../../../../engine/contracts/types/extension";
 import { extensionsApi, type ExtensionDataPolicy } from "../../../../shared/api/customization-api";
 
@@ -43,8 +40,11 @@ export function useExtensions() {
 export function useCreateExtension() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateExtensionInput) =>
-      storageApi.create<InstalledExtension>("extensions", createExtensionSchema.parse(data)),
+    mutationFn: async (data: CreateExtensionInput) =>
+      storageApi.create<InstalledExtension>(
+        "extensions",
+        (await loadExtensionSchemas()).createExtensionSchema.parse(data),
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: extensionKeys.all });
     },
@@ -54,8 +54,12 @@ export function useCreateExtension() {
 export function useUpdateExtension() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string } & UpdateExtensionInput) =>
-      storageApi.update<InstalledExtension>("extensions", id, updateExtensionSchema.parse(data)),
+    mutationFn: async ({ id, ...data }: { id: string } & UpdateExtensionInput) =>
+      storageApi.update<InstalledExtension>(
+        "extensions",
+        id,
+        (await loadExtensionSchemas()).updateExtensionSchema.parse(data),
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: extensionKeys.all });
     },

@@ -5,12 +5,8 @@ import { useMemo } from "react";
 import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { characterKeys } from "../query-keys";
-import {
-  createCharacterSchema,
-  createGroupSchema,
-  updateCharacterSchema,
-  updateGroupSchema,
-} from "../../../../engine/contracts/schemas/character.schema";
+// Loaded on use: zod and the character schemas are not needed to boot the app shell.
+const loadCharacterSchemas = () => import("../../../../engine/contracts/schemas/character.schema");
 import { characterApi } from "../../../../shared/api/character-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { storageCommandsApi } from "../../../../shared/api/storage-commands-api";
@@ -458,7 +454,8 @@ export function useChatSurfaceCharacterSummariesByIds(ids: string[], enabled = t
 export function useCreateCharacter() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Record<string, unknown>) => storageApi.create("characters", createCharacterSchema.parse(data)),
+    mutationFn: async (data: Record<string, unknown>) =>
+      storageApi.create("characters", (await loadCharacterSchemas()).createCharacterSchema.parse(data)),
     onSuccess: (character) => {
       refreshCharacterCollectionAfterMutation(qc, character);
     },
@@ -468,7 +465,7 @@ export function useCreateCharacter() {
 export function useUpdateCharacter() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       id,
       ...data
     }: {
@@ -483,7 +480,7 @@ export function useUpdateCharacter() {
       versionSource?: string;
       versionReason?: string;
       skipVersionSnapshot?: boolean;
-    }) => characterApi.update(id, updateCharacterSchema.parse(data)),
+    }) => characterApi.update(id, (await loadCharacterSchemas()).updateCharacterSchema.parse(data)),
     onSuccess: (data, variables) => {
       const updated = cacheCharacterListRecordFromResult(qc, { character: data });
       if (!updated) invalidateCharacterCollectionQueries(qc);
@@ -672,8 +669,8 @@ export function useCharacterGroups() {
 export function useCreateGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { name: string; description?: string; characterIds?: string[] }) =>
-      storageApi.create("character-groups", createGroupSchema.parse(data)),
+    mutationFn: async (data: { name: string; description?: string; characterIds?: string[] }) =>
+      storageApi.create("character-groups", (await loadCharacterSchemas()).createGroupSchema.parse(data)),
     onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.groups }),
   });
 }
@@ -681,8 +678,8 @@ export function useCreateGroup() {
 export function useUpdateGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; name?: string; description?: string; characterIds?: string[] }) =>
-      storageApi.update("character-groups", id, updateGroupSchema.parse(data)),
+    mutationFn: async ({ id, ...data }: { id: string; name?: string; description?: string; characterIds?: string[] }) =>
+      storageApi.update("character-groups", id, (await loadCharacterSchemas()).updateGroupSchema.parse(data)),
     onSuccess: () => qc.invalidateQueries({ queryKey: characterKeys.groups }),
   });
 }

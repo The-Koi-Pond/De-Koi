@@ -3,7 +3,8 @@
 // ──────────────────────────────────────────────
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
-import { updateConnectionSchema } from "../../../../engine/contracts/schemas/connection.schema";
+// Loaded on use: zod and the connection schemas are not needed to boot the app shell.
+const loadConnectionSchemas = () => import("../../../../engine/contracts/schemas/connection.schema");
 import { connectionCommandApi } from "../../../../shared/api/connection-command-api";
 import { storageApi } from "../../../../shared/api/storage-api";
 import type { ConnectionFolder } from "../../../../engine/contracts/types/connection";
@@ -83,10 +84,10 @@ export function useReorderConnectionFolders() {
 export function useMoveConnection() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { connectionId: string; folderId: string | null }) =>
+    mutationFn: async (data: { connectionId: string; folderId: string | null }) =>
       connectionCommandApi.move(
         assertStoredConnectionId(data.connectionId),
-        updateConnectionSchema.parse({ folderId: data.folderId }).folderId ?? null,
+        (await loadConnectionSchemas()).updateConnectionSchema.parse({ folderId: data.folderId }).folderId ?? null,
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: connectionKeys.list() }),
   });

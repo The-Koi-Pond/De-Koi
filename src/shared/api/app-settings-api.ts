@@ -1,4 +1,4 @@
-import { appSettingsResponseSchema, appSettingsUpdateSchema } from "../../engine/contracts/schemas/app-settings.schema";
+import { readAppSettingsValue } from "../../engine/contracts/app-settings-value";
 import { isDuplicateCreateError } from "./api-errors";
 import { storageApi } from "./storage-api";
 
@@ -60,10 +60,7 @@ export async function transformAppSettings(
 ): Promise<unknown> {
   for (let attempt = 0; attempt < SETTINGS_WRITE_ATTEMPTS; attempt += 1) {
     const existing = await storageApi.get<{ value?: unknown }>("app-settings", id);
-    const parsed = appSettingsResponseSchema.safeParse(existing ?? { value: null });
-    const payload = appSettingsUpdateSchema.parse({
-      value: transform(parsed.success ? parsed.data.value : null, Boolean(existing)),
-    });
+    const payload = { value: transform(readAppSettingsValue(existing), Boolean(existing)) };
     if (existing) {
       if (await updateAppSettingsIfUnchanged(id, existing.value ?? null, payload.value, label)) return payload.value;
       continue;

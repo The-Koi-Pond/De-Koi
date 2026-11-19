@@ -1,5 +1,4 @@
-import { MAX_EXTENSION_CSS_BYTES } from "./schemas/extension.schema";
-import { MAX_THEME_CSS_BYTES } from "./schemas/theme.schema";
+import { MAX_EXTENSION_CSS_BYTES, MAX_THEME_CSS_BYTES } from "./customization-limits";
 import { utf8ByteLength } from "./text-bytes";
 
 function isInjectableCss(value: unknown, maxBytes: number): value is string {
