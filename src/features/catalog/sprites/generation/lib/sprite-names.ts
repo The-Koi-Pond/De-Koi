@@ -45,6 +45,22 @@ export function savableName(name: string, type: SpriteType): string | null {
   return saveName === "" ? null : saveName;
 }
 
+/**
+ * The save names that would replace a sprite the owner already has (saving writes over a saved sprite with the same
+ * name), in save order and each once.
+ */
+export function namesReplacingSaved(saveNames: readonly string[], savedNames: readonly string[]): string[] {
+  const saved = new Set(savedNames.map((name) => name.toLowerCase()));
+  return [...new Set(saveNames)].filter((name) => name !== "" && saved.has(name.toLowerCase()));
+}
+
+/** "Replace 2 saved sprites: happy, sad?", listing at most six names. */
+export function replaceSavedQuestion(names: readonly string[]): string {
+  const shown = names.slice(0, 6).join(", ");
+  const more = names.length > 6 ? ` and ${names.length - 6} more` : "";
+  return `Replace ${names.length} saved sprite${names.length === 1 ? "" : "s"}: ${shown}${more}?`;
+}
+
 export const MAX_MATCHED_NAMES = 16;
 
 /**

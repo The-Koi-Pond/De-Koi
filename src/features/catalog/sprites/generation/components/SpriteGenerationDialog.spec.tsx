@@ -29,6 +29,13 @@ vi.mock("../lib/sheet-raster", async () => {
   const fake = await import("../test-fixtures/fake-runtime");
   return { loadSheet: fake.loadSheet, cutSheetBox: fake.cutSheetBox };
 });
+const confirmDialog = vi.hoisted(() => ({ answer: true, asked: [] as string[] }));
+vi.mock("../../../../../shared/lib/app-dialogs", () => ({
+  showConfirmDialog: async (options: { message: string }) => {
+    confirmDialog.asked.push(options.message);
+    return confirmDialog.answer;
+  },
+}));
 vi.mock("../../../../../shared/lib/sprite-frame-crop", async () => ({
   cropSpriteDataUrl: (await import("../test-fixtures/fake-runtime")).cropSpriteDataUrl,
 }));
@@ -94,6 +101,8 @@ async function open(props: HostProps = {}, replies: RecordedCall[] = []) {
 }
 
 beforeEach(() => {
+  confirmDialog.answer = true;
+  confirmDialog.asked = [];
   hostEvents.reset();
   vi.stubGlobal("FileReader", LabelFileReader);
 });
@@ -473,5 +482,38 @@ describe("a new owner while work is still running", () => {
     failing.release();
     await settle();
     expect(alertText()).toBeNull();
+  });
+});
+
+describe("saving over saved sprites", () => {
+  it("asks before replacing saved sprites and sends nothing when cancelled", async () => {
+    confirmDialog.answer = false;
+    await open({ savedSpriteNames: ["happy", "full_idle", "Smirk"] }, [sheetReply()]);
+    await generate();
+    await click(button("Save 6 sprites"));
+    await settle();
+    expect(confirmDialog.asked).toEqual(["Replace 2 saved sprites: happy, smirk?"]);
+    expect(uploads()).toEqual([]);
+    expect(hostEvents.closes).toBe(0);
+    expect(button("Save 6 sprites")).toBeTruthy();
+  });
+
+  it("saves exactly as before once the replacement is confirmed", async () => {
+    await open({ savedSpriteNames: ["happy"] }, [sheetReply(), ...SIX_UPLOADS]);
+    await generate();
+    await click(button("Save 6 sprites"));
+    await settle();
+    expect(confirmDialog.asked).toEqual(["Replace 1 saved sprite: happy?"]);
+    expect(uploads().map((body) => body.expression)).toEqual(NAMES);
+    expect(hostEvents.spritesGenerated).toBe(1);
+  });
+
+  it("doesn't ask when no save name is taken, including full-body names on Expressions", async () => {
+    await open({ savedSpriteNames: ["full_happy", "full_sad"] }, [sheetReply(), ...SIX_UPLOADS]);
+    await generate();
+    await click(button("Save 6 sprites"));
+    await settle();
+    expect(confirmDialog.asked).toEqual([]);
+    expect(uploads().map((body) => body.expression)).toEqual(NAMES);
   });
 });
