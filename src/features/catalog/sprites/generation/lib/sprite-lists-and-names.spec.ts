@@ -5,7 +5,9 @@ import { chipLabel, countLabel, defaultPicks, gridForCount, togglePick } from ".
 import {
   listFormName,
   matchedExpressionNames,
+  namesReplacingSaved,
   nameOptions,
+  replaceSavedQuestion,
   normalizeSpriteName,
   savableName,
   saveSpriteName,
@@ -122,5 +124,22 @@ describe("matched batches", () => {
       "4x4",
       "4x4",
     ]);
+  });
+});
+
+describe("replacing saved sprites", () => {
+  it("finds save names the owner already has, case-insensitively, once each and in save order", () => {
+    expect(namesReplacingSaved(["sad", "happy", "happy", "full_idle", ""], ["HAPPY", "full_idle", "angry"])).toEqual([
+      "happy",
+      "full_idle",
+    ]);
+    expect(namesReplacingSaved(["happy"], [])).toEqual([]);
+  });
+
+  it("asks in plain words and lists at most six names", () => {
+    expect(replaceSavedQuestion(["happy"])).toBe("Replace 1 saved sprite: happy?");
+    expect(replaceSavedQuestion(["a", "b", "c", "d", "e", "f", "g", "h"])).toBe(
+      "Replace 8 saved sprites: a, b, c, d, e, f and 2 more?",
+    );
   });
 });

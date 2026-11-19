@@ -382,6 +382,7 @@ export function CharacterSpritesTab({
         entityId={characterId}
         initialSpriteType={category === "full-body" ? "full-body" : "expressions"}
         existingExpressionNames={portraitExpressionNames}
+        savedSpriteNames={allSprites.map((sprite) => sprite.expression)}
         defaultAppearance={defaultAppearance}
         defaultAvatarUrl={defaultAvatarUrl}
         imageConnections={imageConnections}
