@@ -91,11 +91,12 @@ const events = { applied: [] as string[], closed: 0 };
 let applyResult: () => Promise<void> = async () => {};
 let mounted: Awaited<ReturnType<typeof mount>> | null = null;
 
-function editor(props: { applying?: boolean; imageUrl?: string } = {}) {
+function editor(props: { applying?: boolean; imageUrl?: string; filename?: string } = {}) {
   return (
     <SpriteCleanupEditor
       imageUrl={props.imageUrl ?? SPRITE_URL}
       label="happy"
+      filename={props.filename}
       applying={props.applying ?? false}
       onApply={(dataUrl) => {
         events.applied.push(dataUrl);
@@ -174,6 +175,13 @@ describe("opening", () => {
     expect(readout()).toBe("Move over the sprite to sample pixels");
     for (const name of ["Undo", "Redo", "Reset", "Save changes"]) expect(button(name).disabled).toBe(true);
     expect(samePixels(lastDrawn(), A)).toBe(true);
+  });
+
+  it("notes that a GIF comes back as a still picture (decision 1), and says nothing for a PNG", async () => {
+    await open();
+    expect(dialog().textContent).not.toContain("still picture");
+    await mounted!.render(editor({ filename: "happy.gif" }));
+    expect(dialog().textContent).toContain("Saving turns this GIF into a still picture.");
   });
 
   it("disables everything but Cancel, the backgrounds and the close button while loading", async () => {

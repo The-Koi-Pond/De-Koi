@@ -8,11 +8,18 @@ export interface SavedSpriteEditorProps {
   imageUrl: string;
   /** The tab's display name for the sprite (without `full_`). */
   label: string;
+  /** The sprite's file name from `sprite_list`, e.g. `happy.gif`. */
+  filename?: string;
   /** The tab is saving this editor's picture. */
   applying: boolean;
   /** Saves the edited picture (a PNG data URL) over the sprite. */
   onApply: (dataUrl: string) => void | Promise<void>;
   onClose: () => void;
+}
+
+/** Both editors save a PNG, so a GIF (animated or not) comes back as one still picture (decision 1). */
+export function saveFormatNote(filename: string | undefined): string | null {
+  return filename?.toLowerCase().endsWith(".gif") ? "Saving turns this GIF into a still picture." : null;
 }
 
 /**

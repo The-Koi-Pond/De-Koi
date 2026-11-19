@@ -285,7 +285,7 @@ same rule, from the original file, not from the preview) and hands the PNG to
 icon and is disabled; the sliders, Reset and close stay active (decision 8). A
 crop failure shows "Couldn't frame sprite. Try again." and hands nothing over.
 Apply with all four at 0 still hands over a full-size copy, which is saved
-(decision 6).
+(decision 6; since that follow-up, Apply stays disabled at 0).
 
 **Close** (the X) closes without saving and without asking (decision 3).
 
@@ -689,13 +689,13 @@ Per covered pixel, with A its current alpha and o = Opacity ÷ 100:
 
 ## Saved data
 
-| What        | Exact contract                                                                                               | Rule                                     |
-| ----------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| Sprite file | Rust writes `<name>.png` in the owner's sprite folder (name rule above), replacing a file of that exact name | Rust-owned. Same `expression` and image. |
-| Picture     | a canvas PNG of the edited picture at its own size (frame: `cropSpriteDataUrl`'s output)                     | Same pixels for the same steps.          |
-| Name        | the sprite's stored name (with `full_` for full-body), never the label                                       | Same.                                    |
-| Owner       | `ownerType` `"character"` or `"persona"`, the owner id always as `characterId`                               | Same names and values.                   |
-| Other files | none are touched: a `happy.jpg` stays next to a new `happy.png` (decision 1); no restore point (decision 2)  | Same in the rebuild.                     |
+| What        | Exact contract                                                                                               | Rule                                                                        |
+| ----------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| Sprite file | Rust writes `<name>.png` in the owner's sprite folder (name rule above), replacing a file of that exact name | Rust-owned. Same `expression` and image.                                    |
+| Picture     | a canvas PNG of the edited picture at its own size (frame: `cropSpriteDataUrl`'s output)                     | Same pixels for the same steps.                                             |
+| Name        | the sprite's stored name (with `full_` for full-body), never the label                                       | Same.                                                                       |
+| Owner       | `ownerType` `"character"` or `"persona"`, the owner id always as `characterId`                               | Same names and values.                                                      |
+| Other files | none are touched: a `happy.jpg` stays next to a new `happy.png` (decision 1); no restore point (decision 2)  | Same in the rebuild. Decision 1's follow-up later changed this (see there). |
 
 The editors store nothing else: no local storage, no settings, no remembered
 tool or zoom.
@@ -728,6 +728,12 @@ editors show. File and line references point into the old code for the reviewer.
    the sprite's old file whatever its extension (in Rust, or the tab deletes the
    old one after a successful save), and the cleanup editor notes "Saving turns
    this animated GIF into a still picture." for GIFs. No change in the rebuild.
+   **Done after the rebuild:** `sprite_upload` and `sprite_upload_bulk` now
+   remove the sprite's other files after a successful write: the same name with
+   another extension, and the file named by the request's own expression before
+   the name rule (`Very Happy.png`). Files the same save wrote always stay. Both
+   editors note "Saving turns this GIF into a still picture." for any `.gif`
+   (animated or not).
 2. **An editor save can't be undone, and can be silently undone.** A frame or
    wand save overwrites the file with no restore point, unlike "Clean sprites",
    which keeps the last 5. And the tab's "undo last cleanup" button stays offered
@@ -761,7 +767,8 @@ editors show. File and line references point into the old code for the reviewer.
 6. **Apply Frame at zero saves an unchanged copy.** With all four edges at 0,
    Apply still re-saves the picture (and, for a JPG, makes the second file of
    decision 1). **Follow-up:** disable Apply frame until an edge is above 0. It
-   changes which calls are sent, so not in the rebuild.
+   changes which calls are sent, so not in the rebuild. **Done after the
+   rebuild:** Apply frame stays disabled while every edge is 0.
 7. **The frame editor opens out of sight.** It appears above the grid while the
    user clicked Frame on a tile that may be far below, and focus stays on the
    tile. Recommended in the rebuild: scroll the panel into view and move focus to

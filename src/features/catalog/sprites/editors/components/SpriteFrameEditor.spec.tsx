@@ -120,13 +120,32 @@ describe("the frame editor", () => {
     expect(events.applied).toEqual([`cropped:${HAPPY}:12.5/0/0/0`]);
   });
 
-  it("still hands over a full-size copy at all zeros (decision 6 is a follow-up)", async () => {
+  it("keeps Apply frame off until an edge is above 0, so it never saves an unchanged copy (decision 6)", async () => {
     mounted = await mount(frameEditor());
-    await changeValue(slider("Top"), "10");
+    expect(button("Apply frame").disabled).toBe(true);
+    await changeValue(slider("Left"), "0.5");
+    expect(button("Apply frame").disabled).toBe(false);
     await click(button("Reset"));
     expect(values()).toEqual(["0", "0", "0", "0"]);
+    expect(button("Apply frame").disabled).toBe(true);
     await click(button("Apply frame"));
-    expect(events.applied).toEqual([`cropped:${HAPPY}:0/0/0/0`]);
+    expect(events.applied).toEqual([]);
+  });
+
+  it("notes that a GIF comes back as a still picture, and only for GIFs", async () => {
+    mounted = await mount(frameEditor());
+    expect(panel().textContent).not.toContain("still picture");
+    await mounted.render(
+      <SpriteFrameEditor
+        imageUrl={HAPPY.replace(".png", ".gif")}
+        label="happy"
+        filename="Happy.GIF"
+        applying={false}
+        onApply={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    expect(panel().textContent).toContain("Saving turns this GIF into a still picture.");
   });
 
   it("shows the uncropped picture and says so when the preview can't be made; Apply says it failed", async () => {
@@ -154,6 +173,7 @@ describe("the frame editor", () => {
       throw new Error("disk full");
     };
     mounted = await mount(frameEditor());
+    await changeValue(slider("Top"), "10");
     await click(button("Apply frame"));
     expect(errorLine()).toBe("Couldn't frame sprite. Try again.");
   });

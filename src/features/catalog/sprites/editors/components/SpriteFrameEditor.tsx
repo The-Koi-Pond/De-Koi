@@ -4,8 +4,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { cropSpriteDataUrl, type SpriteFrameAdjustments } from "../../../../../shared/lib/sprite-frame-crop";
 import { PercentSlider } from "../../generation/components/PercentSlider";
 import { MAX_FRAME_EDGE, ZERO_FRAME, setFrameEdge, type FrameEdge } from "../../generation/lib/frame-limits";
-import { editorButton, errorText, primaryEditorButton } from "./editor-styles";
-import { useDiscardQuestion, type SavedSpriteEditorProps } from "./saved-sprite-editor";
+import { editorButton, errorText, mutedText, primaryEditorButton } from "./editor-styles";
+import { saveFormatNote, useDiscardQuestion, type SavedSpriteEditorProps } from "./saved-sprite-editor";
 
 const EDGES: Array<{ edge: FrameEdge; label: string }> = [
   { edge: "top", label: "Top" },
@@ -33,7 +33,7 @@ function hasFrame(frame: SpriteFrameAdjustments): boolean {
  * The frame editor for a saved sprite: crops each edge by a percentage and hands the cropped PNG to `onApply`.
  * Opening it for another sprite starts over. Spec: docs/provenance/sprite-editors.md, "Frame editor".
  */
-export function SpriteFrameEditor({ imageUrl, label, applying, onApply, onClose }: SavedSpriteEditorProps) {
+export function SpriteFrameEditor({ imageUrl, label, filename, applying, onApply, onClose }: SavedSpriteEditorProps) {
   const [framedUrl, setFramedUrl] = useState(imageUrl);
   const [frame, setFrame] = useState<SpriteFrameAdjustments>(ZERO_FRAME);
   const [preview, setPreview] = useState<{ key: string; src: string } | null>(null);
@@ -110,6 +110,7 @@ export function SpriteFrameEditor({ imageUrl, label, applying, onApply, onClose 
   };
 
   const shownPicture = preview?.key === key ? preview.src : imageUrl;
+  const formatNote = saveFormatNote(filename);
   return (
     <section
       ref={panelRef}
@@ -155,6 +156,7 @@ export function SpriteFrameEditor({ imageUrl, label, applying, onApply, onClose 
               />
             ))}
           </div>
+          {formatNote && <p className={mutedText}>{formatNote}</p>}
           <p role="alert" className={`${errorText} empty:hidden`}>
             {error?.text}
           </p>
@@ -164,7 +166,8 @@ export function SpriteFrameEditor({ imageUrl, label, applying, onApply, onClose 
             </button>
             <button
               type="button"
-              disabled={applying || cropping}
+              // Nothing to crop at 0 on every edge; applying would only re-save the same picture (decision 6).
+              disabled={applying || cropping || !hasFrame(frame)}
               onClick={() => void apply()}
               className={primaryEditorButton}
             >
