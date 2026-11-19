@@ -95,7 +95,7 @@ import {
   type QuickReplyAction,
   buildUserQuickReplyMenuEntries,
 } from "../../shared/chat-ui";
-import { EmojiPicker } from "../../../../shared/components/ui/EmojiPicker";
+import { EmojiPicker } from "../../../../shared/components/ui/emoji-picker";
 import { GifPicker } from "../../../../shared/components/ui/GifPicker";
 import { SpeechToTextButton } from "../../../../shared/components/ui/SpeechToTextButton";
 import type { Message } from "../../../../engine/contracts/types/chat";
