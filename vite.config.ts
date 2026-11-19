@@ -1,12 +1,36 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
 
 const host = process.env.TAURI_DEV_HOST;
+
+// Source modules every home screen load needs. The bundle budget measures the chunks that hold them, looked up by
+// module, because merging small chunks (experimentalMinChunkSize below) can rename the chunk a module lands in.
+const homeScreenModules = ["src/app/AppExperience.tsx", "src/features/modes/router/components/ModeSurface.tsx"];
+
+function homeScreenChunks(): Plugin {
+  return {
+    name: "de-koi-home-screen-chunks",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const chunks = Object.values(bundle).filter((output) => output.type === "chunk");
+      const files = Object.fromEntries(
+        homeScreenModules.map((module) => [
+          module,
+          chunks.find((chunk) => chunk.moduleIds.some((id) => id.replace(/\\/g, "/").endsWith(`/${module}`)))
+            ?.fileName ?? null,
+        ]),
+      );
+      this.emitFile({ type: "asset", fileName: ".vite/home-chunks.json", source: JSON.stringify(files, null, 2) });
+    },
+  };
+}
 const vendorChunkGroups: Record<string, string[]> = {
   "vendor-react": ["react", "react-dom"],
-  "vendor-runtime": ["@tanstack/react-query", "zustand", "zod", "clsx", "tailwind-merge"],
+  "vendor-runtime": ["@tanstack/react-query", "zustand", "clsx", "tailwind-merge"],
+  // Off the home screen: only settings writes and engine code validate with zod.
+  "vendor-zod": ["zod"],
   "vendor-sanitize": ["dompurify"],
   "vendor-notifications": ["sonner"],
   "vendor-tauri": [
@@ -73,7 +97,7 @@ function manualVendorChunk(id: string) {
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), homeScreenChunks()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -111,6 +135,10 @@ export default defineConfig(async () => ({
     rollupOptions: {
       output: {
         manualChunks: manualVendorChunk,
+        // About 120 of 260 chunks were under 1 KiB gzip, each paying its own gzip and import overhead. Rollup merges
+        // chunks under 4 KB into a chunk they already load with, only where no entry's side effects change. Measured
+        // totalJs -20 KiB, homeJs +5.6 KiB; 8000 saved 7.6 KiB more in total but added 4.3 KiB more to the home load.
+        experimentalMinChunkSize: 4000,
       },
     },
   },

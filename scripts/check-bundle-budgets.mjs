@@ -14,6 +14,9 @@ export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   // compiler, and the tracker helpers behind two package indexes left it.
   // Features grew it back to 299.6 KiB; it fell to 296.4 KiB once the Tauri
   // window module loaded on first use instead of riding in vendor-tauri.
+  // Main measured 296.8 KiB on 2026-11-19; it fell to 275.3 KiB once zod left
+  // the home load (startup settings reads use small readers, schema checks
+  // load with the write) even after merging small chunks added 5.6 KiB.
   homeJs: 300 * 1024,
   // Measured 1695.2 KiB after dropping framer-motion (#1343) and @dnd-kit
   // before it (down from 1730.4 KiB). Spend this margin on features before
@@ -24,14 +27,18 @@ export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   // planning steps and notes UI are about 5 KiB), so it moved to 1750 KiB.
   // Main measured 1531.8 KiB on 2026-10-21. Moving code out of the home load
   // costs a little here, because each new shared chunk compresses on its own:
-  // the homeJs cut above measured 1540.4 KiB.
+  // the homeJs cut above measured 1540.4 KiB. Features brought main to
+  // 1738.5 KiB by 2026-11-19; merging chunks under 4 KB into the chunks they
+  // load with (experimentalMinChunkSize in vite.config.ts) took it to 1725.1 KiB.
   totalJs: 1750 * 1024,
   largestLazyJs: 300 * 1024,
   css: 120 * 1024,
 });
 
-// Lazy chunks the home screen always loads, by Vite chunk name.
-export const HOME_SCREEN_CHUNKS = Object.freeze(["AppExperience", "ModeSurface"]);
+// Written by the de-koi-home-screen-chunks plugin in vite.config.ts: each source module the home screen always
+// loads, and the output chunk that holds it (null when no chunk does). Looked up by module, not chunk name,
+// because merged small chunks can take another module's name.
+const HOME_CHUNKS_FILE = ".vite/home-chunks.json";
 
 function normalizedAssetPath(value) {
   return value
@@ -44,10 +51,12 @@ function gzipBytes(value) {
   return gzipSync(typeof value === "string" ? Buffer.from(value) : value).byteLength;
 }
 
-export function evaluateBundleBudgets(files, budgets = DEFAULT_BUNDLE_BUDGETS, homeChunks = HOME_SCREEN_CHUNKS) {
+export function evaluateBundleBudgets(files, budgets = DEFAULT_BUNDLE_BUDGETS) {
   const html = String(files.get("index.html") ?? "");
   const manifestRaw = files.get(".vite/manifest.json");
   const manifest = manifestRaw ? JSON.parse(String(manifestRaw)) : null;
+  const homeChunksRaw = files.get(HOME_CHUNKS_FILE);
+  const homeChunks = homeChunksRaw ? JSON.parse(String(homeChunksRaw)) : null;
   const startupKeys = new Set();
   const homeKeys = new Set();
   const missingHomeChunks = [];
@@ -63,10 +72,11 @@ export function evaluateBundleBudgets(files, budgets = DEFAULT_BUNDLE_BUDGETS, h
         visit(homeKeys, key);
       }
     }
-    for (const name of homeChunks) {
-      const key = Object.keys(manifest).find((candidate) => manifest[candidate].name === name);
+    if (!homeChunks) missingHomeChunks.push(HOME_CHUNKS_FILE);
+    for (const [module, file] of Object.entries(homeChunks ?? {})) {
+      const key = file ? Object.keys(manifest).find((candidate) => manifest[candidate].file === file) : undefined;
       if (key) visit(homeKeys, key);
-      else missingHomeChunks.push(name);
+      else missingHomeChunks.push(module);
     }
   }
   const jsFilesOf = (keys) =>

@@ -5,13 +5,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMutation } from "../../../../shared/hooks/use-mutation";
 import { storageApi } from "../../../../shared/api/storage-api";
 import { themesApi } from "../../../../shared/api/customization-api";
-import {
-  createThemeSchema,
-  setActiveThemeSchema,
-  updateThemeSchema,
-  type CreateThemeInput,
-  type UpdateThemeInput,
-} from "../../../../engine/contracts/schemas/theme.schema";
+import type { CreateThemeInput, UpdateThemeInput } from "../../../../engine/contracts/schemas/theme.schema";
+// Loaded on use: zod and the theme schemas are not needed to boot the app shell.
+const loadThemeSchemas = () => import("../../../../engine/contracts/schemas/theme.schema");
 import type { Theme } from "../../../../engine/contracts/types/theme";
 
 const themeKeys = {
@@ -32,7 +28,8 @@ export function useThemes() {
 export function useCreateTheme() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateThemeInput) => storageApi.create<Theme>("themes", createThemeSchema.parse(data)),
+    mutationFn: async (data: CreateThemeInput) =>
+      storageApi.create<Theme>("themes", (await loadThemeSchemas()).createThemeSchema.parse(data)),
     onSuccess: (createdTheme) => {
       qc.setQueryData<Theme[]>(themeKeys.list(), (themes) => {
         if (!themes) return [createdTheme];
@@ -50,8 +47,8 @@ export function useCreateTheme() {
 export function useUpdateTheme() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string } & UpdateThemeInput) =>
-      storageApi.update<Theme>("themes", id, updateThemeSchema.parse(data)),
+    mutationFn: async ({ id, ...data }: { id: string } & UpdateThemeInput) =>
+      storageApi.update<Theme>("themes", id, (await loadThemeSchemas()).updateThemeSchema.parse(data)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: themeKeys.all });
     },
@@ -72,7 +69,7 @@ export function useSetActiveTheme() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string | null): Promise<Theme | null> => {
-      const payload = setActiveThemeSchema.parse({ id });
+      const payload = (await loadThemeSchemas()).setActiveThemeSchema.parse({ id });
       return themesApi.setActive(payload.id);
     },
     onSuccess: (selected, id) => {

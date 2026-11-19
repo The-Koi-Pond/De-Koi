@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
@@ -33,6 +33,11 @@ import { OpenRouterLoginCard } from "./OpenRouterLoginCard";
 const AUTH_URL = "https://openrouter.ai/auth?code_challenge=abc";
 
 describe("OpenRouterLoginCard", () => {
+  // The login loads the connection schema on use. Loading it once here, on real timers, lets the tests' fake-timer
+  // flushes resolve that import the way a warm browser cache does.
+  beforeAll(async () => {
+    await import("../../../../engine/contracts/schemas/connection.schema");
+  });
   let host: HTMLDivElement;
   let root: Root;
 

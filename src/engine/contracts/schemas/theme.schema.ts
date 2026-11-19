@@ -2,9 +2,10 @@
 // Theme Zod Schemas
 // ──────────────────────────────────────────────
 import { z } from "zod";
+import { MAX_THEME_CSS_BYTES } from "../customization-limits";
 import { utf8ByteLength } from "../text-bytes";
 
-export const MAX_THEME_CSS_BYTES = 256 * 1024;
+export { MAX_THEME_CSS_BYTES };
 
 const themeCssSchema = z.string().refine((css) => utf8ByteLength(css) <= MAX_THEME_CSS_BYTES, {
   message: "Theme CSS must be 256 KiB or smaller",

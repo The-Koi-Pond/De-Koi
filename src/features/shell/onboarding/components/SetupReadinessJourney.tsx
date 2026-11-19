@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { chatKeys, useChatSummaries, useCreateChat, useUpdateChat } from "../../../catalog/chats";
-import { useApplyUserStarredChatPreset } from "../../../catalog/chat-presets";
 import { useConnections } from "../../../catalog/connections";
 import {
   checkRemoteRuntimeHealth,
@@ -19,6 +18,7 @@ import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-
 import { SetupReadinessChecklist } from "./SetupReadinessChecklist";
 import { buildSetupReadinessFacts, filterUsableLanguageConnections } from "../lib/setup-readiness";
 import { isSetupReady } from "../../../../engine/onboarding";
+import type { ChatMode } from "../../../../engine/contracts/types/chat";
 import {
   createSetupChatLaunchOrchestrator,
   SetupPresetApplicationError,
@@ -47,7 +47,15 @@ export function SetupReadinessJourney() {
   const createChat = useCreateChat();
   const updateChat = useUpdateChat();
   const queryClient = useQueryClient();
-  const applyPreset = useApplyUserStarredChatPreset();
+  const applyPreset = useCallback(
+    async (input: { mode: ChatMode; chatId: string }) => {
+      // Loaded on use: chat presets and the zod schemas they check with are only needed once a chat starts, and
+      // this journey mounts on the home screen.
+      const { applyUserStarredChatPreset } = await import("../../../catalog/chat-presets");
+      return applyUserStarredChatPreset(queryClient, input);
+    },
+    [queryClient],
+  );
   const currentLaunchRequestRef = useRef<SetupLaunchRequest | null>(null);
   const launchDependenciesRef = useRef({ createChat, updateChat, applyPreset });
   launchDependenciesRef.current = { createChat, updateChat, applyPreset };

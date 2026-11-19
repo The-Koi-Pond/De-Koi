@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { connectionCommandApi, type OpenRouterLoginMode } from "../../../../shared/api/connection-command-api";
 import { openExternalUrl } from "../../../../shared/api/external-link-api";
 import { storageApi } from "../../../../shared/api/storage-api";
-import { updateConnectionSchema } from "../../../../engine/contracts/schemas/connection.schema";
+// Loaded on use: zod and the connection schemas are not needed to boot the app shell.
+const loadConnectionSchemas = () => import("../../../../engine/contracts/schemas/connection.schema");
 import { toUserMessage } from "../../../../shared/lib/error-message";
 import { useSetupJourneyStore } from "../../../../shared/stores/setup-journey.store";
 import { useUIStore } from "../../../../shared/stores/ui.store";
@@ -76,6 +77,7 @@ export function useOpenRouterLogin() {
               ? null
               : { id: OPENROUTER_FREE_ROUTER_MODEL, name: "Free Models Router", context: null });
           if (pick) {
+            const { updateConnectionSchema } = await loadConnectionSchemas();
             await storageApi.update(
               "connections",
               connectionId,

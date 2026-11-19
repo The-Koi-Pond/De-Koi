@@ -1,6 +1,6 @@
 import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
-import { appSettingsResponseSchema } from "../../engine/contracts/schemas/app-settings.schema";
-import { coreModuleSettingsSchema } from "../../engine/contracts/schemas/core-module.schema";
+import { readAppSettingsValue } from "../../engine/contracts/app-settings-value";
+import { readCoreModuleSettings } from "../../engine/contracts/core-module-settings";
 import type { CoreModuleSettings } from "../../engine/contracts/types/core-module";
 import { transformAppSettings } from "./app-settings-api";
 import { storageApi } from "./storage-api";
@@ -13,30 +13,8 @@ type AppSettingsRecord = {
   value?: unknown;
 };
 
-function normalizeSettings(value: unknown): CoreModuleSettings {
-  return coreModuleSettingsSchema.parse(value ?? undefined);
-}
-
-/**
- * Stored settings as valid settings. A row that fails the schema keeps every
- * module entry that is valid on its own and drops the rest, so one bad entry
- * neither blocks the Modules screen nor resets the other modules.
- */
-function storedSettings(value: unknown): CoreModuleSettings {
-  const parsed = coreModuleSettingsSchema.safeParse(value ?? undefined);
-  if (parsed.success) return parsed.data;
-  const enabled = isRecord(value) && isRecord(value.enabled) ? value.enabled : {};
-  return normalizeSettings({
-    enabled: Object.fromEntries(
-      Object.entries(enabled).filter(
-        ([id, on]) => coreModuleSettingsSchema.safeParse({ enabled: { [id]: on } }).success,
-      ),
-    ),
-  });
-}
-
 export function settingsFromLegacyUiStorageValue(value: string | null): CoreModuleSettings {
-  if (!value) return normalizeSettings(null);
+  if (!value) return readCoreModuleSettings(null);
 
   try {
     const parsed: unknown = JSON.parse(value);
@@ -44,24 +22,23 @@ export function settingsFromLegacyUiStorageValue(value: string | null): CoreModu
     // `spotifyPlayerEnabled` is the switch's name before the UI store renamed it.
     const musicPlayerEnabled =
       isRecord(state) && (state.musicPlayerEnabled === true || state.spotifyPlayerEnabled === true);
-    return normalizeSettings({
+    return readCoreModuleSettings({
       enabled: musicPlayerEnabled ? { [MUSIC_DJ_MINI_PLAYER_MODULE_ID]: true } : {},
     });
   } catch {
-    return normalizeSettings(null);
+    return readCoreModuleSettings(null);
   }
 }
 
 function legacyCoreModuleSettings(): CoreModuleSettings {
-  if (typeof localStorage === "undefined") return normalizeSettings(null);
+  if (typeof localStorage === "undefined") return readCoreModuleSettings(null);
   return settingsFromLegacyUiStorageValue(localStorage.getItem(LEGACY_UI_STORE_NAME));
 }
 
 async function readSettingsRecord(): Promise<CoreModuleSettings> {
   const record = await storageApi.get<AppSettingsRecord>("app-settings", CORE_MODULE_SETTINGS_ID);
   if (!record) return legacyCoreModuleSettings();
-  const parsed = appSettingsResponseSchema.safeParse(record ?? { value: null });
-  return storedSettings(parsed.success ? parsed.data.value : null);
+  return readCoreModuleSettings(readAppSettingsValue(record));
 }
 
 /**
@@ -71,8 +48,11 @@ async function readSettingsRecord(): Promise<CoreModuleSettings> {
 async function updateSettingsRecord(
   change: (current: CoreModuleSettings) => CoreModuleSettings,
 ): Promise<CoreModuleSettings> {
+  // Loaded on use: a write is checked against the zod schema, which the startup read above does not need.
+  const { coreModuleSettingsSchema } = await import("../../engine/contracts/schemas/core-module.schema");
+  const normalizeSettings = (value: unknown): CoreModuleSettings => coreModuleSettingsSchema.parse(value ?? undefined);
   const value = await transformAppSettings(CORE_MODULE_SETTINGS_ID, "core module settings", (stored, exists) =>
-    normalizeSettings(change(exists ? storedSettings(stored) : legacyCoreModuleSettings())),
+    normalizeSettings(change(exists ? readCoreModuleSettings(stored) : legacyCoreModuleSettings())),
   );
   return normalizeSettings(value);
 }
