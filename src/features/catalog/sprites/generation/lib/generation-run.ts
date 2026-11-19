@@ -128,7 +128,7 @@ class ReviewCancelledError extends Error {
   }
 }
 
-export interface MatchedRunState {
+interface MatchedRunState {
   sprites: GeneratedSprite[];
   sheets: GeneratedSheet[];
 }

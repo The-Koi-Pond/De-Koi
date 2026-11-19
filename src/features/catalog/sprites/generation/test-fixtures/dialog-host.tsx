@@ -5,7 +5,7 @@ import { SpriteGenerationDialog } from "../components/SpriteGenerationDialog";
 import type { SpriteGenerationDialogProps } from "../hooks/use-sprite-generation";
 
 /** What the recording's test character and connections look like. */
-export const RECORDED_CHARACTER = {
+const RECORDED_CHARACTER = {
   entityId: "<character-id>",
   defaultAvatarUrl: "<avatar-url:characters>",
   defaultAppearance: "QA look: short black hair, green coat",
@@ -18,7 +18,7 @@ export const RECORDED_PERSONA = {
   defaultAppearance: "A test persona.",
 };
 
-export const RECORDED_CONNECTIONS = [
+const RECORDED_CONNECTIONS = [
   { id: "<connection-gpt-image-1>", name: "QA image", model: "gpt-image-1" },
   { id: "<connection-gpt-image-2>", name: "QA image 2", model: "gpt-image-2" },
 ];

@@ -63,8 +63,8 @@ import {
 } from "../lib/sprite-lists";
 import { matchedExpressionNames, MAX_MATCHED_NAMES, saveSpriteName, type NameListKind } from "../lib/sprite-names";
 
-export const MAX_UPLOADS_WITH_AVATAR = 3;
-export const MAX_UPLOADS = 4;
+const MAX_UPLOADS_WITH_AVATAR = 3;
+const MAX_UPLOADS = 4;
 
 export interface SpriteGenerationDialogProps {
   open: boolean;

@@ -6,7 +6,7 @@ import {
 import type { ImagePromptOverride } from "../../../../../shared/components/ui/ImagePromptReviewModal";
 import type { SpriteGrid, SpriteType } from "./sprite-lists";
 
-export const MAX_REFERENCE_IMAGES = 4;
+const MAX_REFERENCE_IMAGES = 4;
 
 /** The body of `sprite_generate_sheet_preview` and `sprite_generate_sheet`. Optional fields are left out of the JSON. */
 export type SpriteGenerationBody = {

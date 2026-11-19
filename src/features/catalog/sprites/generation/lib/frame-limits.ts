@@ -1,7 +1,7 @@
 import type { SpriteFrameAdjustments } from "../../../../../shared/lib/sprite-frame-crop";
 
 export const MAX_FRAME_EDGE = 80;
-export const MAX_FRAME_PAIR = 90;
+const MAX_FRAME_PAIR = 90;
 
 export type FrameEdge = keyof SpriteFrameAdjustments;
 
