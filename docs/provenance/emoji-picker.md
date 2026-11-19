@@ -50,7 +50,8 @@ same props, so the callers only change their import path.
   `onSelect` inserts the emoji at the message box's cursor (replacing any
   selection), moves the cursor after it and focuses the message box;
   `onClose` sets `emojiOpen` to false. Neither caller closes the picker after a
-  pick.
+  pick. Both hide the smiley button below 640px wide (Tailwind `sm`), so phones
+  never show the picker; that stays as it is.
 - `src/shared/lib/utils.ts` (`cn`).
 
 ## The shape
@@ -92,7 +93,9 @@ Measured when the picker opens (not tracked while open):
   `containerRef` (or of `anchorRef` if there is no container). As CSS:
   `bottom = window.innerHeight - referenceTop + 8`.
 - Horizontal, window narrower than 480px: centered,
-  `left = max(8, (innerWidth - min(336, innerWidth - 16)) / 2)`.
+  `left = max(8, (innerWidth - min(336, innerWidth - 16)) / 2)`. The callers
+  can't reach this today (their button is hidden below 640px); keep it for any
+  caller that shows the picker on a phone, and test it at the component level.
 - Horizontal, 480px and wider: the panel's right edge lines up with the anchor's
   right edge, `right = max(8, innerWidth - anchorRight)`.
 - No anchor: the position is not measured (the panel sits at the bottom-left
@@ -219,10 +222,11 @@ The new module's tests use the recordings:
 
 ## Acceptance checks
 
-- Real Chrome, desktop and phone size, in a Conversation chat and a Roleplay
-  chat: the smiley button opens the picker above the message bar, a pick goes
-  into the message at the cursor, Escape and an outside tap close it, the smiley
-  button toggles it.
+- Real Chrome at desktop size and at a narrow 660px window, in a Conversation
+  chat and a Roleplay chat: the smiley button opens the picker above the message
+  bar, a pick goes into the message at the cursor, Escape and an outside press
+  close it, the smiley button toggles it. At phone size (412px) the smiley
+  button stays hidden and the message bar works as before.
 - The recorded scenarios, replayed against the new build, give the same
   inserted text and the same open/closed results.
 - `EmojiPicker.tsx` is gone and nothing imports it.
@@ -240,7 +244,7 @@ as `src/shared/components/ui/emoji-picker/test-fixtures/recorded-picker.json`.
    `heart`, `cat`, `pizza`, `fire`, partial words like `eart`, multi-word like
    `heart eyes`, mixed case and padded with spaces, and words that match
    nothing), record the headings shown and each category's emojis in order.
-3. **Position.** At 1366x900, 800x1000 and 412x915, in both callers, record the
+3. **Position.** At 1366x900, 800x1000 and 660x900, in both callers, record the
    anchor's and the message bar's rectangles and the panel's rectangle and its
    `bottom`/`left`/`right` style.
 4. **Picking.** With text in the message box and the cursor (or a selection) in
