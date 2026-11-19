@@ -70,7 +70,7 @@ import {
   type EphemeralAttachmentDraft,
 } from "../../../../../shared/lib/ephemeral-attachment-drafts";
 import { getDraftTranslationActionState, useDraftTranslation } from "../../../../../shared/hooks/use-draft-translation";
-import { EmojiPicker } from "../../../../../shared/components/ui/EmojiPicker";
+import { EmojiPicker } from "../../../../../shared/components/ui/emoji-picker";
 import { SpeechToTextButton } from "../../../../../shared/components/ui/SpeechToTextButton";
 import { QuickConnectionSwitcher } from "./QuickConnectionSwitcher";
 import { QuickPersonaSwitcher } from "./QuickPersonaSwitcher";
