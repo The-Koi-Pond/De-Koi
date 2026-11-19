@@ -244,10 +244,11 @@ In this order, all in CSS pixels on the whole `W × H`:
    - Sun at `x = W·0.08 + t·W·0.84`, `y = H·0.05 + (1 − sin(t·π))·H·0.25`,
      with `t = clamp((hour − 6) / 12, 0, 1)`; drawn as in "The sun".
    - Moon at `x = W·0.1 + clamp(n, 0, 1)·W·0.8` with `n = ((hour − 21 + 24) mod
-24) / 10` for hour ≥ 12, else `(hour + 3) / 10`;
-     `y = H·0.05 + (1 − sin(clamp(m, 0, 1)·π))·H·0.2` with `m = (hour − 21) / 7`
-     for hour ≥ 12, else `(hour + 3) / 7`; radius `R·1.1`; drawn as in "The
-     moon".
+
+24) / 10`for hour ≥ 12, else`(hour + 3) / 10`;
+ `y = H·0.05 + (1 − sin(clamp(m, 0, 1)·π))·H·0.2`with`m = (hour − 21) / 7` for hour ≥ 12, else`(hour + 3) / 7`; radius `R·1.1`; drawn as in "The
+    moon".
+
 6. Particles, from the **last created to the first** (so stars, then fireflies,
    then the weather type, each in reverse). For each particle:
    - `life += motion`, `x += vx·motion`, `y += vy·motion`;
