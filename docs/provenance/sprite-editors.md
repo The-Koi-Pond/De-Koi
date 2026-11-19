@@ -689,13 +689,13 @@ Per covered pixel, with A its current alpha and o = Opacity ÷ 100:
 
 ## Saved data
 
-| What        | Exact contract                                                                                               | Rule                                                                        |
-| ----------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| Sprite file | Rust writes `<name>.png` in the owner's sprite folder (name rule above), replacing a file of that exact name | Rust-owned. Same `expression` and image.                                    |
-| Picture     | a canvas PNG of the edited picture at its own size (frame: `cropSpriteDataUrl`'s output)                     | Same pixels for the same steps.                                             |
-| Name        | the sprite's stored name (with `full_` for full-body), never the label                                       | Same.                                                                       |
-| Owner       | `ownerType` `"character"` or `"persona"`, the owner id always as `characterId`                               | Same names and values.                                                      |
-| Other files | none are touched: a `happy.jpg` stays next to a new `happy.png` (decision 1); no restore point (decision 2)  | Same in the rebuild. Decision 1's follow-up later changed this (see there). |
+| What        | Exact contract                                                                                               | Rule                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Sprite file | Rust writes `<name>.png` in the owner's sprite folder (name rule above), replacing a file of that exact name | Rust-owned. Same `expression` and image.                                     |
+| Picture     | a canvas PNG of the edited picture at its own size (frame: `cropSpriteDataUrl`'s output)                     | Same pixels for the same steps.                                              |
+| Name        | the sprite's stored name (with `full_` for full-body), never the label                                       | Same.                                                                        |
+| Owner       | `ownerType` `"character"` or `"persona"`, the owner id always as `characterId`                               | Same names and values.                                                       |
+| Other files | none are touched: a `happy.jpg` stays next to a new `happy.png` (decision 1); no restore point (decision 2)  | Same in the rebuild. The follow-ups to decisions 1 and 2 later changed this. |
 
 The editors store nothing else: no local storage, no settings, no remembered
 tool or zoom.
@@ -741,6 +741,12 @@ editors show. File and line references point into the old code for the reviewer.
    editor's work without a word. **Follow-up:** keep the previous file as a
    restore point on editor saves (Rust), and have the tab drop or warn about an
    older cleanup restore point that covers a sprite saved since.
+   **Done after the rebuild (#1755):** editor saves pass `keepRestorePoint`, and
+   `sprite_upload` keeps the replaced file as a restore point in the cleanup
+   layout, so the tab's button reads **Undo Edit** and puts it back. Restore
+   points record each written file's sha256; undoing over a sprite saved, edited
+   or deleted since restores nothing, names those sprites and asks "Undo
+   Anyway?". Older restore points without the hash restore as before.
 3. **Closing throws away edits without asking.** Cancel, the close button,
    Escape and a backdrop click (cleanup editor) and the X (frame editor) drop
    unsaved changes at once (`SpriteCleanupFooter.tsx` 62, `SpriteWandCleanupEditor.tsx`
@@ -799,6 +805,8 @@ editors show. File and line references point into the old code for the reviewer.
     (`useSpriteCleanupEditor.ts` 348–357). **Follow-up** (low priority): refuse
     pixels with alpha 0 ("That pixel is see-through. Pick a visible one."). It
     changes the colour that later strokes paint, so not in the rebuild.
+    **Done after the rebuild (#1755):** Pick refuses a fully see-through pixel
+    with that message and stays on Pick.
 12. **Undo can use a lot of memory.** Up to 24 full copies of the picture are
     kept (12 undo, 12 redo). A 1024×1536 sprite is 6 MB per copy; the largest
     sprite Rust accepts (8192×8192) is 256 MB per copy. Recommended in the
