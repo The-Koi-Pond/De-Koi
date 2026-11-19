@@ -372,4 +372,27 @@ describe("TrackerCardColorControls behavior", () => {
     expect(header().querySelector("[data-summary]")!.textContent).toBe("Default, plain stage, finish M/G/C 50/25/55.");
     expect(groups()).toEqual(["Source", "Stage", "Finish"]);
   });
+
+  it("treats chat colors that aren't text as no color", () => {
+    // An imported card can carry a number, object or array where a color string belongs.
+    const badChatColors = {
+      nameColor: 16711680,
+      dialogueColor: ["#fff"],
+      boxColor: { r: 255 },
+    } as unknown as TrackerCardPaintColors;
+    mount({ value: { mode: "chat" }, chatColors: badChatColors, entityLabel: "Character" });
+    expect(header().querySelector("[data-summary]")!.textContent).toBe(
+      "Chat colors, ambient stage, finish M/G/C 50/45/55.",
+    );
+    expect(headerSnapshot().swatches.every((swatch) => !swatch.backgroundColor && !swatch.background)).toBe(true);
+    expect(rows().every((row) => row.textContent!.includes("none"))).toBe(true);
+
+    click(bodyButtons().find((button) => button.textContent === "Custom")!);
+    const committed = onChange.mock.lastCall![0];
+    expect(committed.mode).toBe("custom");
+    // Custom starts from the chat colors, and none of these are colors.
+    for (const field of ["nameColor", "dialogueColor", "boxColor"] as const) {
+      expect([undefined, ""]).toContain(committed[field]);
+    }
+  });
 });
