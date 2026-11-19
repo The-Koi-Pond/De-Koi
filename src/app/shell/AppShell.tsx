@@ -54,7 +54,11 @@ import {
   getSetupJourneyHost,
   shouldBeginSetupJourney,
 } from "./app-shell-center-surfaces";
-import { closeDiscoverHistory, useDiscoverHistoryLifecycle } from "./app-shell-discover-history";
+import {
+  closeDiscoverHistory,
+  useCloseDiscoverWhenChatOpens,
+  useDiscoverHistoryLifecycle,
+} from "./app-shell-discover-history";
 import {
   setAppShellLeftSidebarPanel,
   shouldCloseFirstRunPhoneDrawer,
@@ -804,6 +808,7 @@ export function AppShell() {
     if (!activeChatId) return;
     closeDekiShell();
   }, [activeChatId, closeDekiShell]);
+  useCloseDiscoverWhenChatOpens(activeChatId, closeDiscover);
 
   const openHelpHub = useCallback(() => {
     useUIStore.getState().openRightPanel("help");
