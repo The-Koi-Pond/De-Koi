@@ -2,7 +2,6 @@ import { useCallback, useRef, useState, type ChangeEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { SpriteGenerationModal } from "../../../../../shared/components/ui/SpriteGenerationModal";
 import { downloadPayloadFromApiValue, triggerDownload } from "../../../../../shared/api/download-payload";
 import { showAlertDialog, showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { getErrorMessage } from "../../../../../shared/lib/error-message";
@@ -10,6 +9,7 @@ import { cn } from "../../../../../shared/lib/utils";
 import { downloadBlob, loadUrlBlob } from "../../../../../shared/lib/url-blob";
 import {
   spriteKeys,
+  SpriteGenerationDialog,
   type SpriteInfo,
   useCleanupSavedSprites,
   useDeleteSprite,
@@ -524,7 +524,7 @@ export function PersonaSpritesTab({
         onDeleteSingleSprite={() => void handleDeleteSingleSprite()}
       />
 
-      <SpriteGenerationModal
+      <SpriteGenerationDialog
         open={spriteGenOpen}
         onClose={() => setSpriteGenOpen(false)}
         entityId={personaId}

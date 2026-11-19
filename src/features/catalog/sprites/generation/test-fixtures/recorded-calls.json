@@ -1,0 +1,3499 @@
+{
+  "about": "Calls the OLD sprite generation dialog sent, recorded black-box on 2026-11-19 against a throwaway server (old dialog at b5df84f4a6). Paid commands (sprite_generate_sheet_preview, sprite_generate_sheet, sprite_cleanup) were answered by fakes; sprite_upload, sprite_list and sprite_capabilities_command reached the server. Pictures are labels: fake:cellN / fake:cellN-full are the fake reply's N-th cell (512x512 portrait, 512x768 full-body, solid colour with a black border and a dark dot), fake:<cols>x<rows>[-full]:sheet the whole fake sheet, fake:avatar the test avatar, fake:clean the fake cleanup result (transparent 512x512), other:<hash>:<length> a picture the dialog made itself (re-cut or framed). Each scenario lists the sprite_* calls in order with their arguments (and, for faked or failed calls, the reply), plus the sprite names saved on the server afterwards. The test character has an avatar; the default connection select shows gpt-image-1 first.",
+  "scenarios": [
+    {
+      "scenario": 1,
+      "title": "Expressions 6 (2x3), avatar on, review off: Generate, Save all",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "neutral",
+              "image": "data:image/png;base64,fake:cell0"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "happy",
+              "image": "data:image/png;base64,fake:cell1"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "sad",
+              "image": "data:image/png;base64,fake:cell2"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "angry",
+              "image": "data:image/png;base64,fake:cell3"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "surprised",
+              "image": "data:image/png;base64,fake:cell4"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "smirk",
+              "image": "data:image/png;base64,fake:cell5"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "savedNames": ["angry", "happy", "neutral", "sad", "smirk", "surprised"]
+    },
+    {
+      "scenario": 2,
+      "title": "Avatar off, two uploads, appearance with spaces",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "  blue eyes, red scarf  ",
+              "referenceImages": ["data:image/png;base64,fake:cell0", "data:image/png;base64,fake:cell0"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "neutral",
+              "image": "data:image/png;base64,fake:cell0"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "happy",
+              "image": "data:image/png;base64,fake:cell1"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "sad",
+              "image": "data:image/png;base64,fake:cell2"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "angry",
+              "image": "data:image/png;base64,fake:cell3"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "surprised",
+              "image": "data:image/png;base64,fake:cell4"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "smirk",
+              "image": "data:image/png;base64,fake:cell5"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "savedNames": ["angry", "happy", "neutral", "sad", "smirk", "surprised"]
+    },
+    {
+      "scenario": 3,
+      "title": "Avatar on plus four uploads attempted",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": [
+                "<avatar-url:characters>",
+                "data:image/png;base64,fake:cell0",
+                "data:image/png;base64,fake:cell0",
+                "data:image/png;base64,fake:cell0"
+              ],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        }
+      ],
+      "note": "Four uploads attempted with the avatar on: only three are kept (avatar first, at most 4 references)."
+    },
+    {
+      "scenario": 4,
+      "title": "Each other count: 1 (happy), 9, 12, 16",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["happy"],
+              "cols": 1,
+              "rows": 1,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:cell0",
+            "cells": [
+              {
+                "expression": "happy",
+                "base64": "fake:cell0"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": [
+                "neutral",
+                "happy",
+                "sad",
+                "angry",
+                "surprised",
+                "scared",
+                "disgusted",
+                "thinking",
+                "laughing"
+              ],
+              "cols": 3,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:3x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "scared",
+                "base64": "fake:cell5"
+              },
+              {
+                "expression": "disgusted",
+                "base64": "fake:cell6"
+              },
+              {
+                "expression": "thinking",
+                "base64": "fake:cell7"
+              },
+              {
+                "expression": "laughing",
+                "base64": "fake:cell8"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": [
+                "neutral",
+                "happy",
+                "sad",
+                "angry",
+                "surprised",
+                "scared",
+                "disgusted",
+                "thinking",
+                "laughing",
+                "crying",
+                "determined",
+                "confused"
+              ],
+              "cols": 3,
+              "rows": 4,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:3x4:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "scared",
+                "base64": "fake:cell5"
+              },
+              {
+                "expression": "disgusted",
+                "base64": "fake:cell6"
+              },
+              {
+                "expression": "thinking",
+                "base64": "fake:cell7"
+              },
+              {
+                "expression": "laughing",
+                "base64": "fake:cell8"
+              },
+              {
+                "expression": "crying",
+                "base64": "fake:cell9"
+              },
+              {
+                "expression": "determined",
+                "base64": "fake:cell10"
+              },
+              {
+                "expression": "confused",
+                "base64": "fake:cell11"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": [
+                "neutral",
+                "happy",
+                "sad",
+                "angry",
+                "surprised",
+                "scared",
+                "disgusted",
+                "thinking",
+                "laughing",
+                "crying",
+                "blushing",
+                "smirk",
+                "embarrassed",
+                "determined",
+                "confused",
+                "sleepy"
+              ],
+              "cols": 4,
+              "rows": 4,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:4x4:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "scared",
+                "base64": "fake:cell5"
+              },
+              {
+                "expression": "disgusted",
+                "base64": "fake:cell6"
+              },
+              {
+                "expression": "thinking",
+                "base64": "fake:cell7"
+              },
+              {
+                "expression": "laughing",
+                "base64": "fake:cell8"
+              },
+              {
+                "expression": "crying",
+                "base64": "fake:cell9"
+              },
+              {
+                "expression": "blushing",
+                "base64": "fake:cell10"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell11"
+              },
+              {
+                "expression": "embarrassed",
+                "base64": "fake:cell12"
+              },
+              {
+                "expression": "determined",
+                "base64": "fake:cell13"
+              },
+              {
+                "expression": "confused",
+                "base64": "fake:cell14"
+              },
+              {
+                "expression": "sleepy",
+                "base64": "fake:cell15"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": 5,
+      "title": "Custom picks on 6: unpick two, pick three others; and only 4 picks",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "surprised", "crying", "sleepy"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "crying",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "sleepy",
+                "base64": "fake:cell4"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "surprised", "sleepy", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "sleepy",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell4"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": 6,
+      "title": "Full-body default 6 poses, then 1 (1x1) Generate Pose; Save",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["idle", "walk", "battle_stance", "casting", "defend", "victory"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3-full:sheet",
+            "cells": [
+              {
+                "expression": "idle",
+                "base64": "fake:cell0-full"
+              },
+              {
+                "expression": "walk",
+                "base64": "fake:cell1-full"
+              },
+              {
+                "expression": "battle_stance",
+                "base64": "fake:cell2-full"
+              },
+              {
+                "expression": "casting",
+                "base64": "fake:cell3-full"
+              },
+              {
+                "expression": "defend",
+                "base64": "fake:cell4-full"
+              },
+              {
+                "expression": "victory",
+                "base64": "fake:cell5-full"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["idle"],
+              "cols": 1,
+              "rows": 1,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:cell0-full",
+            "cells": [
+              {
+                "expression": "idle",
+                "base64": "fake:cell0-full"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_idle",
+              "image": "data:image/png;base64,fake:cell0-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "savedNames": ["full_idle"]
+    },
+    {
+      "scenario": 7,
+      "title": "Matched batches with 6 existing names",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["angry", "happy", "neutral", "smirk"],
+              "cols": 2,
+              "rows": 2,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x2-full:sheet",
+            "cells": [
+              {
+                "expression": "angry",
+                "base64": "fake:cell0-full"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1-full"
+              },
+              {
+                "expression": "neutral",
+                "base64": "fake:cell2-full"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell3-full"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["very_sad"],
+              "cols": 1,
+              "rows": 1,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:cell0-full",
+            "cells": [
+              {
+                "expression": "very_sad",
+                "base64": "fake:cell0-full"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_angry",
+              "image": "data:image/png;base64,fake:cell0-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_happy",
+              "image": "data:image/png;base64,fake:cell1-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_neutral",
+              "image": "data:image/png;base64,fake:cell2-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_smirk",
+              "image": "data:image/png;base64,fake:cell3-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_very_sad",
+              "image": "data:image/png;base64,fake:cell0-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "note": "Existing sprites before opening: neutral, happy, very_sad, angry, smirk (seeded as neutral, Happy, very sad, angry, smirk, neutral; the server stores normalized names).",
+      "savedNames": [
+        "angry",
+        "full_angry",
+        "full_happy",
+        "full_neutral",
+        "full_smirk",
+        "full_very_sad",
+        "happy",
+        "neutral",
+        "smirk",
+        "very_sad"
+      ]
+    },
+    {
+      "scenario": 8,
+      "title": "Matched with more than 16 existing names",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["expr1", "expr10", "expr11", "expr12"],
+              "cols": 2,
+              "rows": 2,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x2-full:sheet",
+            "cells": [
+              {
+                "expression": "expr1",
+                "base64": "fake:cell0-full"
+              },
+              {
+                "expression": "expr10",
+                "base64": "fake:cell1-full"
+              },
+              {
+                "expression": "expr11",
+                "base64": "fake:cell2-full"
+              },
+              {
+                "expression": "expr12",
+                "base64": "fake:cell3-full"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["expr13", "expr14", "expr15", "expr16"],
+              "cols": 2,
+              "rows": 2,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x2-full:sheet",
+            "cells": [
+              {
+                "expression": "expr13",
+                "base64": "fake:cell0-full"
+              },
+              {
+                "expression": "expr14",
+                "base64": "fake:cell1-full"
+              },
+              {
+                "expression": "expr15",
+                "base64": "fake:cell2-full"
+              },
+              {
+                "expression": "expr16",
+                "base64": "fake:cell3-full"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["expr17", "expr18", "expr2", "expr3"],
+              "cols": 2,
+              "rows": 2,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x2-full:sheet",
+            "cells": [
+              {
+                "expression": "expr17",
+                "base64": "fake:cell0-full"
+              },
+              {
+                "expression": "expr18",
+                "base64": "fake:cell1-full"
+              },
+              {
+                "expression": "expr2",
+                "base64": "fake:cell2-full"
+              },
+              {
+                "expression": "expr3",
+                "base64": "fake:cell3-full"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["expr4", "expr5", "expr6", "expr7"],
+              "cols": 2,
+              "rows": 2,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x2-full:sheet",
+            "cells": [
+              {
+                "expression": "expr4",
+                "base64": "fake:cell0-full"
+              },
+              {
+                "expression": "expr5",
+                "base64": "fake:cell1-full"
+              },
+              {
+                "expression": "expr6",
+                "base64": "fake:cell2-full"
+              },
+              {
+                "expression": "expr7",
+                "base64": "fake:cell3-full"
+              }
+            ]
+          }
+        }
+      ],
+      "note": "18 existing sprites expr1..expr18."
+    },
+    {
+      "scenario": 9,
+      "title": "Matched failure: batch 2 fails twice, Retry Batch; failedExpressions; too few cells",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["angry", "happy", "neutral", "smirk"],
+              "cols": 2,
+              "rows": 2,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x2-full:sheet",
+            "cells": [
+              {
+                "expression": "angry",
+                "base64": "fake:cell0-full"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1-full"
+              },
+              {
+                "expression": "neutral",
+                "base64": "fake:cell2-full"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell3-full"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["thinking", "very_sad"],
+              "cols": 2,
+              "rows": 1,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "replyError": {
+            "code": "sprite_generation_failed",
+            "message": "boom"
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["thinking", "very_sad"],
+              "cols": 2,
+              "rows": 1,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "replyError": {
+            "code": "sprite_generation_failed",
+            "message": "boom"
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["thinking", "very_sad"],
+              "cols": 2,
+              "rows": 1,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x1-full:sheet",
+            "cells": [
+              {
+                "expression": "thinking",
+                "base64": "fake:cell0-full"
+              },
+              {
+                "expression": "very_sad",
+                "base64": "fake:cell1-full"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_angry",
+              "image": "data:image/png;base64,fake:cell0-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_happy",
+              "image": "data:image/png;base64,fake:cell1-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_neutral",
+              "image": "data:image/png;base64,fake:cell2-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_smirk",
+              "image": "data:image/png;base64,fake:cell3-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_thinking",
+              "image": "data:image/png;base64,fake:cell0-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "full_very_sad",
+              "image": "data:image/png;base64,fake:cell1-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "note": "Fake replies: sheet calls 2 and 3 fail with sprite_generation_failed (batch 2 and its automatic retry), Retry Batch succeeds; after Regenerate, call 5 returns failedExpressions for the first name and call 6 returns one cell too few. Existing sprites as in 7 plus thinking.",
+      "savedNames": [
+        "angry",
+        "full_angry",
+        "full_happy",
+        "full_neutral",
+        "full_smirk",
+        "full_thinking",
+        "full_very_sad",
+        "happy",
+        "neutral",
+        "smirk",
+        "thinking",
+        "very_sad"
+      ],
+      "recordingStoppedEarly": "The recording script stopped after the calls listed (a later step couldn't be driven); the calls listed are complete up to there."
+    },
+    {
+      "scenario": 10,
+      "title": "Prefer transparent PNG on: Generate (cleanup after), Save",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": true,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_cleanup",
+          "args": {
+            "body": {
+              "cleanupStrength": 35,
+              "engine": "auto",
+              "cells": [
+                {
+                  "expression": "neutral",
+                  "base64": "data:image/png;base64,fake:cell0"
+                },
+                {
+                  "expression": "happy",
+                  "base64": "data:image/png;base64,fake:cell1"
+                },
+                {
+                  "expression": "sad",
+                  "base64": "data:image/png;base64,fake:cell2"
+                },
+                {
+                  "expression": "angry",
+                  "base64": "data:image/png;base64,fake:cell3"
+                },
+                {
+                  "expression": "surprised",
+                  "base64": "data:image/png;base64,fake:cell4"
+                },
+                {
+                  "expression": "smirk",
+                  "base64": "data:image/png;base64,fake:cell5"
+                }
+              ]
+            }
+          },
+          "reply": "cleaned(fake:clean per cell)"
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "neutral",
+              "image": "data:image/png;base64,fake:clean"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "happy",
+              "image": "data:image/png;base64,fake:clean"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "sad",
+              "image": "data:image/png;base64,fake:clean"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "angry",
+              "image": "data:image/png;base64,fake:clean"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "surprised",
+              "image": "data:image/png;base64,fake:clean"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "smirk",
+              "image": "data:image/png;base64,fake:clean"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "savedNames": [
+        "angry",
+        "full_angry",
+        "full_happy",
+        "full_neutral",
+        "full_smirk",
+        "full_thinking",
+        "full_very_sad",
+        "happy",
+        "neutral",
+        "sad",
+        "smirk",
+        "surprised",
+        "thinking",
+        "very_sad"
+      ]
+    },
+    {
+      "scenario": 11,
+      "title": "Review cleanup: strength 70, Apply, Use Original, Reapply, uncheck; Save",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_cleanup",
+          "args": {
+            "body": {
+              "cleanupStrength": 70,
+              "engine": "auto",
+              "cells": [
+                {
+                  "expression": "neutral",
+                  "base64": "data:image/png;base64,fake:cell0"
+                },
+                {
+                  "expression": "happy",
+                  "base64": "data:image/png;base64,fake:cell1"
+                },
+                {
+                  "expression": "sad",
+                  "base64": "data:image/png;base64,fake:cell2"
+                },
+                {
+                  "expression": "angry",
+                  "base64": "data:image/png;base64,fake:cell3"
+                },
+                {
+                  "expression": "surprised",
+                  "base64": "data:image/png;base64,fake:cell4"
+                },
+                {
+                  "expression": "smirk",
+                  "base64": "data:image/png;base64,fake:cell5"
+                }
+              ]
+            }
+          },
+          "reply": "cleaned(fake:clean per cell)"
+        },
+        {
+          "command": "sprite_cleanup",
+          "args": {
+            "body": {
+              "cleanupStrength": 70,
+              "engine": "auto",
+              "cells": [
+                {
+                  "expression": "neutral",
+                  "base64": "data:image/png;base64,fake:cell0"
+                },
+                {
+                  "expression": "happy",
+                  "base64": "data:image/png;base64,fake:cell1"
+                },
+                {
+                  "expression": "sad",
+                  "base64": "data:image/png;base64,fake:cell2"
+                },
+                {
+                  "expression": "angry",
+                  "base64": "data:image/png;base64,fake:cell3"
+                },
+                {
+                  "expression": "surprised",
+                  "base64": "data:image/png;base64,fake:cell4"
+                },
+                {
+                  "expression": "smirk",
+                  "base64": "data:image/png;base64,fake:cell5"
+                }
+              ]
+            }
+          },
+          "reply": "cleaned(fake:clean per cell)"
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "neutral",
+              "image": "data:image/png;base64,fake:cell0"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "happy",
+              "image": "data:image/png;base64,fake:cell1"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "sad",
+              "image": "data:image/png;base64,fake:cell2"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "angry",
+              "image": "data:image/png;base64,fake:cell3"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "surprised",
+              "image": "data:image/png;base64,fake:cell4"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "smirk",
+              "image": "data:image/png;base64,fake:cell5"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "savedNames": ["angry", "happy", "neutral", "sad", "smirk", "surprised"]
+    },
+    {
+      "scenario": 12,
+      "title": "Cleanup failure after generation (single sheet)",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": true,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_cleanup",
+          "args": {
+            "body": {
+              "cleanupStrength": 35,
+              "engine": "auto",
+              "cells": [
+                {
+                  "expression": "neutral",
+                  "base64": "data:image/png;base64,fake:cell0"
+                },
+                {
+                  "expression": "happy",
+                  "base64": "data:image/png;base64,fake:cell1"
+                },
+                {
+                  "expression": "sad",
+                  "base64": "data:image/png;base64,fake:cell2"
+                },
+                {
+                  "expression": "angry",
+                  "base64": "data:image/png;base64,fake:cell3"
+                },
+                {
+                  "expression": "surprised",
+                  "base64": "data:image/png;base64,fake:cell4"
+                },
+                {
+                  "expression": "smirk",
+                  "base64": "data:image/png;base64,fake:cell5"
+                }
+              ]
+            }
+          },
+          "replyError": {
+            "code": "sprite_cleanup_failed",
+            "message": "cleanup boom"
+          }
+        }
+      ],
+      "note": "sprite_cleanup fails (sprite_cleanup_failed). Today the paid results are discarded and the dialog returns to setup (decision 2 changes only what's shown)."
+    },
+    {
+      "scenario": 13,
+      "title": "Prompt review on: edit, Generate; Cancel; empty items; item without negativePrompt",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet_preview",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "items": [
+              {
+                "id": "sprite:expressions:sheet:2x3-neutral,happy,sad,angry,surprised,smirk",
+                "kind": "sprite",
+                "title": "Expression sprites: 2x3",
+                "prompt": "PROMPT-ORIGINAL",
+                "negativePrompt": "NEG-ORIGINAL",
+                "width": 1024,
+                "height": 1536
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false,
+              "promptOverrides": [
+                {
+                  "id": "sprite:expressions:sheet:2x3-neutral,happy,sad,angry,surprised,smirk",
+                  "prompt": "PROMPT-EDITED",
+                  "negativePrompt": "NEG-EDITED"
+                }
+              ]
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet_preview",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "items": [
+              {
+                "id": "sprite:expressions:sheet:2x3-neutral,happy,sad,angry,surprised,smirk",
+                "kind": "sprite",
+                "title": "Expression sprites: 2x3",
+                "prompt": "PROMPT-ORIGINAL",
+                "negativePrompt": "NEG-ORIGINAL",
+                "width": 1024,
+                "height": 1536
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet_preview",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "items": []
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet_preview",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "items": [
+              {
+                "id": "sprite:expressions:sheet:2x3-neutral,happy,sad,angry,surprised,smirk",
+                "kind": "sprite",
+                "title": "Expression sprites: 2x3",
+                "prompt": "PROMPT-ORIGINAL",
+                "width": 1024,
+                "height": 1536
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false,
+              "promptOverrides": [
+                {
+                  "id": "sprite:expressions:sheet:2x3-neutral,happy,sad,angry,surprised,smirk",
+                  "prompt": "PROMPT-ORIGINAL"
+                }
+              ]
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        }
+      ],
+      "note": "Prompt review on. Preview 1: item with prompt/negativePrompt edited to PROMPT-EDITED/NEG-EDITED then Generate. Preview 2: Cancel (no generation). Preview 3: empty items (plain generation). Preview 4: item without negativePrompt, Generate."
+    },
+    {
+      "scenario": 14,
+      "title": "Prompt review on + matched, Cancel at batch 1",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet_preview",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["angry", "happy", "neutral", "smirk"],
+              "cols": 2,
+              "rows": 2,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "items": [
+              {
+                "id": "m-angry,happy,neutral,smirk",
+                "kind": "sprite",
+                "title": "Matched",
+                "prompt": "P",
+                "negativePrompt": "N",
+                "width": 1024,
+                "height": 1536
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet_preview",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["angry", "happy", "neutral", "smirk"],
+              "cols": 2,
+              "rows": 2,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": true,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition, action pose, walking pose, running pose, combat pose, different body poses",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "items": [
+              {
+                "id": "m-angry,happy,neutral,smirk",
+                "kind": "sprite",
+                "title": "Matched",
+                "prompt": "P",
+                "negativePrompt": "N",
+                "width": 1024,
+                "height": 1536
+              }
+            ]
+          }
+        }
+      ],
+      "note": "Prompt review on, matched mode, Cancel pressed on each review that opens (decision 3 records today's second preview)."
+    },
+    {
+      "scenario": 15,
+      "title": "Reply without sheet and with failedExpressions; Save",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ],
+            "failedExpressions": [
+              {
+                "expression": "sad",
+                "error": "content policy"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "neutral",
+              "image": "data:image/png;base64,fake:cell0"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "happy",
+              "image": "data:image/png;base64,fake:cell1"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "angry",
+              "image": "data:image/png;base64,fake:cell3"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "surprised",
+              "image": "data:image/png;base64,fake:cell4"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "smirk",
+              "image": "data:image/png;base64,fake:cell5"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "note": "Reply without a sheet (sheetBase64 empty) and failedExpressions [sad].",
+      "savedNames": ["angry", "happy", "neutral", "smirk", "surprised"]
+    },
+    {
+      "scenario": 16,
+      "title": "Generation errors: worded then generic",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "replyError": {
+            "code": "image_provider_error",
+            "message": "Provider says: quota exceeded (fake)"
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "replyError": {
+            "code": "sprite_generation_failed",
+            "message": "internal detail"
+          }
+        }
+      ],
+      "note": "First generation fails with image_provider_error (its message is shown), second with sprite_generation_failed (the generic fallback is shown)."
+    },
+    {
+      "scenario": 17,
+      "title": "Cuts: Side margin 2, Column cut 1 at 3, Crop top 5, Apply Slice, Save; then no room",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "neutral",
+              "image": "data:image/png;base64,other:9f59b0633004c7eb:10744"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "happy",
+              "image": "data:image/png;base64,other:08d4ebecf435e38c:9900"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "sad",
+              "image": "data:image/png;base64,other:fd70c88e2ea8ecaa:10752"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "angry",
+              "image": "data:image/png;base64,other:5bff32ef7c41023c:9904"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "surprised",
+              "image": "data:image/png;base64,other:1d804dc35122edd3:10748"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "smirk",
+              "image": "data:image/png;base64,other:1f29ce594442f0be:9896"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "note": "Review step: Side margin 2, Column cut 1 at 3, Crop top 5, Apply Slice, then Save. Saved pictures are re-cut from the fake sheet (labels other:...).",
+      "savedNames": ["angry", "happy", "neutral", "sad", "smirk", "surprised"]
+    },
+    {
+      "scenario": 18,
+      "title": "Frame sprite 2: Top 10, Left 85, Apply Frame, Save; then Apply Slice loses frame",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "neutral",
+              "image": "data:image/png;base64,fake:cell0"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "happy",
+              "image": "data:image/png;base64,other:a1415d1651dbf9de:3488"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "sad",
+              "image": "data:image/png;base64,fake:cell2"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "angry",
+              "image": "data:image/png;base64,fake:cell3"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "surprised",
+              "image": "data:image/png;base64,fake:cell4"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "smirk",
+              "image": "data:image/png;base64,fake:cell5"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "note": "Frame on sprite 2: Top 10, Left 80, Apply Frame, Save.",
+      "savedNames": ["angry", "happy", "neutral", "sad", "smirk", "surprised"],
+      "recordingStoppedEarly": "The recording script stopped after the calls listed (a later step couldn't be driven); the calls listed are complete up to there."
+    },
+    {
+      "scenario": 19,
+      "title": "Names: rename via list, type 'Very Happy!', clear one, unselect two; Save",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "angry",
+              "image": "data:image/png;base64,fake:cell0"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "vsaderyhappy_",
+              "image": "data:image/png;base64,fake:cell2"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "note": "Sprite 1 renamed via its list to the 4th option; 'Very Happy!' typed into sprite 2's name box (today the box normalizes per keystroke, decision 9); sprite 3's name cleared; sprites 5 and 6 unselected; Save.",
+      "savedNames": ["angry", "vsaderyhappy_"]
+    },
+    {
+      "scenario": 20,
+      "title": "Persona: scenario 1",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<persona-id>",
+            "ownerType": "persona"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "A test persona.",
+              "referenceImages": ["<avatar-url:personas>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<persona-id>",
+            "ownerType": "persona",
+            "body": {
+              "expression": "neutral",
+              "image": "data:image/png;base64,fake:cell0"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<persona-id>",
+            "ownerType": "persona",
+            "body": {
+              "expression": "happy",
+              "image": "data:image/png;base64,fake:cell1"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<persona-id>",
+            "ownerType": "persona",
+            "body": {
+              "expression": "sad",
+              "image": "data:image/png;base64,fake:cell2"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<persona-id>",
+            "ownerType": "persona",
+            "body": {
+              "expression": "angry",
+              "image": "data:image/png;base64,fake:cell3"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<persona-id>",
+            "ownerType": "persona",
+            "body": {
+              "expression": "surprised",
+              "image": "data:image/png;base64,fake:cell4"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<persona-id>",
+            "ownerType": "persona",
+            "body": {
+              "expression": "smirk",
+              "image": "data:image/png;base64,fake:cell5"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<persona-id>",
+            "ownerType": "persona"
+          }
+        }
+      ],
+      "savedNames": ["angry", "happy", "neutral", "sad", "smirk", "surprised"]
+    },
+    {
+      "scenario": 21,
+      "title": "Save failure on the third upload, then Save again",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "neutral",
+              "image": "data:image/png;base64,fake:cell0"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "happy",
+              "image": "data:image/png;base64,fake:cell1"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "sad",
+              "image": "data:image/png;base64,fake:cell2"
+            }
+          },
+          "replyError": {
+            "code": "sprite_upload_failed",
+            "message": "disk full (fake)"
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "neutral",
+              "image": "data:image/png;base64,fake:cell0"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "happy",
+              "image": "data:image/png;base64,fake:cell1"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "sad",
+              "image": "data:image/png;base64,fake:cell2"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "angry",
+              "image": "data:image/png;base64,fake:cell3"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "surprised",
+              "image": "data:image/png;base64,fake:cell4"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "smirk",
+              "image": "data:image/png;base64,fake:cell5"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "note": "The third sprite_upload fails; Save pressed again sends all six again (decision 7 follow-up).",
+      "savedNames": ["angry", "happy", "neutral", "sad", "smirk", "surprised"]
+    },
+    {
+      "scenario": 22,
+      "title": "Close during review, reopen from other category, Save",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["idle", "walk", "battle_stance", "casting", "defend", "victory"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "full-body",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face, cropped body, cut off feet, missing feet, single poster composition",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3-full:sheet",
+            "cells": [
+              {
+                "expression": "idle",
+                "base64": "fake:cell0-full"
+              },
+              {
+                "expression": "walk",
+                "base64": "fake:cell1-full"
+              },
+              {
+                "expression": "battle_stance",
+                "base64": "fake:cell2-full"
+              },
+              {
+                "expression": "casting",
+                "base64": "fake:cell3-full"
+              },
+              {
+                "expression": "defend",
+                "base64": "fake:cell4-full"
+              },
+              {
+                "expression": "victory",
+                "base64": "fake:cell5-full"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "idle",
+              "image": "data:image/png;base64,fake:cell0-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "walk",
+              "image": "data:image/png;base64,fake:cell1-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "battle_stance",
+              "image": "data:image/png;base64,fake:cell2-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "casting",
+              "image": "data:image/png;base64,fake:cell3-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "defend",
+              "image": "data:image/png;base64,fake:cell4-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_upload",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character",
+            "body": {
+              "expression": "victory",
+              "image": "data:image/png;base64,fake:cell5-full"
+            }
+          }
+        },
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        }
+      ],
+      "note": "Full-body generated, dialog closed, reopened from Facial Expressions, Save: names follow the type at Save time (decision 1 follow-up).",
+      "savedNames": ["battle_stance", "casting", "defend", "idle", "victory", "walk"]
+    },
+    {
+      "scenario": 23,
+      "title": "Regenerate, then Generate again with the same setup",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "scenario": 24,
+      "title": "Screen states: generation unavailable; cleanup engine not installed; GPT-Image-2 note",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        }
+      ],
+      "note": "Capabilities with spriteGenerationAvailable false: the tab's Generate Sprite button is disabled, so the dialog can't open.",
+      "recordingStoppedEarly": "The recording script stopped after the calls listed (a later step couldn't be driven); the calls listed are complete up to there."
+    },
+    {
+      "scenario": 25,
+      "title": "Hosted: sheet reply delayed 35 s",
+      "calls": [
+        {
+          "command": "sprite_list",
+          "args": {
+            "characterId": "<character-id>",
+            "ownerType": "character"
+          }
+        },
+        {
+          "command": "sprite_capabilities_command",
+          "args": null
+        },
+        {
+          "command": "sprite_generate_sheet",
+          "args": {
+            "body": {
+              "connectionId": "<connection-gpt-image-1>",
+              "appearance": "QA look: short black hair, green coat",
+              "referenceImages": ["<avatar-url:characters>"],
+              "expressions": ["neutral", "happy", "sad", "angry", "surprised", "smirk"],
+              "cols": 2,
+              "rows": 3,
+              "spriteType": "expressions",
+              "fullBodyExpressionMode": false,
+              "nativeTransparentPng": false,
+              "negativePrompt": "text, watermark, logo, signature, low quality, blurry, labels, numbers, blank cells, missing cells, extra cells, extra rows, extra columns, merged cells, uneven grid, diagonal layout, duplicate expressions, cropped face",
+              "noBackground": false
+            }
+          },
+          "reply": {
+            "sheetBase64": "fake:2x3:sheet",
+            "cells": [
+              {
+                "expression": "neutral",
+                "base64": "fake:cell0"
+              },
+              {
+                "expression": "happy",
+                "base64": "fake:cell1"
+              },
+              {
+                "expression": "sad",
+                "base64": "fake:cell2"
+              },
+              {
+                "expression": "angry",
+                "base64": "fake:cell3"
+              },
+              {
+                "expression": "surprised",
+                "base64": "fake:cell4"
+              },
+              {
+                "expression": "smirk",
+                "base64": "fake:cell5"
+              }
+            ]
+          }
+        }
+      ],
+      "note": "Hosted install: the sheet reply was delayed 35 s; the client gave up after 30 s (decision 4 follow-up)."
+    }
+  ]
+}
