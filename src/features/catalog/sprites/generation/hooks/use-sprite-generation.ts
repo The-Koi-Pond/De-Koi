@@ -61,7 +61,7 @@ import {
   type SpriteGrid,
   type SpriteType,
 } from "../lib/sprite-lists";
-import { matchedExpressionNames, MAX_MATCHED_NAMES, saveSpriteName, type NameListKind } from "../lib/sprite-names";
+import { matchedExpressionNames, MAX_MATCHED_NAMES, savableName, type NameListKind } from "../lib/sprite-names";
 
 const MAX_UPLOADS_WITH_AVATAR = 3;
 const MAX_UPLOADS = 4;
@@ -173,6 +173,8 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
 
   // A run whose owner or setup was replaced since it started must not land its results.
   const runToken = useRef(0);
+  // Review-step work (cleanup, cuts, frame, save) started for an earlier owner must not land on the current one.
+  const ownerEpoch = useRef(0);
   const idCounter = useRef(0);
   const cleanupSettings = useRef({ enabled: transparentBackground, strength: cleanupStrength });
   cleanupSettings.current = { enabled: transparentBackground, strength: cleanupStrength };
@@ -199,6 +201,9 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
   if (owner !== currentOwner) {
     setOwner(currentOwner);
     runToken.current += 1;
+    ownerEpoch.current += 1;
+    // An open prompt review belonged to the old owner's run: cancel it so that run sends nothing more.
+    pendingReviewRef.current?.resolve(null);
     setAppearance(props.defaultAppearance ?? "");
     setUploads([]);
     setUseAvatarState(Boolean(props.defaultAvatarUrl));
@@ -481,29 +486,44 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
     if (!value) showOriginals();
   };
 
+  /** A check that work started now still belongs to the same run and owner when it finishes. */
+  const startWork = () => {
+    const run = runToken.current;
+    const ownerAt = ownerEpoch.current;
+    return () => runToken.current === run && ownerEpoch.current === ownerAt;
+  };
+
   const applyCleanup = async () => {
-    if (cleaning || sprites.length === 0) return;
+    if (cleaning || slicing || framing || sprites.length === 0) return;
+    const stillCurrent = startWork();
     setCleaning(true);
     try {
       const cleaned = await cleanSprites(sprites, cleanupStrength, ports().cleanup);
-      const shownById = new Map(cleaned.map((sprite) => [sprite.id, sprite.shown]));
+      // A late reply lands only while the box is still on, and only on sprites whose picture is still the one sent.
+      if (!stillCurrent() || !cleanupSettings.current.enabled) return;
+      const sent = new Map(cleaned.map((sprite) => [sprite.id, sprite]));
       setSprites((current) =>
-        current.map((sprite) => ({ ...sprite, shown: shownById.get(sprite.id) ?? sprite.shown })),
+        current.map((sprite) => {
+          const match = sent.get(sprite.id);
+          return match && match.original === sprite.original ? { ...sprite, shown: match.shown } : sprite;
+        }),
       );
       setCleanupApplied(true);
     } catch (caught) {
-      setError(getErrorMessage(caught, CLEANUP_FAILED));
+      if (stillCurrent()) setError(getErrorMessage(caught, CLEANUP_FAILED));
     } finally {
       setCleaning(false);
     }
   };
 
   const applySlice = async () => {
-    if (slicing) return;
+    if (slicing || cleaning) return;
+    const stillCurrent = startWork();
     setSlicing(true);
     try {
       // The new picture becomes both the original and the shown one, so frames and cleanup are gone.
       const pictures = await recutSprites(sprites, sheets, slice);
+      if (!stillCurrent()) return;
       setSprites((current) =>
         current.map((sprite) => {
           const picture = pictures.get(sprite.id);
@@ -513,7 +533,7 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
       setCleanupApplied(false);
       setFrameEditor(null);
     } catch (caught) {
-      setError(spriteErrorMessage(caught, SLICE_FAILED));
+      if (stillCurrent()) setError(spriteErrorMessage(caught, SLICE_FAILED));
     } finally {
       setSlicing(false);
     }
@@ -530,33 +550,41 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
   const applyFrame = async () => {
     const editor = frameEditor;
     const sprite = editor ? sprites.find((item) => item.id === editor.spriteId) : undefined;
-    if (!editor || !sprite || framing) return;
+    if (!editor || !sprite || framing || cleaning) return;
+    const stillCurrent = startWork();
     setFraming(true);
     try {
       const original = await cropSpriteDataUrl(sprite.original, editor.frame);
       const shown = sprite.shown !== sprite.original ? await cropSpriteDataUrl(sprite.shown, editor.frame) : original;
-      setSprites((current) => current.map((item) => (item.id === sprite.id ? { ...item, original, shown } : item)));
+      if (!stillCurrent()) return;
+      setSprites((current) =>
+        current.map((item) =>
+          item.id === sprite.id && item.original === sprite.original ? { ...item, original, shown } : item,
+        ),
+      );
       setFrameEditor(null);
     } catch (caught) {
-      setError(getErrorMessage(caught, FRAME_FAILED));
+      if (stillCurrent()) setError(getErrorMessage(caught, FRAME_FAILED));
     } finally {
       setFraming(false);
     }
   };
 
-  const toSave = sprites.filter((sprite) => sprite.selected && sprite.name.trim() !== "");
+  const toSave = sprites.filter((sprite) => sprite.selected && savableName(sprite.name, spriteType) !== null);
 
   const save = async () => {
     if (saving || toSave.length === 0) return;
     const type = spriteType;
+    const stillCurrent = startWork();
     setSaving(true);
     let saved = 0;
     try {
       for (const sprite of toSave) {
-        const expression = saveSpriteName(sprite.name, type);
+        const expression = savableName(sprite.name, type) ?? "";
         try {
           await spriteApi.upload(entityId, { expression, image: sprite.shown }, { ownerType });
         } catch (caught) {
+          if (!stillCurrent()) return;
           // The ones saved before it stay saved, so the tab's list refreshes.
           if (saved > 0) props.onSpritesGenerated();
           setError(saveFailureMessage(caught, expression, saved, toSave.length));
@@ -564,6 +592,7 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
         }
         saved += 1;
       }
+      if (!stillCurrent()) return;
       props.onSpritesGenerated();
       props.onClose();
       clearResults();

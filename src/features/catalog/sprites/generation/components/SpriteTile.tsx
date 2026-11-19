@@ -12,6 +12,8 @@ export function SpriteTile({
   sharedOptions,
   duplicateWarning,
   framing,
+  needsName,
+  frameDisabled,
   onToggle,
   onRename,
   onFrame,
@@ -21,13 +23,16 @@ export function SpriteTile({
   sharedOptions: readonly string[];
   duplicateWarning: string | null;
   framing: boolean;
+  /** Selected, but its name is empty once the save rule runs. */
+  needsName: boolean;
+  /** Framing waits while a cleanup is running. */
+  frameDisabled: boolean;
   onToggle: () => void;
   onRename: (name: string) => void;
   onFrame: () => void;
 }) {
   const number = index + 1;
   const label = sprite.name ? spacedName(sprite.name) : `sprite ${number}`;
-  const unnamed = sprite.name.trim() === "";
   return (
     <li className="flex min-w-0 flex-col gap-1.5 rounded-md border border-[var(--border)] p-1.5">
       <button
@@ -73,11 +78,12 @@ export function SpriteTile({
         onChange={(event) => onRename(normalizeSpriteName(event.target.value))}
         className={`${fieldClass} p-1 text-xs`}
       />
-      {sprite.selected && unnamed && <p className="text-xs text-amber-600 dark:text-amber-400">Needs a name</p>}
+      {needsName && <p className="text-xs text-amber-600 dark:text-amber-400">Needs a name</p>}
       {duplicateWarning && <p className="text-xs text-amber-600 dark:text-amber-400">{duplicateWarning}</p>}
       <button
         type="button"
         onClick={onFrame}
+        disabled={frameDisabled}
         aria-pressed={framing}
         aria-label={`Frame sprite ${number}`}
         className={`${smallButton} ${framing ? "border-[var(--primary)] text-[var(--primary)]" : ""}`}

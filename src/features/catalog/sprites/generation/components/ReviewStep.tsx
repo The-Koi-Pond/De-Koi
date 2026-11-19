@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { SpriteGenerationController } from "../hooks/use-sprite-generation";
 import type { GeneratedSprite } from "../lib/generation-run";
 import { spacedName, type SpriteType } from "../lib/sprite-lists";
-import { listFormName, nameOptions, saveSpriteName } from "../lib/sprite-names";
+import { listFormName, nameOptions, savableName } from "../lib/sprite-names";
 import { CleanupBar } from "./CleanupBar";
 import { CutPanel } from "./CutPanel";
 import { errorBanner, hintText, primaryButton, secondaryButton, smallButton } from "./dialog-styles";
@@ -25,8 +25,8 @@ const COUNT_WORDS: Record<number, string> = { 2: "Two", 3: "Three", 4: "Four" };
 function duplicateWarnings(sprites: readonly GeneratedSprite[], type: SpriteType): Map<string, string> {
   const groups = new Map<string, GeneratedSprite[]>();
   for (const sprite of sprites) {
-    if (!sprite.selected || sprite.name.trim() === "") continue;
-    const name = saveSpriteName(sprite.name, type);
+    const name = sprite.selected ? savableName(sprite.name, type) : null;
+    if (name === null) continue;
     groups.set(name, [...(groups.get(name) ?? []), sprite]);
   }
   const warnings = new Map<string, string>();
@@ -118,6 +118,7 @@ export function ReviewStep({ dialog }: { dialog: SpriteGenerationController }) {
           settings={dialog.slice}
           sheetCount={dialog.sheets.length}
           busy={dialog.slicing}
+          disabled={dialog.cleaning}
           onChange={dialog.setSlice}
           onReset={dialog.resetSlice}
           onApply={() => void dialog.applySlice()}
@@ -132,6 +133,7 @@ export function ReviewStep({ dialog }: { dialog: SpriteGenerationController }) {
           picture={framed.shown}
           frame={dialog.frameEditor.frame}
           busy={dialog.framing}
+          disabled={dialog.cleaning}
           onChange={dialog.setFrameValue}
           onReset={dialog.resetFrame}
           onApply={() => void dialog.applyFrame()}
@@ -155,6 +157,8 @@ export function ReviewStep({ dialog }: { dialog: SpriteGenerationController }) {
               sharedOptions={sharedOptions}
               duplicateWarning={warnings.get(sprite.id) ?? null}
               framing={dialog.frameEditor?.spriteId === sprite.id}
+              needsName={sprite.selected && savableName(sprite.name, dialog.spriteType) === null}
+              frameDisabled={dialog.cleaning}
               onToggle={() => dialog.toggleSelected(sprite.id)}
               onRename={(name) => dialog.renameSprite(sprite.id, name)}
               onFrame={() => dialog.openFrameEditor(sprite.id)}

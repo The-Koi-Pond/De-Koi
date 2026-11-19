@@ -49,6 +49,24 @@ function sheetReply(names = NAMES, sheet = "fake:2x3:sheet"): RecordedCall {
 const CLEANED: RecordedCall = { command: "sprite_cleanup", args: null, reply: "cleaned(fake:clean per cell)" };
 const SIX_UPLOADS: RecordedCall[] = NAMES.map(() => ({ command: "sprite_upload", args: null }));
 
+function deferred() {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { gate, release };
+}
+
+/** A reply that waits for `release`, then answers (or fails) like `reply`. */
+function held(command: string, reply: () => unknown): { call: RecordedCall; release: () => void } {
+  const { gate, release } = deferred();
+  return { call: { command, args: null, reply: gate.then(reply) }, release };
+}
+
+const cleanedCells = () => ({ cells: NAMES.map((name) => ({ expression: name, base64: "fake:clean" })) });
+
+const OTHER_OWNER = <DialogHost entityId="<other-id>" defaultAvatarUrl={null} defaultAppearance="Someone else." />;
+
 const view = () => dialogNamed("Generate sprites");
 const button = (name: string | RegExp) => byRole("button", name, view());
 const alertText = () => queryByRole("alert", undefined, view())?.textContent ?? null;
@@ -347,5 +365,113 @@ describe("opening, closing and owners", () => {
     mounted = null;
     await settle();
     expect(sentCommands()).toEqual(["sprite_generate_sheet_preview"]);
+  });
+});
+
+describe("names that the save rule empties", () => {
+  it("counts full_ on Expressions as unnamed and never sends an empty save name", async () => {
+    await open({}, [sheetReply(), ...SIX_UPLOADS]);
+    await generate();
+    await changeValue(byRole("textbox", "Sprite 1 name", view()), "FULL_");
+    expect(byRole<HTMLInputElement>("textbox", "Sprite 1 name", view()).value).toBe("full_");
+    expect(view().textContent).toContain("Needs a name");
+    expect(button(/^Save /).textContent).toBe("Save 5 sprites");
+    await click(button("Save 5 sprites"));
+    await settle();
+    expect(uploads().map((body) => body.expression)).toEqual(["happy", "sad", "angry", "surprised", "smirk"]);
+  });
+});
+
+describe("work that overlaps a running cleanup", () => {
+  it("holds cuts, frames and the Transparent background box until the cleanup is back", async () => {
+    const cleanup = held("sprite_cleanup", cleanedCells);
+    await open({}, [sheetReply(), cleanup.call]);
+    await generate();
+    await setChecked("Transparent background", true);
+    await click(button("Frame sprite 1"));
+    await click(button("Apply cleanup"));
+    expect((button("Apply slice") as HTMLButtonElement).disabled).toBe(true);
+    expect((button("Apply frame") as HTMLButtonElement).disabled).toBe(true);
+    expect((button("Frame sprite 2") as HTMLButtonElement).disabled).toBe(true);
+    expect(byRole<HTMLInputElement>("checkbox", "Transparent background", view()).disabled).toBe(true);
+    cleanup.release();
+    await settle();
+    expect((button("Apply slice") as HTMLButtonElement).disabled).toBe(false);
+    expect((button("Apply frame") as HTMLButtonElement).disabled).toBe(false);
+    expect(byRole<HTMLInputElement>("checkbox", "Transparent background", view()).disabled).toBe(false);
+    expect(button("Use original")).toBeTruthy();
+  });
+
+  it("drops a cleanup reply that comes back after the sprites were replaced", async () => {
+    const cleanup = held("sprite_cleanup", cleanedCells);
+    await open({}, [sheetReply(), cleanup.call, sheetReply(), ...SIX_UPLOADS]);
+    await generate();
+    await setChecked("Transparent background", true);
+    await click(button("Apply cleanup"));
+    await click(button("Back to setup"));
+    await click(button("Discard"));
+    await generate();
+    await setChecked("Transparent background", true);
+    cleanup.release();
+    await settle();
+    expect(queryByRole("button", "Use original", view())).toBeNull();
+    expect(alertText()).toBeNull();
+    await click(button("Save 6 sprites"));
+    await settle();
+    expect(uploads()[0].image).toBe("data:image/png;base64,fake:cell0");
+  });
+});
+
+describe("a new owner while work is still running", () => {
+  it("closes an open prompt review so the old owner's run sends nothing more", async () => {
+    useUIStore.setState({ reviewImagePromptsBeforeSend: true });
+    await open({}, [
+      {
+        command: "sprite_generate_sheet_preview",
+        args: null,
+        reply: { items: [{ id: "a", kind: "sprite", title: "t", prompt: "p", width: 1, height: 1 }] },
+      },
+      sheetReply(),
+    ]);
+    await generate();
+    expect(dialogNamed("Review Image Prompt")).toBeTruthy();
+    await mounted!.render(OTHER_OWNER);
+    await settle();
+    // If the review is still in the page (an exit animation), confirming it now must do nothing.
+    const review = allByRole("dialog").find((item) => item.querySelector("h2")?.textContent === "Review Image Prompt");
+    const confirm = review ? queryByRole("button", "Generate", review) : null;
+    if (confirm) await click(confirm);
+    await settle();
+    expect(button("Generate sheet")).toBeTruthy();
+    expect(allByRole("checkbox", /^Keep /, view())).toHaveLength(0);
+    expect(sentCommands()).toEqual(["sprite_generate_sheet_preview"]);
+  });
+
+  it("doesn't show the old owner's save failure or refresh for it", async () => {
+    const failing = held("sprite_upload", () => {
+      throw Object.assign(new Error("disk full"), { details: { code: "image_provider_error" } });
+    });
+    await open({}, [sheetReply(), { command: "sprite_upload", args: null }, failing.call]);
+    await generate();
+    await click(button("Save 6 sprites"));
+    await mounted!.render(OTHER_OWNER);
+    failing.release();
+    await settle();
+    expect(alertText()).toBeNull();
+    expect(hostEvents.spritesGenerated).toBe(0);
+  });
+
+  it("doesn't show the old owner's cleanup failure", async () => {
+    const failing = held("sprite_cleanup", () => {
+      throw new Error("boom");
+    });
+    await open({}, [sheetReply(), failing.call]);
+    await generate();
+    await setChecked("Transparent background", true);
+    await click(button("Apply cleanup"));
+    await mounted!.render(OTHER_OWNER);
+    failing.release();
+    await settle();
+    expect(alertText()).toBeNull();
   });
 });

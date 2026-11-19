@@ -24,6 +24,7 @@ export function CutPanel({
   settings,
   sheetCount,
   busy,
+  disabled,
   onChange,
   onReset,
   onApply,
@@ -31,6 +32,8 @@ export function CutPanel({
   settings: SliceSettings;
   sheetCount: number;
   busy: boolean;
+  /** Held while another change to the pictures is running. */
+  disabled: boolean;
   onChange: (settings: SliceSettings) => void;
   onReset: () => void;
   onApply: () => void;
@@ -81,10 +84,16 @@ export function CutPanel({
         spacing. Applying re-slices the original source {sheetCount === 1 ? "sheet" : "sheets"} without regenerating.
       </p>
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={onReset} disabled={busy} aria-label="Reset slices" className={smallButton}>
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={busy || disabled}
+          aria-label="Reset slices"
+          className={smallButton}
+        >
           Reset
         </button>
-        <button type="button" onClick={onApply} disabled={busy} className={smallButton}>
+        <button type="button" onClick={onApply} disabled={busy || disabled} className={smallButton}>
           {busy && <Loader2 size="0.75rem" className="animate-spin" aria-hidden="true" />}
           {busy ? "Applying…" : "Apply slice"}
         </button>

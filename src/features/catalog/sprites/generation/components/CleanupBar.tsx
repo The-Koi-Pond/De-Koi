@@ -8,7 +8,8 @@ import { hintText, smallButton } from "./dialog-styles";
 export function CleanupBar({ dialog }: { dialog: SpriteGenerationController }) {
   const strengthId = useId();
   const engineBlocked = !dialog.cleanupEngineInstalled;
-  const applyDisabled = dialog.cleaning || dialog.sprites.length === 0 || engineBlocked;
+  const applyDisabled =
+    dialog.cleaning || dialog.slicing || dialog.framing || dialog.sprites.length === 0 || engineBlocked;
   const applyLabel = dialog.cleaning ? "Applying…" : dialog.cleanupApplied ? "Reapply cleanup" : "Apply cleanup";
 
   return (
@@ -18,6 +19,7 @@ export function CleanupBar({ dialog }: { dialog: SpriteGenerationController }) {
           <input
             type="checkbox"
             checked={dialog.transparentBackground}
+            disabled={dialog.cleaning}
             onChange={(event) => dialog.setTransparentBackground(event.target.checked)}
             className="accent-[var(--primary)]"
           />
