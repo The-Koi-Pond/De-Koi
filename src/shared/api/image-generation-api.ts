@@ -90,8 +90,12 @@ export const spriteApi = {
   cleanupStatus: <T = unknown>() => invokeTauri<T>("sprite_cleanup_status_command"),
   generateSheetPreview: <T = unknown>(body: Record<string, unknown>) =>
     invokeTauri<T>("sprite_generate_sheet_preview", { body }),
-  generateSheet: <T = unknown>(body: Record<string, unknown>) => invokeTauri<T>("sprite_generate_sheet", { body }),
-  cleanup: <T = unknown>(body: Record<string, unknown>) => invokeTauri<T>("sprite_cleanup", { body }),
+  // Sheet generation and background cleanup take 30-60 s or more, so the server's own limits bound them (as for
+  // image_generate) instead of the 30 s hosted request limit, which dropped the paid result while the server kept going.
+  generateSheet: <T = unknown>(body: Record<string, unknown>) =>
+    invokeTauri<T>("sprite_generate_sheet", { body }, { timeoutMs: null }),
+  cleanup: <T = unknown>(body: Record<string, unknown>) =>
+    invokeTauri<T>("sprite_cleanup", { body }, { timeoutMs: null }),
   list: async <T = unknown>(characterId: string, options?: SpriteOwnerOptions) => {
     const owner = spriteOwnerArgs(characterId, options);
     return resolveSpriteResponse(await invokeTauri<T>("sprite_list", owner), owner.characterId, owner.ownerType);
@@ -157,7 +161,8 @@ export const spriteApi = {
 export const imageGenerationApi = {
   avatarPreview: <T = unknown>(body: Record<string, unknown>) =>
     invokeTauri<T>("avatar_generation_preview_command", { body }),
-  avatarGenerate: <T = unknown>(body: Record<string, unknown>) => invokeTauri<T>("avatar_generation_command", { body }),
+  avatarGenerate: <T = unknown>(body: Record<string, unknown>) =>
+    invokeTauri<T>("avatar_generation_command", { body }, { timeoutMs: null }),
   generate: (body: Record<string, unknown>) =>
     invokeTauri<GeneratedImageResult>("image_generate", { body }, { timeoutMs: null }),
 };
