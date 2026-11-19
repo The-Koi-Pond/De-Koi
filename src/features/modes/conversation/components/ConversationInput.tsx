@@ -1834,6 +1834,7 @@ export function ConversationInput({
               onSelect={handleEmojiSelect}
               anchorRef={emojiButtonRef}
               containerRef={inputBarRef}
+              returnFocusRef={textareaRef}
             />
           </div>
 

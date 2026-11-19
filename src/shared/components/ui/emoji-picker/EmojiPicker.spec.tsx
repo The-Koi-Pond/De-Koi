@@ -33,23 +33,39 @@ interface RenderProps {
   open?: boolean;
   anchorRef?: RefObject<HTMLElement | null>;
   containerRef?: RefObject<HTMLElement | null>;
+  returnFocusRef?: RefObject<HTMLElement | null>;
+  /** React drag handlers on an element around the picker, like the message bar's file drop. */
+  parentDrag?: { onDragEnter: () => void; onDragOver: () => void; onDragLeave: () => void; onDrop: () => void };
 }
 
 const onClose = vi.fn();
 const onSelect = vi.fn();
 
-function render({ open = true, anchorRef, containerRef }: RenderProps = {}) {
+function render({ open = true, anchorRef, containerRef, returnFocusRef, parentDrag }: RenderProps = {}) {
   act(() => {
     root ??= createRoot(host!);
-    root.render(
+    const picker = (
       <EmojiPicker
         open={open}
         onClose={onClose}
         onSelect={onSelect}
         anchorRef={anchorRef}
         containerRef={containerRef}
-      />,
+        returnFocusRef={returnFocusRef}
+      />
     );
+    root.render(parentDrag ? <div {...parentDrag}>{picker}</div> : picker);
+  });
+}
+
+/** The panel's rendered height; jsdom lays nothing out, so tests set it. */
+function mockPanelHeight(height: number) {
+  const original = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this.getAttribute("role") === "dialog") {
+      return { top: 0, right: 336, bottom: height, left: 0, width: 336, height, x: 0, y: 0 } as DOMRect;
+    }
+    return original.call(this);
   });
 }
 
@@ -217,6 +233,58 @@ describe("EmojiPicker", () => {
       expect(panel()!.style.bottom).toBe(`${915 - 850 + 8}px`);
     });
 
+    describe("short windows keep the top on screen", () => {
+      function openAboveBarAt(windowHeight: number, barTop: number) {
+        setWindowSize(1366, windowHeight);
+        const anchor = elementAt({
+          top: barTop + 10,
+          right: 1000,
+          bottom: barTop + 44,
+          left: 966,
+          width: 34,
+          height: 34,
+          x: 966,
+          y: barTop + 10,
+        });
+        const bar = elementAt({
+          top: barTop,
+          right: 1366,
+          bottom: windowHeight,
+          left: 0,
+          width: 1366,
+          height: windowHeight - barTop,
+          x: 0,
+          y: barTop,
+        });
+        mockPanelHeight(352);
+        render({ anchorRef: refTo(anchor), containerRef: refTo(bar) });
+        return panel()!.style;
+      }
+
+      it("stays above the bar while the whole panel fits with 8px to spare", () => {
+        // 368 = 8px above the panel + 352 panel + 8px between the panel and the bar.
+        const style = openAboveBarAt(500, 368);
+        expect(style.bottom).toBe(`${500 - 368 + 8}px`);
+        expect(style.top).toBe("");
+        expect(style.height).toBe("");
+        expect(style.right).toBe(`${1366 - 1000}px`);
+      });
+
+      it("pins the top 8px below the window's top edge, covering the bar, when there isn't room above it", () => {
+        const style = openAboveBarAt(500, 300);
+        expect(style.top).toBe("8px");
+        expect(style.bottom).toBe("");
+        expect(style.height).toBe("352px");
+        expect(style.right).toBe(`${1366 - 1000}px`);
+      });
+
+      it("shrinks to the window, 8px from each edge, when the window is shorter than the panel", () => {
+        const style = openAboveBarAt(300, 230);
+        expect(style.top).toBe("8px");
+        expect(style.height).toBe(`${300 - 16}px`);
+      });
+    });
+
     it("sits at the bottom-left corner when there is no anchor", () => {
       render();
       expect(panel()!.style.bottom).toBe("0px");
@@ -265,6 +333,53 @@ describe("EmojiPicker", () => {
       expect(onClose).toHaveBeenCalledTimes(1);
     });
 
+    it("gives focus back to the message box after Escape", () => {
+      const messageBox = document.createElement("textarea");
+      document.body.appendChild(messageBox);
+      render({ returnFocusRef: refTo(messageBox) });
+      expect(document.activeElement).toBe(searchBox());
+      keyDown({ key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(messageBox);
+    });
+
+    it("gives focus back to the message box after an outside press that leaves focus on the page", () => {
+      vi.useFakeTimers();
+      try {
+        const messageBox = document.createElement("textarea");
+        const outside = document.createElement("div");
+        document.body.append(messageBox, outside);
+        render({ returnFocusRef: refTo(messageBox) });
+        press(outside);
+        expect(onClose).toHaveBeenCalledTimes(1);
+        // The caller closes it; the focused search box goes with the panel.
+        render({ open: false, returnFocusRef: refTo(messageBox) });
+        expect(document.activeElement).toBe(document.body);
+        act(() => vi.runAllTimers());
+        expect(document.activeElement).toBe(messageBox);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("leaves focus where an outside press put it", () => {
+      vi.useFakeTimers();
+      try {
+        const messageBox = document.createElement("textarea");
+        const otherField = document.createElement("input");
+        document.body.append(messageBox, otherField);
+        render({ returnFocusRef: refTo(messageBox) });
+        press(otherField);
+        render({ open: false, returnFocusRef: refTo(messageBox) });
+        // In a browser the press itself focuses the field it lands on.
+        otherField.focus();
+        act(() => vi.runAllTimers());
+        expect(document.activeElement).toBe(otherField);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("stops listening once closed", () => {
       render();
       render({ open: false });
@@ -273,6 +388,45 @@ describe("EmojiPicker", () => {
         document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       });
       expect(onClose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("drag and drop", () => {
+    function drag(element: Element, type: string) {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      const dataTransfer = { dropEffect: "copy", files: [] };
+      Object.defineProperty(event, "dataTransfer", { value: dataTransfer });
+      act(() => {
+        element.dispatchEvent(event);
+      });
+      return { event, dataTransfer };
+    }
+
+    it("keeps drags over the picker from the message bar's file drop, and refuses the drop", () => {
+      const parentDrag = { onDragEnter: vi.fn(), onDragOver: vi.fn(), onDragLeave: vi.fn(), onDrop: vi.fn() };
+      render({ parentDrag });
+      for (const target of [panel()!, emojiButton("😀"), searchBox()]) {
+        for (const type of ["dragenter", "dragover", "drop"]) {
+          const { event, dataTransfer } = drag(target, type);
+          // Handled here, so the browser doesn't open a dropped file either.
+          expect(event.defaultPrevented).toBe(true);
+          expect(dataTransfer.dropEffect).toBe("none");
+        }
+        drag(target, "dragleave");
+      }
+      expect(parentDrag.onDragEnter).not.toHaveBeenCalled();
+      expect(parentDrag.onDragOver).not.toHaveBeenCalled();
+      expect(parentDrag.onDragLeave).not.toHaveBeenCalled();
+      expect(parentDrag.onDrop).not.toHaveBeenCalled();
+    });
+
+    it("still lets the same handlers see drags outside the picker", () => {
+      const parentDrag = { onDragEnter: vi.fn(), onDragOver: vi.fn(), onDragLeave: vi.fn(), onDrop: vi.fn() };
+      render({ parentDrag });
+      drag(host!.firstElementChild!, "dragover");
+      drag(host!.firstElementChild!, "drop");
+      expect(parentDrag.onDragOver).toHaveBeenCalledTimes(1);
+      expect(parentDrag.onDrop).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -100,6 +100,20 @@ Measured when the picker opens (not tracked while open):
   right edge, `right = max(8, innerWidth - anchorRight)`.
 - No anchor: the position is not measured (the panel sits at the bottom-left
   corner of the window). Both callers always pass an anchor.
+- **Follow-up after the rebuild:** when the whole panel doesn't fit above the
+  bar with 8px to spare, its top is pinned 8px below the window's top edge
+  (`top: 8`, covering the bar instead), and a window shorter than the panel
+  plus 16px shrinks it to `innerHeight - 16`. Otherwise nothing changes.
+
+### Follow-ups after the rebuild
+
+- `returnFocusRef` (both callers pass the message box): Escape gives it focus
+  back; an outside press does too, unless the press put focus on something
+  else (another field or button keeps it).
+- Drags over the panel stop there: `dragenter`, `dragover` and `drop` are
+  refused (`dropEffect = "none"`) and don't reach the message bar's file drop
+  behind it, so a file dropped on the picker is neither attached nor opened by
+  the browser.
 
 ## Categories and emojis
 

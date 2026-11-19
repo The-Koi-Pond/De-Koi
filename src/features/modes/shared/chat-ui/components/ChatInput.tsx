@@ -1570,6 +1570,7 @@ export const ChatInput = memo(function ChatInput({
             onSelect={handleEmojiSelect}
             anchorRef={emojiButtonRef}
             containerRef={inputBarRef}
+            returnFocusRef={textareaRef}
           />
         </div>
 
