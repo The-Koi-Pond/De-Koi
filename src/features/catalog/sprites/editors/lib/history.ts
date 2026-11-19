@@ -2,7 +2,7 @@ import type { RgbaPicture } from "./picture";
 
 /** At most this many steps are kept on each list. */
 const HISTORY_LIMIT = 12;
-/** Undo and redo together keep about this many bytes of pictures… */
+/** Undo and redo together keep about this many bytes of pictures (by dropping old undo steps)… */
 export const HISTORY_BYTE_BUDGET = 256 * 1024 * 1024;
 /** …but never fewer than this many undo steps. */
 const MIN_UNDO_STEPS = 3;
@@ -22,13 +22,15 @@ function bytes(history: EditHistory): number {
   return total;
 }
 
-/** Applies the step limits and the memory budget: drops the oldest undo steps first, then the furthest redo steps. */
+/**
+ * Applies the step limits and the memory budget. Only the oldest undo steps are dropped for the budget, never fewer
+ * than three are kept, and redo steps (the person's newest work) are never dropped for it.
+ */
 function trim(history: EditHistory): EditHistory {
   const undo = history.undo.slice(-HISTORY_LIMIT);
   const redo = history.redo.slice(-HISTORY_LIMIT);
   const trimmed = { undo, redo };
   while (bytes(trimmed) > HISTORY_BYTE_BUDGET && undo.length > MIN_UNDO_STEPS) undo.shift();
-  while (bytes(trimmed) > HISTORY_BYTE_BUDGET && redo.length > 1) redo.shift();
   return trimmed;
 }
 

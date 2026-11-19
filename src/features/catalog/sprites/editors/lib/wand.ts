@@ -55,6 +55,9 @@ function wandRule(settings: WandSettings): WandRule {
  * result is a new picture. Spec: "The wand" in docs/provenance/sprite-editors.md.
  */
 export function removeWandArea(before: RgbaPicture, x: number, y: number, settings: WandSettings): WandResult {
+  const inside =
+    Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < before.width && y < before.height;
+  if (!inside) return { picture: before, removed: 0, target: [0, 0, 0, 0] };
   const target = pixelAt(before, x, y);
   if (target[3] <= SEE_THROUGH_ALPHA) return { picture: before, removed: 0, target };
 
@@ -180,8 +183,9 @@ function stepBand(
   seeds: number[],
   canWalk: (index: number) => boolean,
   maxStep: number,
-): { order: number[]; steps: Int32Array } {
-  const steps = new Int32Array(width * height);
+): { order: number[]; steps: Uint8Array } {
+  // Bands are at most 6 steps wide (1 + round(2 + 3) and 1 + round(5)), so a byte per pixel holds the count.
+  const steps = new Uint8Array(width * height);
   const order: number[] = [];
   for (const seed of seeds) {
     steps[seed] = 1;
@@ -298,17 +302,17 @@ function softenKeptEdge(
   }
   const band = stepBand(width, height, seeds, (index) => !area[index], bandWidth);
 
-  const faded = new Float64Array(width * height);
+  // Faded alphas are whole numbers 0–255, so a byte per pixel holds them exactly.
+  const faded = new Uint8Array(width * height);
   for (let index = 0; index < faded.length; index += 1) faded[index] = out[index * 4 + 3];
-  const edgeWeights = new Float64Array(width * height);
+  const edgeWeight = (index: number) => clamp01((bandWidth - band.steps[index] + 1) / bandWidth);
 
   for (const index of band.order) {
     const offset = index * 4;
     const alpha = out[offset + 3];
     if (alpha === 0) continue;
     const beforeAlpha = source[offset + 3];
-    const edge = clamp01((bandWidth - band.steps[index] + 1) / bandWidth);
-    edgeWeights[index] = edge;
+    const edge = edgeWeight(index);
     const distance = distanceToColor(source, offset, target);
     const matte = distance <= matteReach ? 1 - distance / matteReach : 0;
     const fragility = clamp01((248 - beforeAlpha) / (218 - 82 * a));
@@ -361,7 +365,7 @@ function softenKeptEdge(
       }
     }
     const average = Math.round(weighted / total);
-    const mix = a * edgeWeights[index] ** 0.72 * 0.64;
+    const mix = a * edgeWeight(index) ** 0.72 * 0.64;
     out[index * 4 + 3] = Math.min(fadedAlpha, Math.round(fadedAlpha * (1 - mix) + average * mix));
   }
 }
@@ -399,8 +403,10 @@ function addSoftHalo(
   }
   const band = stepBand(width, height, seeds, (index) => area[index] === 1, haloWidth);
 
-  let alphas = new Float64Array(width * height);
-  let colors = new Float64Array(width * height * 3);
+  // Halo alphas and colours are whole numbers 0–255, so bytes hold them exactly. Smoothing passes alternate between
+  // two buffers instead of copying the picture-sized arrays on every pass.
+  let alphas = new Uint8Array(width * height);
+  let colors = new Uint8Array(width * height * 3);
   for (const index of band.order) {
     const nearby = nearbyColor(before, area, index, target, sampling);
     if (!nearby) continue;
@@ -413,9 +419,10 @@ function addSoftHalo(
   }
 
   const passes = Math.round(2 * s + 2 * f);
+  let nextAlphas = passes > 0 ? new Uint8Array(width * height) : alphas;
+  let nextColors = passes > 0 ? new Uint8Array(width * height * 3) : colors;
   for (let pass = 0; pass < passes; pass += 1) {
-    const nextAlphas = new Float64Array(alphas);
-    const nextColors = new Float64Array(colors);
+    // Only halo-band pixels ever hold a halo, so only they need carrying over into the other buffer.
     for (const index of band.order) {
       const px = index % width;
       const py = (index - px) / width;
@@ -433,22 +440,27 @@ function addSoftHalo(
           const neighbour = ny * width + nx;
           if (!area[neighbour]) continue;
           const weight = blockWeight(dx, dy, 1.8);
-          const alphaWeight = weight * alphas[neighbour];
+          const alpha = alphas[neighbour];
           total += weight;
-          alphaSum += alphaWeight;
-          red += alphaWeight * colors[neighbour * 3];
-          green += alphaWeight * colors[neighbour * 3 + 1];
-          blue += alphaWeight * colors[neighbour * 3 + 2];
+          alphaSum += weight * alpha;
+          // Weight × (alpha × colour), in that order: the recorded results depend on it.
+          red += weight * (alpha * colors[neighbour * 3]);
+          green += weight * (alpha * colors[neighbour * 3 + 1]);
+          blue += weight * (alpha * colors[neighbour * 3 + 2]);
         }
       }
-      if (alphaSum <= 0) continue;
+      if (alphaSum <= 0) {
+        nextAlphas[index] = alphas[index];
+        nextColors.set(colors.subarray(index * 3, index * 3 + 3), index * 3);
+        continue;
+      }
       nextColors[index * 3] = Math.round(red / alphaSum);
       nextColors[index * 3 + 1] = Math.round(green / alphaSum);
       nextColors[index * 3 + 2] = Math.round(blue / alphaSum);
       nextAlphas[index] = Math.round(alphaSum / total);
     }
-    alphas = nextAlphas;
-    colors = nextColors;
+    [alphas, nextAlphas] = [nextAlphas, alphas];
+    [colors, nextColors] = [nextColors, colors];
   }
 
   for (const index of band.order) {

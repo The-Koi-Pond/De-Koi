@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { idleHint, readoutText, strokeChangedText, wandRemovedText } from "./cleanup-text";
 import { EMPTY_HISTORY, HISTORY_BYTE_BUDGET, recordChange, redoChange, undoChange, type EditHistory } from "./history";
 import type { RgbaPicture } from "./picture";
+import { removeWandArea } from "./wand";
 import { fitZoom, MAX_ZOOM, MIN_ZOOM, pixelUnderPointer, wheelZoom, zoomIn, zoomOut, zoomPercent } from "./view";
 
 function picture(value: number, width = 2, height = 2): RgbaPicture {
@@ -71,6 +72,90 @@ describe("history", () => {
     history = EMPTY_HISTORY;
     for (let step = 0; step < 14; step += 1) history = recordChange(history, sized(6, step));
     expect(history.undo).toHaveLength(12);
+  });
+
+  it("never drops redo steps for the budget: two undos and two redos on 100 MB pictures end on the newest", () => {
+    const sized = (marker: number) =>
+      ({ width: 1, height: 1, data: { byteLength: 100 * 1024 * 1024, 0: marker } }) as unknown as RgbaPicture;
+    let history: EditHistory = EMPTY_HISTORY;
+    let current = sized(0);
+    for (let step = 1; step <= 4; step += 1) {
+      history = recordChange(history, current);
+      current = sized(step);
+    }
+    expect(history.undo.map((step) => step.data[0])).toEqual([1, 2, 3]);
+    for (const move of [undoChange, undoChange, redoChange, redoChange]) {
+      const next = move(history, current)!;
+      history = next.history;
+      current = next.picture;
+    }
+    expect(current.data[0]).toBe(4);
+    expect(history.redo).toEqual([]);
+    expect(history.undo.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("wand limits", () => {
+  const solid = (width: number, height: number): RgbaPicture => ({
+    width,
+    height,
+    data: new Uint8ClampedArray(width * height * 4).fill(200),
+  });
+
+  it("changes nothing for a start point outside the picture or not a whole number", () => {
+    const picture = solid(4, 3);
+    const settings = { tolerance: 36, strong: true, softness: 100, feather: 100 };
+    for (const [x, y] of [
+      [-1, 0],
+      [0, -1],
+      [4, 0],
+      [0, 3],
+      [Number.NaN, 1],
+      [1, Number.NaN],
+      [1.5, 1],
+      [Number.POSITIVE_INFINITY, 0],
+    ]) {
+      const result = removeWandArea(picture, x, y, settings);
+      expect(result.removed).toBe(0);
+      expect(result.picture).toBe(picture);
+    }
+    expect(removeWandArea(picture, 3, 0, settings).removed).toBe(12);
+  });
+
+  it("allocates about 20 bytes per pixel for a click with the widest bands", () => {
+    // A 512×512 picture: a dark disc on a light background, so the kept edge and the halo are long.
+    const width = 512;
+    const picture = solid(width, width);
+    for (let y = 0; y < width; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if ((x - 256) ** 2 + (y - 256) ** 2 < 150 ** 2)
+          picture.data.fill(40, (y * width + x) * 4, (y * width + x) * 4 + 3);
+      }
+    }
+    let allocated = 0;
+    const counting = <T extends object>(type: T) =>
+      new Proxy(type, {
+        construct(target, args, newTarget) {
+          const made = Reflect.construct(target as never, args, newTarget) as ArrayBufferView;
+          allocated += made.byteLength;
+          return made;
+        },
+      });
+    const originals = { Uint8Array, Uint8ClampedArray, Int32Array, Float64Array };
+    Object.assign(globalThis, {
+      Uint8Array: counting(Uint8Array),
+      Uint8ClampedArray: counting(Uint8ClampedArray),
+      Int32Array: counting(Int32Array),
+      Float64Array: counting(Float64Array),
+    });
+    let removed = 0;
+    try {
+      removed = removeWandArea(picture, 2, 2, { tolerance: 128, strong: true, softness: 100, feather: 100 }).removed;
+    } finally {
+      Object.assign(globalThis, originals);
+    }
+    expect(removed).toBeGreaterThan(width * width * 0.7);
+    expect(allocated / (width * width)).toBeLessThanOrEqual(24);
   });
 });
 
