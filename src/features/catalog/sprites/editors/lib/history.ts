@@ -1,11 +1,11 @@
 import type { RgbaPicture } from "./picture";
 
 /** At most this many steps are kept on each list. */
-export const HISTORY_LIMIT = 12;
+const HISTORY_LIMIT = 12;
 /** Undo and redo together keep about this many bytes of pictures… */
 export const HISTORY_BYTE_BUDGET = 256 * 1024 * 1024;
 /** …but never fewer than this many undo steps. */
-export const MIN_UNDO_STEPS = 3;
+const MIN_UNDO_STEPS = 3;
 
 /** Pictures to go back to (oldest first) and forward to (the next redo last). */
 export interface EditHistory {

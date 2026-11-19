@@ -8,7 +8,7 @@ const FIT_MARGIN = 32;
 /** From this zoom on, the picture is shown with sharp pixels. */
 export const SHARP_PIXELS_ZOOM = 2;
 
-export function clampZoom(zoom: number): number {
+function clampZoom(zoom: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
 }
 

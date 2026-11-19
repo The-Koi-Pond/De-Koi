@@ -6,7 +6,7 @@ import type { WandSettings } from "./wand";
 export type CleanupTool = "wand" | "clean" | "erase" | "brush" | "blur" | "pan";
 export type BrushPaintMode = "color" | "restore";
 
-export function formatRgba(rgba: Rgba): string {
+function formatRgba(rgba: Rgba): string {
   return `rgba(${rgba[0]}, ${rgba[1]}, ${rgba[2]}, ${rgba[3]})`;
 }
 
