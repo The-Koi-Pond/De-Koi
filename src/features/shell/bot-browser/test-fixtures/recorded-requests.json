@@ -1,0 +1,3140 @@
+{
+  "about": "Requests the old Bot Browser screen sent, recorded black-box against the live sites on 2026-11-18 (old screen at c724819731). Each step lists the screen state after a user action and the bot_browser_get/bot_browser_post calls it caused (picture fetches left out). Steps are cumulative. Query parameter order doesn't matter. A step with no requests sent nothing (for example Next disabled on the last page). CharacterTavern's site rejected every search that day, and JannyAI's detail page failed, so those providers have no detail step. DataCat resolved \"fantasy\" to tag id 6 from its tag list that day; \"zzqx\" was not a DataCat tag, so it was left out (decision 8 adds a notice, the request stays the same). JannyAI mapped \"fantasy\" to id 53 and fetched up to 3 extra pages for the made-up \"zzqx\".",
+  "providers": {
+    "chub": [
+      {
+        "step": "open",
+        "note": "Browser opened (ChubAI); the two session checks run on open",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_all",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count"
+          }
+        ]
+      },
+      {
+        "step": "default-page2",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_all",
+          "page": 2,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=2&nsfw=false&sort=download_count"
+          }
+        ]
+      },
+      {
+        "step": "default-page1",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_all",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count"
+          }
+        ]
+      },
+      {
+        "step": "sort",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "page2",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 2,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=2&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "page1",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "nsfw-on",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": true,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=true&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "nsfw-off",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "feature-image-gallery-on",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {
+            "images": true
+          },
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&require_images=true"
+          }
+        ]
+      },
+      {
+        "step": "feature-image-gallery-off",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "feature-lorebook-on",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {
+            "lore": true
+          },
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&require_lore=true"
+          }
+        ]
+      },
+      {
+        "step": "feature-lorebook-off",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "feature-expressions-on",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {
+            "expressions": true
+          },
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&require_expressions=true"
+          }
+        ]
+      },
+      {
+        "step": "feature-expressions-off",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "feature-alt-greetings-on",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {
+            "greetings": true
+          },
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&require_alternate_greetings=true"
+          }
+        ]
+      },
+      {
+        "step": "feature-alt-greetings-off",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "ascending",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": true,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&asc=true"
+          }
+        ]
+      },
+      {
+        "step": "descending",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "min-tokens",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "100",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&min_tokens=100"
+          }
+        ]
+      },
+      {
+        "step": "max-tokens",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "100",
+          "maxTokens": "5000",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&min_tokens=100&max_tokens=5000"
+          }
+        ]
+      },
+      {
+        "step": "tokens-cleared",
+        "note": "min cleared, then max cleared: one search each",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&max_tokens=5000"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "tag-include",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&tags=fantasy"
+          }
+        ]
+      },
+      {
+        "step": "tag-custom",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&tags=fantasy%2Czzqx"
+          }
+        ]
+      },
+      {
+        "step": "tag-exclude",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": ["horror"]
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7&tags=fantasy%2Czzqx&excludeTags=horror"
+          }
+        ]
+      },
+      {
+        "step": "tags-cleared",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "search",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "elf",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=elf&page=1&nsfw=false&sort=download_count"
+          }
+        ]
+      },
+      {
+        "step": "clear-search",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count&max_days_ago=7"
+          }
+        ]
+      },
+      {
+        "step": "detail",
+        "note": "first card opened",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_week",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/character/pongoon/bittersweet-confession-8b169617e100"
+          }
+        ]
+      }
+    ],
+    "janny": [
+      {
+        "step": "open",
+        "note": "Browser opened (ChubAI); the two session checks run on open",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_all",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count"
+          }
+        ]
+      },
+      {
+        "step": "switch",
+        "state": {
+          "provider": "janny",
+          "sort": "newest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:desc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "default-page2",
+        "state": {
+          "provider": "janny",
+          "sort": "newest",
+          "page": 2,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 2,
+                    "sort": ["createdAtStamp:desc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "default-page1",
+        "state": {
+          "provider": "janny",
+          "sort": "newest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:desc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "sort",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "page2",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 2,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 2,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "page1",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "nsfw-on",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": true,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "nsfw-off",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "feature-show-low-quality-on",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {
+            "showLowQuality": true
+          },
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "feature-show-low-quality-off",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "min-tokens",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "100",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 100", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "max-tokens",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "100",
+          "maxTokens": "5000",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 100", "totalToken <= 5000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "tokens-cleared",
+        "note": "min cleared, then max cleared: one search each",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 5000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "tag-include",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": [
+                      "totalToken >= 29",
+                      "totalToken <= 100000",
+                      "isNsfw = false",
+                      "isLowQuality = false",
+                      "tagIds = 53"
+                    ],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "tag-custom",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": [
+                      "totalToken >= 29",
+                      "totalToken <= 100000",
+                      "isNsfw = false",
+                      "isLowQuality = false",
+                      "tagIds = 53"
+                    ],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": [
+                      "totalToken >= 29",
+                      "totalToken <= 100000",
+                      "isNsfw = false",
+                      "isLowQuality = false",
+                      "tagIds = 53"
+                    ],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 2,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": [
+                      "totalToken >= 29",
+                      "totalToken <= 100000",
+                      "isNsfw = false",
+                      "isLowQuality = false",
+                      "tagIds = 53"
+                    ],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 3,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": [
+                      "totalToken >= 29",
+                      "totalToken <= 100000",
+                      "isNsfw = false",
+                      "isLowQuality = false",
+                      "tagIds = 53"
+                    ],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 4,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "tag-exclude",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": ["horror"]
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": [
+                      "totalToken >= 29",
+                      "totalToken <= 100000",
+                      "isNsfw = false",
+                      "isLowQuality = false",
+                      "tagIds = 53"
+                    ],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": [
+                      "totalToken >= 29",
+                      "totalToken <= 100000",
+                      "isNsfw = false",
+                      "isLowQuality = false",
+                      "tagIds = 53"
+                    ],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 2,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": [
+                      "totalToken >= 29",
+                      "totalToken <= 100000",
+                      "isNsfw = false",
+                      "isLowQuality = false",
+                      "tagIds = 53"
+                    ],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 3,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": [
+                      "totalToken >= 29",
+                      "totalToken <= 100000",
+                      "isNsfw = false",
+                      "isLowQuality = false",
+                      "tagIds = 53"
+                    ],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 4,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "tags-cleared",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "search",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "elf",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "elf",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "clear-search",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_post",
+            "path": "/bot-browser/janny/search",
+            "body": {
+              "payload": {
+                "queries": [
+                  {
+                    "indexUid": "janny-characters",
+                    "q": "",
+                    "facets": ["isLowQuality", "isNsfw", "tagIds", "totalToken"],
+                    "attributesToCrop": ["description:300"],
+                    "cropMarker": "...",
+                    "filter": ["totalToken >= 29", "totalToken <= 100000", "isNsfw = false", "isLowQuality = false"],
+                    "attributesToHighlight": ["name", "description"],
+                    "highlightPreTag": "__ais-highlight__",
+                    "highlightPostTag": "__/ais-highlight__",
+                    "hitsPerPage": 80,
+                    "page": 1,
+                    "sort": ["createdAtStamp:asc"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "step": "detail",
+        "note": "first card opened",
+        "state": {
+          "provider": "janny",
+          "sort": "oldest",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/janny/character/dab43148-c76c-43cf-a6f0-4b1022942b23?slug=character-kiryu-kazuma"
+          }
+        ]
+      }
+    ],
+    "chartavern": [
+      {
+        "step": "open",
+        "note": "Browser opened (ChubAI); the two session checks run on open",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_all",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count"
+          }
+        ]
+      },
+      {
+        "step": "switch",
+        "state": {
+          "provider": "chartavern",
+          "sort": "most_popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=most_popular&nsfw=false"
+          }
+        ]
+      },
+      {
+        "step": "sort",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false"
+          }
+        ]
+      },
+      {
+        "step": "feature-lorebook-on",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {
+            "lore": true
+          },
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false&hasLorebook=true"
+          }
+        ]
+      },
+      {
+        "step": "feature-lorebook-off",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false"
+          }
+        ]
+      },
+      {
+        "step": "feature-original-character-on",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {
+            "isOC": true
+          },
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false&isOC=true"
+          }
+        ]
+      },
+      {
+        "step": "feature-original-character-off",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false"
+          }
+        ]
+      },
+      {
+        "step": "min-tokens",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "100",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false&min_tokens=100"
+          }
+        ]
+      },
+      {
+        "step": "max-tokens",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "100",
+          "maxTokens": "5000",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false&min_tokens=100&max_tokens=5000"
+          }
+        ]
+      },
+      {
+        "step": "tokens-cleared",
+        "note": "min cleared, then max cleared: one search each",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false&max_tokens=5000"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false"
+          }
+        ]
+      },
+      {
+        "step": "tag-include",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false&tags=fantasy"
+          }
+        ]
+      },
+      {
+        "step": "tag-custom",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false&tags=fantasy%2Czzqx"
+          }
+        ]
+      },
+      {
+        "step": "tag-exclude",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": ["horror"]
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false&tags=fantasy%2Czzqx&excludeTags=horror"
+          }
+        ]
+      },
+      {
+        "step": "tags-cleared",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false"
+          }
+        ]
+      },
+      {
+        "step": "search",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "elf",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=elf&page=1&limit=60&sort=trending&nsfw=false"
+          }
+        ]
+      },
+      {
+        "step": "clear-search",
+        "state": {
+          "provider": "chartavern",
+          "sort": "trending",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/search?q=&page=1&limit=60&sort=trending&nsfw=false"
+          }
+        ]
+      }
+    ],
+    "pygmalion": [
+      {
+        "step": "open",
+        "note": "Browser opened (ChubAI); the two session checks run on open",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_all",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count"
+          }
+        ]
+      },
+      {
+        "step": "switch",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "downloads",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=downloads&orderDescending=true"
+          }
+        ]
+      },
+      {
+        "step": "default-page2",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "downloads",
+          "page": 2,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=1&pageSize=48&orderBy=downloads&orderDescending=true"
+          }
+        ]
+      },
+      {
+        "step": "default-page1",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "downloads",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=downloads&orderDescending=true"
+          }
+        ]
+      },
+      {
+        "step": "sort",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=stars&orderDescending=true"
+          }
+        ]
+      },
+      {
+        "step": "page2",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 2,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=1&pageSize=48&orderBy=stars&orderDescending=true"
+          }
+        ]
+      },
+      {
+        "step": "page1",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=stars&orderDescending=true"
+          }
+        ]
+      },
+      {
+        "step": "ascending",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": true,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=stars&orderDescending=false"
+          }
+        ]
+      },
+      {
+        "step": "descending",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=stars&orderDescending=true"
+          }
+        ]
+      },
+      {
+        "step": "tag-include",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=stars&orderDescending=true&tagsInclude=fantasy"
+          }
+        ]
+      },
+      {
+        "step": "tag-custom",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=stars&orderDescending=true&tagsInclude=fantasy%2Czzqx"
+          }
+        ]
+      },
+      {
+        "step": "tag-exclude",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": ["horror"]
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=stars&orderDescending=true&tagsInclude=fantasy%2Czzqx&tagsExclude=horror"
+          }
+        ]
+      },
+      {
+        "step": "tags-cleared",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=stars&orderDescending=true"
+          }
+        ]
+      },
+      {
+        "step": "search",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "elf",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=elf&page=0&pageSize=48&orderBy=stars&orderDescending=true"
+          }
+        ]
+      },
+      {
+        "step": "clear-search",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/search?q=&page=0&pageSize=48&orderBy=stars&orderDescending=true"
+          }
+        ]
+      },
+      {
+        "step": "detail",
+        "note": "first card opened",
+        "state": {
+          "provider": "pygmalion",
+          "sort": "stars",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/character?id=6b67ca81-f58e-4a16-bf29-5f36313f29b7"
+          }
+        ]
+      }
+    ],
+    "wyvern": [
+      {
+        "step": "open",
+        "note": "Browser opened (ChubAI); the two session checks run on open",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_all",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count"
+          }
+        ]
+      },
+      {
+        "step": "switch",
+        "state": {
+          "provider": "wyvern",
+          "sort": "popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=popular&rating=none"
+          }
+        ]
+      },
+      {
+        "step": "sort",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          }
+        ]
+      },
+      {
+        "step": "feature-lorebook-on",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {
+            "lore": true
+          },
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          }
+        ]
+      },
+      {
+        "step": "feature-lorebook-off",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          }
+        ]
+      },
+      {
+        "step": "feature-alt-greetings-on",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {
+            "greetings": true
+          },
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          }
+        ]
+      },
+      {
+        "step": "feature-alt-greetings-off",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          }
+        ]
+      },
+      {
+        "step": "min-tokens",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "100",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          }
+        ]
+      },
+      {
+        "step": "max-tokens",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "100",
+          "maxTokens": "5000",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          }
+        ]
+      },
+      {
+        "step": "tokens-cleared",
+        "note": "min cleared, then max cleared: one search each",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          }
+        ]
+      },
+      {
+        "step": "tag-include",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular&tags=fantasy"
+          }
+        ]
+      },
+      {
+        "step": "tag-custom",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular&tags=fantasy%2Czzqx"
+          }
+        ]
+      },
+      {
+        "step": "tag-exclude",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": ["horror"]
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular&tags=fantasy%2Czzqx"
+          }
+        ]
+      },
+      {
+        "step": "tags-cleared",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          }
+        ]
+      },
+      {
+        "step": "search",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "elf",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular&q=elf"
+          }
+        ]
+      },
+      {
+        "step": "clear-search",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/search?page=1&limit=48&sort=nsfw-popular"
+          }
+        ]
+      },
+      {
+        "step": "detail",
+        "note": "first card opened",
+        "state": {
+          "provider": "wyvern",
+          "sort": "nsfw-popular",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/wyvern/character/_zLfky34DNpf2xR8zxrzf1"
+          }
+        ]
+      }
+    ],
+    "datacat": [
+      {
+        "step": "open",
+        "note": "Browser opened (ChubAI); the two session checks run on open",
+        "state": {
+          "provider": "chub",
+          "sort": "popular_all",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/pygmalion/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chartavern/session"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/chub/search?q=&page=1&nsfw=false&sort=download_count"
+          }
+        ]
+      },
+      {
+        "step": "switch",
+        "state": {
+          "provider": "datacat",
+          "sort": "relevance",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/tags"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/recent?limit=80&offset=0"
+          }
+        ]
+      },
+      {
+        "step": "default-page2",
+        "state": {
+          "provider": "datacat",
+          "sort": "relevance",
+          "page": 2,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/recent?limit=80&offset=80"
+          }
+        ]
+      },
+      {
+        "step": "default-page1",
+        "state": {
+          "provider": "datacat",
+          "sort": "relevance",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/recent?limit=80&offset=0"
+          }
+        ]
+      },
+      {
+        "step": "sort",
+        "state": {
+          "provider": "datacat",
+          "sort": "fresh",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/fresh?sortBy=score&limit24=80&limitWeek=0"
+          }
+        ]
+      },
+      {
+        "step": "tag-include",
+        "state": {
+          "provider": "datacat",
+          "sort": "fresh",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/recent?limit=80&offset=0&tagIds=6"
+          }
+        ]
+      },
+      {
+        "step": "tag-custom",
+        "state": {
+          "provider": "datacat",
+          "sort": "fresh",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/recent?limit=80&offset=0&tagIds=6"
+          }
+        ]
+      },
+      {
+        "step": "tag-exclude",
+        "state": {
+          "provider": "datacat",
+          "sort": "fresh",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": ["fantasy", "zzqx"],
+          "excludeTags": ["horror"]
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/recent?limit=80&offset=0&tagIds=6"
+          }
+        ]
+      },
+      {
+        "step": "tags-cleared",
+        "state": {
+          "provider": "datacat",
+          "sort": "fresh",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/fresh?sortBy=score&limit24=80&limitWeek=0"
+          }
+        ]
+      },
+      {
+        "step": "search",
+        "state": {
+          "provider": "datacat",
+          "sort": "fresh",
+          "page": 1,
+          "search": "elf",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/recent?limit=80&offset=0&q=elf"
+          }
+        ]
+      },
+      {
+        "step": "clear-search",
+        "state": {
+          "provider": "datacat",
+          "sort": "fresh",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/fresh?sortBy=score&limit24=80&limitWeek=0"
+          }
+        ]
+      },
+      {
+        "step": "detail",
+        "note": "first card opened",
+        "state": {
+          "provider": "datacat",
+          "sort": "fresh",
+          "page": 1,
+          "search": "",
+          "nsfw": false,
+          "ascending": false,
+          "minTokens": "",
+          "maxTokens": "",
+          "features": {},
+          "includeTags": [],
+          "excludeTags": []
+        },
+        "requests": [
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/download/75207e2c-972e-4c32-9e4c-3d6068b90c59"
+          },
+          {
+            "command": "bot_browser_get",
+            "path": "/bot-browser/datacat/character/75207e2c-972e-4c32-9e4c-3d6068b90c59"
+          }
+        ]
+      }
+    ]
+  }
+}

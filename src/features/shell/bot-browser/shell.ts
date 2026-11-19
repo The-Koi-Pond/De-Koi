@@ -1,2 +1,2 @@
-export * from "./components/BotBrowserPanel";
-export * from "./components/BotBrowserView";
+export { BotBrowserView } from "./components/browser/BotBrowserView";
+export { BotBrowserPanel } from "./components/panel/BotBrowserPanel";

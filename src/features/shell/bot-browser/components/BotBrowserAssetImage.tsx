@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { fetchBotBrowserAssetBlob } from "../api/bot-browser-api";
+import { fetchBotBrowserAssetBlob } from "../lib/site-api";
 import { botBrowserAssetImageCache, type AssetImageCache } from "../lib/asset-image-cache";
 
 type BotBrowserAssetImageProps = {
