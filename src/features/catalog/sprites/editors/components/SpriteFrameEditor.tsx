@@ -5,7 +5,7 @@ import { cropSpriteDataUrl, type SpriteFrameAdjustments } from "../../../../../s
 import { PercentSlider } from "../../generation/components/PercentSlider";
 import { MAX_FRAME_EDGE, ZERO_FRAME, setFrameEdge, type FrameEdge } from "../../generation/lib/frame-limits";
 import { editorButton, errorText, primaryEditorButton } from "./editor-styles";
-import { confirmDiscard, type SavedSpriteEditorProps } from "./saved-sprite-editor";
+import { useDiscardQuestion, type SavedSpriteEditorProps } from "./saved-sprite-editor";
 
 const EDGES: Array<{ edge: FrameEdge; label: string }> = [
   { edge: "top", label: "Top" },
@@ -43,6 +43,7 @@ export function SpriteFrameEditor({ imageUrl, label, applying, onApply, onClose 
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const headingId = useId();
+  const { confirmDiscard } = useDiscardQuestion(label);
 
   if (framedUrl !== imageUrl) {
     setFramedUrl(imageUrl);
@@ -104,7 +105,7 @@ export function SpriteFrameEditor({ imageUrl, label, applying, onApply, onClose 
   };
 
   const requestClose = async () => {
-    if (hasFrame(frame) && !(await confirmDiscard(label))) return;
+    if (hasFrame(frame) && !(await confirmDiscard())) return;
     onClose();
   };
 

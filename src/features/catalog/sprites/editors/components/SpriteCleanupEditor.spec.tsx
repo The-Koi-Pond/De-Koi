@@ -18,6 +18,7 @@ import {
   settle,
   stubLayout,
 } from "../test-fixtures/editor-driver";
+import { useDialogStore } from "../../../../../shared/stores/dialog.store";
 import { SpriteCleanupEditor } from "./SpriteCleanupEditor";
 
 // The cleanup editor's behaviour with the canvas layer replaced: loading hands back picture A's RGBA, drawing and
@@ -54,11 +55,25 @@ vi.mock("../browser/picture-canvas", () => ({
     return `data:image/png;base64,encoded-${layer.encoded.length}`;
   },
 }));
-const confirm = vi.hoisted(() => ({ answer: true, asked: [] as string[] }));
+/** The discard question: answered at once, or held open (`"hold"`) until it is dismissed. */
+const confirm = vi.hoisted(() => ({
+  answer: true as boolean | "hold",
+  asked: [] as string[],
+  dismissed: 0,
+  release: null as ((answer: boolean) => void) | null,
+}));
 vi.mock("../../../../../shared/lib/app-dialogs", () => ({
   showConfirmDialog: async (options: { message: string }) => {
     confirm.asked.push(options.message);
-    return confirm.answer;
+    if (confirm.answer !== "hold") return confirm.answer;
+    return new Promise<boolean>((resolve) => {
+      confirm.release = resolve;
+    });
+  },
+  dismissActiveDialog: () => {
+    confirm.dismissed += 1;
+    confirm.release?.(false);
+    confirm.release = null;
   },
 }));
 
@@ -68,6 +83,9 @@ const A = (() => {
   const data = new Uint8ClampedArray(inflateSync(Buffer.from(source.rgba, "base64")));
   return { width: source.width, height: source.height, data } satisfies RgbaPicture;
 })();
+
+const SOLID_URL = "http://runtime/api/assets/sprite/character/c1/solid.png?v=1";
+const SOLID: RgbaPicture = { width: 10, height: 10, data: new Uint8ClampedArray(10 * 10 * 4).fill(255) };
 
 const events = { applied: [] as string[], closed: 0 };
 let applyResult: () => Promise<void> = async () => {};
@@ -123,13 +141,18 @@ async function strokePixels(points: Array<[number, number]>) {
 
 beforeEach(() => {
   stubLayout(A.width, A.height);
-  layer.pictures = new Map([[SPRITE_URL, A]]);
+  layer.pictures = new Map([
+    [SPRITE_URL, A],
+    [SOLID_URL, SOLID],
+  ]);
   layer.failLoads = 0;
   layer.pendingLoad = null;
   layer.drawn = [];
   layer.encoded = [];
   confirm.answer = true;
   confirm.asked = [];
+  confirm.dismissed = 0;
+  confirm.release = null;
   events.applied = [];
   events.closed = 0;
   applyResult = async () => {};
@@ -476,5 +499,91 @@ describe("accessibility (decision 13) and the stage", () => {
     expect(button("Pink").getAttribute("aria-pressed")).toBe("true");
     expect(button("Dark").getAttribute("aria-pressed")).toBe("false");
     expect(button("Save changes").disabled).toBe(true);
+  });
+});
+
+describe("while a stroke or a question is open", () => {
+  it("ignores Undo, Redo and Reset during a held stroke, so no step is lost", async () => {
+    stubLayout(10, 10);
+    await open({ imageUrl: SOLID_URL });
+    const alphaAt = (x: number, y: number) => lastDrawn().data[(y * 10 + x) * 4 + 3];
+    await click(button("Erase"));
+    await changeValue(slider("Brush"), "2");
+    await pressPixel(0, 0);
+    await pressPixel(5, 5);
+
+    await pointer(canvas(), "pointermove", at(9, 9));
+    await pointer(canvas(), "pointerdown", at(9, 9));
+    await settle(1);
+    expect([button("Undo").disabled, button("Reset").disabled]).toEqual([true, true]);
+    expect((await pressKey("z", { ctrlKey: true })).defaultPrevented).toBe(false);
+    await click(button("Undo"));
+    await click(button("Reset"));
+    await pointer(canvas(), "pointermove", at(9, 8));
+    await pointer(canvas(), "pointerup", at(9, 8));
+    await settle(1);
+    expect([alphaAt(0, 0), alphaAt(5, 5), alphaAt(9, 9), alphaAt(9, 8)]).toEqual([0, 0, 0, 0]);
+
+    const afterEachUndo: number[][] = [];
+    for (let step = 0; step < 3; step += 1) {
+      await click(button("Undo"));
+      afterEachUndo.push([alphaAt(0, 0), alphaAt(5, 5), alphaAt(9, 9)]);
+    }
+    expect(afterEachUndo).toEqual([
+      [0, 0, 255],
+      [0, 255, 255],
+      [255, 255, 255],
+    ]);
+    expect(button("Undo").disabled).toBe(true);
+  });
+
+  it("drops the discard question when a running save finishes and the tab closes the editor", async () => {
+    await open();
+    await pressPixel(6, 6);
+    await mounted!.render(editor({ applying: true }));
+    confirm.answer = "hold";
+    await click(button("Close Clean up happy"));
+    expect(confirm.asked).toEqual(["Discard your changes to happy?"]);
+    await mounted!.unmount();
+    mounted = null;
+    expect(confirm.dismissed).toBe(1);
+    expect(events.closed).toBe(0);
+  });
+
+  it("doesn't dismiss anyone's dialog when it closes without a question open", async () => {
+    await open();
+    await click(button("Cancel"));
+    await mounted!.unmount();
+    mounted = null;
+    expect(confirm.dismissed).toBe(0);
+  });
+
+  it("leaves Ctrl+Z and Ctrl+Y alone while the discard question or another dialog is on top", async () => {
+    await open();
+    await pressPixel(6, 6);
+    confirm.answer = "hold";
+    await click(button("Cancel"));
+    expect((await pressKey("z", { ctrlKey: true })).defaultPrevented).toBe(false);
+    expect(button("Undo").disabled).toBe(false);
+    confirm.release!(false);
+    await settle();
+
+    useDialogStore.setState({ dialog: { kind: "alert", message: "Something else" } });
+    await settle(1);
+    expect((await pressKey("z", { ctrlKey: true })).defaultPrevented).toBe(false);
+    useDialogStore.setState({ dialog: null });
+    await settle(1);
+
+    const other = document.createElement("div");
+    other.setAttribute("role", "dialog");
+    const inside = document.createElement("button");
+    other.append(inside);
+    document.body.append(other);
+    expect((await pressKey("z", { ctrlKey: true }, inside)).defaultPrevented).toBe(false);
+    other.remove();
+
+    expect(button("Undo").disabled).toBe(false);
+    expect((await pressKey("z", { ctrlKey: true })).defaultPrevented).toBe(true);
+    expect(button("Undo").disabled).toBe(true);
   });
 });

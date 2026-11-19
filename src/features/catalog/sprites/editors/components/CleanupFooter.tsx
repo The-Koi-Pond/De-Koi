@@ -11,6 +11,7 @@ export function CleanupFooter({
   canRedo,
   hasChanges,
   busy,
+  historyLocked,
   applying,
   onUndo,
   onRedo,
@@ -27,6 +28,8 @@ export function CleanupFooter({
   hasChanges: boolean;
   /** Loading or saving. */
   busy: boolean;
+  /** Busy, or a stroke or pan is in progress. */
+  historyLocked: boolean;
   applying: boolean;
   onUndo: () => void;
   onRedo: () => void;
@@ -51,7 +54,7 @@ export function CleanupFooter({
         <button
           type="button"
           title="Undo (Ctrl/Cmd+Z)"
-          disabled={busy || !canUndo}
+          disabled={historyLocked || !canUndo}
           onClick={onUndo}
           className={editorButton}
         >
@@ -61,14 +64,14 @@ export function CleanupFooter({
         <button
           type="button"
           title="Redo (Ctrl/Cmd+Y or Ctrl/Cmd+Shift+Z)"
-          disabled={busy || !canRedo}
+          disabled={historyLocked || !canRedo}
           onClick={onRedo}
           className={editorButton}
         >
           <Redo2 size="0.875rem" aria-hidden="true" />
           Redo
         </button>
-        <button type="button" disabled={busy || !hasChanges} onClick={onReset} className={editorButton}>
+        <button type="button" disabled={historyLocked || !hasChanges} onClick={onReset} className={editorButton}>
           <RotateCcw size="0.875rem" aria-hidden="true" />
           Reset
         </button>

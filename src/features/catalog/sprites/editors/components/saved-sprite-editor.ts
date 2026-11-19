@@ -1,4 +1,6 @@
-import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { dismissActiveDialog, showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 
 /** What the Sprites tabs pass to both saved-sprite editors. */
 export interface SavedSpriteEditorProps {
@@ -13,13 +15,38 @@ export interface SavedSpriteEditorProps {
   onClose: () => void;
 }
 
-/** Asks before closing an editor with unsaved changes. Resolves true to discard them. */
-export function confirmDiscard(label: string): Promise<boolean> {
-  return showConfirmDialog({
-    title: "Discard changes?",
-    message: `Discard your changes to ${label}?`,
-    confirmLabel: "Discard",
-    cancelLabel: "Keep editing",
-    tone: "destructive",
-  });
+/**
+ * Asks "Discard your changes to <label>?" before closing an editor with unsaved changes (decision 3). `asking` is true
+ * while the question is open. If the editor goes away first (a running save finished and the tab closed it), the
+ * question goes away with it.
+ */
+export function useDiscardQuestion(label: string) {
+  const [asking, setAsking] = useState(false);
+  const askingRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      if (askingRef.current) dismissActiveDialog();
+    },
+    [],
+  );
+
+  const confirmDiscard = useCallback(async () => {
+    askingRef.current = true;
+    setAsking(true);
+    try {
+      return await showConfirmDialog({
+        title: "Discard changes?",
+        message: `Discard your changes to ${label}?`,
+        confirmLabel: "Discard",
+        cancelLabel: "Keep editing",
+        tone: "destructive",
+      });
+    } finally {
+      askingRef.current = false;
+      setAsking(false);
+    }
+  }, [label]);
+
+  return { asking, confirmDiscard };
 }

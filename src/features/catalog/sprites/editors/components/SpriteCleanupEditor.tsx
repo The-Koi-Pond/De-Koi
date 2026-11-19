@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Modal } from "../../../../../shared/components/ui/Modal";
+import { useDialogStore } from "../../../../../shared/stores/dialog.store";
 import { drawPicture, pictureToPngDataUrl } from "../browser/picture-canvas";
 import { useCleanupPicture } from "../hooks/use-cleanup-picture";
 import { useHistoryShortcuts } from "../hooks/use-history-shortcuts";
@@ -13,7 +14,7 @@ import { CleanupFooter } from "./CleanupFooter";
 import { CleanupSettings, type PreviewBackground } from "./CleanupSettings";
 import { CleanupStage } from "./CleanupStage";
 import { CleanupToolbar } from "./CleanupToolbar";
-import { confirmDiscard, type SavedSpriteEditorProps } from "./saved-sprite-editor";
+import { useDiscardQuestion, type SavedSpriteEditorProps } from "./saved-sprite-editor";
 
 /**
  * The cleanup editor for a saved sprite: a wand that removes connected background and brushes that clean, erase,
@@ -24,6 +25,7 @@ export function SpriteCleanupEditor({ imageUrl, label, applying, onApply, onClos
   const session = useCleanupPicture(imageUrl);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const editorRef = useRef<HTMLDivElement | null>(null);
   const view = useStageView(stageRef, session.picture?.original ?? null);
   const [tool, setTool] = useState<CleanupTool>("wand");
   const [wand, setWand] = useState<WandSettings>(DEFAULT_WAND_SETTINGS);
@@ -61,7 +63,26 @@ export function SpriteCleanupEditor({ imageUrl, label, applying, onApply, onClos
     drawPicture(canvas, showingOriginal ? picture.original : picture.current);
   }, [picture, showingOriginal]);
 
-  useHistoryShortcuts({ enabled: !busy, canUndo, canRedo, onUndo: session.undo, onRedo: session.redo });
+  // Undo, Redo and Reset wait while a stroke or pan is in progress: its end would otherwise write over them.
+  const historyLocked = busy || gestures.gestureActive;
+  const whenIdle = (action: () => void) => () => {
+    if (!gestures.isGestureActive()) action();
+  };
+  const undo = whenIdle(session.undo);
+  const redo = whenIdle(session.redo);
+  const reset = whenIdle(session.reset);
+
+  // The shortcuts also stay away from any dialog on top of this one, like the discard question.
+  const { asking, confirmDiscard } = useDiscardQuestion(label);
+  const appDialogOpen = useDialogStore((state) => state.dialog !== null);
+  useHistoryShortcuts({
+    enabled: !historyLocked && !asking && !appDialogOpen,
+    canUndo,
+    canRedo,
+    onUndo: undo,
+    onRedo: redo,
+    ownDialog: () => editorRef.current?.closest("[role='dialog']") ?? null,
+  });
 
   const changeTool = (next: CleanupTool) => {
     setTool(next);
@@ -95,13 +116,13 @@ export function SpriteCleanupEditor({ imageUrl, label, applying, onApply, onClos
   };
 
   const requestClose = useCallback(async () => {
-    if (session.pictureRef.current?.hasChanges && !(await confirmDiscard(label))) return;
+    if (session.pictureRef.current?.hasChanges && !(await confirmDiscard())) return;
     onClose();
-  }, [label, onClose, session.pictureRef]);
+  }, [confirmDiscard, onClose, session.pictureRef]);
 
   return (
     <Modal open onClose={() => void requestClose()} title={`Clean up ${label}`} width="max-w-6xl">
-      <div className="flex h-[min(44rem,calc(100dvh-9rem))] min-h-0 flex-col gap-3">
+      <div ref={editorRef} className="flex h-[min(44rem,calc(100dvh-9rem))] min-h-0 flex-col gap-3">
         <CleanupToolbar
           tool={tool}
           zoom={view.zoom}
@@ -149,10 +170,11 @@ export function SpriteCleanupEditor({ imageUrl, label, applying, onApply, onClos
           canRedo={canRedo}
           hasChanges={hasChanges}
           busy={busy}
+          historyLocked={historyLocked}
           applying={applying}
-          onUndo={session.undo}
-          onRedo={session.redo}
-          onReset={session.reset}
+          onUndo={undo}
+          onRedo={redo}
+          onReset={reset}
           onShowOriginal={setShowingOriginal}
           onCancel={() => void requestClose()}
           onApply={() => void apply()}

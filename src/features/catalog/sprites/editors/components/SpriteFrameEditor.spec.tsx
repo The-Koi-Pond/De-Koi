@@ -18,11 +18,25 @@ vi.mock("../../../../../shared/lib/sprite-frame-crop", () => ({
     return `cropped:${url}:${frame.top}/${frame.bottom}/${frame.left}/${frame.right}`;
   },
 }));
-const confirm = vi.hoisted(() => ({ answer: true, asked: [] as string[] }));
+/** The discard question: answered at once, or held open (`"hold"`) until it is dismissed. */
+const confirm = vi.hoisted(() => ({
+  answer: true as boolean | "hold",
+  asked: [] as string[],
+  dismissed: 0,
+  release: null as ((answer: boolean) => void) | null,
+}));
 vi.mock("../../../../../shared/lib/app-dialogs", () => ({
   showConfirmDialog: async (options: { message: string }) => {
     confirm.asked.push(options.message);
-    return confirm.answer;
+    if (confirm.answer !== "hold") return confirm.answer;
+    return new Promise<boolean>((resolve) => {
+      confirm.release = resolve;
+    });
+  },
+  dismissActiveDialog: () => {
+    confirm.dismissed += 1;
+    confirm.release?.(false);
+    confirm.release = null;
   },
 }));
 
@@ -63,6 +77,8 @@ beforeEach(() => {
   crop.fail = false;
   confirm.answer = true;
   confirm.asked = [];
+  confirm.dismissed = 0;
+  confirm.release = null;
   events.applied = [];
   events.closed = 0;
   applyResult = async () => {};
@@ -188,5 +204,18 @@ describe("the frame editor", () => {
     await click(button("Close frame editor"));
     expect(events.closed).toBe(2);
     expect(button("Close frame editor").title).toBe("Close frame editor");
+  });
+
+  it("drops the discard question when a running save finishes and the tab closes the panel", async () => {
+    mounted = await mount(frameEditor());
+    await changeValue(slider("Top"), "10");
+    await mounted.render(frameEditor({ applying: true }));
+    confirm.answer = "hold";
+    await click(button("Close frame editor"));
+    expect(confirm.asked).toEqual(["Discard your changes to happy?"]);
+    await mounted.unmount();
+    mounted = null;
+    expect(confirm.dismissed).toBe(1);
+    expect(events.closed).toBe(0);
   });
 });

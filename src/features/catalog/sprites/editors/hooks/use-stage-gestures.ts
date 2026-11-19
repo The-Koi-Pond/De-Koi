@@ -60,6 +60,13 @@ export function useStageGestures(options: StageGestureOptions) {
   const gesture = useRef<Gesture | null>(null);
   const [hover, setHover] = useState<HoveredPixel | null>(null);
   const [panning, setPanning] = useState(false);
+  /** A stroke or pan is in progress (pointer still down): history buttons and keys wait until it ends. */
+  const [gestureActive, setGestureActive] = useState(false);
+
+  const beginGesture = (next: Gesture) => {
+    gesture.current = next;
+    setGestureActive(true);
+  };
 
   const pixelFor = useCallback(
     (event: { clientX: number; clientY: number }, picture: RgbaPicture) => {
@@ -88,14 +95,14 @@ export function useStageGestures(options: StageGestureOptions) {
   const startPan = (event: ReactPointerEvent<HTMLDivElement>) => {
     const stage = stageRef.current;
     if (!stage) return;
-    gesture.current = {
+    beginGesture({
       kind: "pan",
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       scrollLeft: stage.scrollLeft,
       scrollTop: stage.scrollTop,
-    };
+    });
     event.currentTarget.setPointerCapture(event.pointerId);
     setPanning(true);
     setStatus(CLEANUP_TEXT.panning, false);
@@ -139,7 +146,7 @@ export function useStageGestures(options: StageGestureOptions) {
       changed: new Uint8Array(current.width * current.height),
     };
     const stamped = stampBrush(canvas, pixel, settings);
-    gesture.current = {
+    beginGesture({
       kind: "stroke",
       pointerId: event.pointerId,
       settings,
@@ -147,7 +154,7 @@ export function useStageGestures(options: StageGestureOptions) {
       canvas,
       last: pixel,
       stamped,
-    };
+    });
     event.currentTarget.setPointerCapture(event.pointerId);
     if (stamped > 0 && canvasRef.current) drawPicture(canvasRef.current, canvas.current);
   };
@@ -180,6 +187,7 @@ export function useStageGestures(options: StageGestureOptions) {
     const active = gesture.current;
     if (!active || active.pointerId !== event.pointerId) return;
     gesture.current = null;
+    setGestureActive(false);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -203,6 +211,8 @@ export function useStageGestures(options: StageGestureOptions) {
   return {
     hover,
     panning,
+    gestureActive,
+    isGestureActive: () => gesture.current !== null,
     stageHandlers: {
       onPointerDown,
       onPointerMove,

@@ -20,17 +20,22 @@ export function useHistoryShortcuts({
   canRedo,
   onUndo,
   onRedo,
+  ownDialog,
 }: {
   enabled: boolean;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** The editor's own dialog: keys typed inside another dialog on top of it are left alone. */
+  ownDialog: () => Element | null;
 }) {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || isTyping(event.target)) return;
+      const dialog = event.target instanceof Element ? event.target.closest("[role='dialog']") : null;
+      if (dialog && dialog !== ownDialog()) return;
       const key = event.key.toLowerCase();
       const wantsRedo = key === "y" || (key === "z" && event.shiftKey);
       const wantsUndo = key === "z" && !event.shiftKey;
@@ -44,5 +49,5 @@ export function useHistoryShortcuts({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canRedo, canUndo, enabled, onRedo, onUndo]);
+  }, [canRedo, canUndo, enabled, onRedo, onUndo, ownDialog]);
 }
