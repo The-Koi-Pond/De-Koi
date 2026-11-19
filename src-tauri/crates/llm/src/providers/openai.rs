@@ -1601,7 +1601,7 @@ fn normalize_nanogpt_no_reasoning_effort(body: &mut Value, model: &str, paramete
         }
         return;
     }
-    if !asks_for_none || !gemini_major_version(model).is_some_and(|major| major >= 3) {
+    if !(asks_for_none && gemini_major_version(model).is_some_and(|major| major >= 3)) {
         return;
     }
     object.remove("reasoningEffort");
