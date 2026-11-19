@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import {
   spriteKeys,
+  SpriteGenerationDialog,
   type SpriteInfo,
   useCleanupSavedSprites,
   useDeleteSprite,
@@ -13,7 +14,6 @@ import {
   useSprites,
 } from "../../sprites/index";
 import { downloadPayloadFromApiValue, triggerDownload } from "../../../../shared/api/download-payload";
-import { SpriteGenerationModal } from "../../../../shared/components/ui/SpriteGenerationModal";
 import { showConfirmDialog } from "../../../../shared/lib/app-dialogs";
 import { getErrorMessage } from "../../../../shared/lib/error-message";
 import { downloadBlob, loadUrlBlob } from "../../../../shared/lib/url-blob";
@@ -376,7 +376,7 @@ export function CharacterSpritesTab({
         onDeleteSingle={() => void handleDeleteSingleSprite()}
       />
 
-      <SpriteGenerationModal
+      <SpriteGenerationDialog
         open={spriteGenOpen}
         onClose={() => setSpriteGenOpen(false)}
         entityId={characterId}
