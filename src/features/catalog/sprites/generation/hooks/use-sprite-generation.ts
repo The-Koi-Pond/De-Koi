@@ -5,6 +5,7 @@ import type {
   ImagePromptOverride,
   ImagePromptReviewItem,
 } from "../../../../../shared/components/ui/ImagePromptReviewModal";
+import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { getErrorMessage } from "../../../../../shared/lib/error-message";
 import { cropSpriteDataUrl, type SpriteFrameAdjustments } from "../../../../../shared/lib/sprite-frame-crop";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
@@ -61,7 +62,14 @@ import {
   type SpriteGrid,
   type SpriteType,
 } from "../lib/sprite-lists";
-import { matchedExpressionNames, MAX_MATCHED_NAMES, savableName, type NameListKind } from "../lib/sprite-names";
+import {
+  matchedExpressionNames,
+  MAX_MATCHED_NAMES,
+  namesReplacingSaved,
+  replaceSavedQuestion,
+  savableName,
+  type NameListKind,
+} from "../lib/sprite-names";
 
 const MAX_UPLOADS_WITH_AVATAR = 3;
 const MAX_UPLOADS = 4;
@@ -76,6 +84,8 @@ export interface SpriteGenerationDialogProps {
   initialSpriteType: SpriteType;
   /** The owner's saved sprite names that don't start with `full_`. */
   existingExpressionNames: string[];
+  /** Every saved sprite name of the owner, `full_` ones included, so Save can ask before replacing one. */
+  savedSpriteNames?: string[];
   defaultAppearance?: string;
   defaultAvatarUrl?: string | null;
   imageConnections: ImageGenerationConnectionOption[];
@@ -577,6 +587,27 @@ export function useSpriteGeneration(props: SpriteGenerationDialogProps) {
     const type = spriteType;
     const stillCurrent = startWork();
     setSaving(true);
+    const replacing = namesReplacingSaved(
+      toSave.map((sprite) => savableName(sprite.name, type) ?? ""),
+      props.savedSpriteNames ?? [],
+    );
+    if (
+      replacing.length > 0 &&
+      !(await showConfirmDialog({
+        title: "Replace saved sprites?",
+        message: replaceSavedQuestion(replacing),
+        confirmLabel: "Replace",
+        tone: "destructive",
+      }))
+    ) {
+      setSaving(false);
+      return;
+    }
+    // A new owner (or a new run) while the question was open: nothing is saved for the old one.
+    if (!stillCurrent()) {
+      setSaving(false);
+      return;
+    }
     let saved = 0;
     try {
       for (const sprite of toSave) {
