@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import {
   allByRole,
+  blur,
   byRole,
   changeValue,
   click,
@@ -310,6 +311,50 @@ describe("review step", () => {
     expect(button("Apply cleanup")).toBeTruthy();
   });
 
+  it("stops at a cancelled review mid-run and shows the finished batch, with the next one waiting (decision 3)", async () => {
+    useUIStore.setState({ reviewImagePromptsBeforeSend: true });
+    const five = ["angry", "happy", "neutral", "smirk", "very_sad"];
+    const preview: RecordedCall = {
+      command: "sprite_generate_sheet_preview",
+      args: null,
+      reply: { items: [{ id: "a", kind: "sprite", title: "t", prompt: "p", width: 1, height: 1 }] },
+    };
+    await open({ initialSpriteType: "full-body", existingExpressionNames: five }, [
+      preview,
+      sheetReply(five.slice(0, 4), "fake:2x2-full:sheet"),
+      preview,
+    ]);
+    await setChecked(/^Match existing/, true);
+    await click(button("Generate matched batches"));
+    await click(byRole("button", "Generate", dialogNamed("Review Image Prompt")));
+    await settle();
+    await click(byRole("button", "Cancel", dialogNamed("Review Image Prompt")));
+    await settle();
+    expect(sentCommands()).toEqual([
+      "sprite_generate_sheet_preview",
+      "sprite_generate_sheet",
+      "sprite_generate_sheet_preview",
+    ]);
+    expect(allByRole("checkbox", /^Keep /, view())).toHaveLength(4);
+    expect(alertText()).toBeNull();
+    expect(view().textContent).toContain("Batch 2 of 2 paused");
+    expect(view().textContent).toContain("You cancelled its prompt review.");
+  });
+
+  it("keeps a matched batch uncleaned when its cleanup fails, without generating it again (decision 2)", async () => {
+    await open({ initialSpriteType: "full-body", existingExpressionNames: ["happy"] }, [
+      sheetReply(["happy"], "fake:1x1-full:sheet"),
+      { command: "sprite_cleanup", args: null, replyError: { code: "some_internal_error", message: "boom" } },
+    ]);
+    await setChecked("Prefer transparent PNG", true);
+    await setChecked(/^Match existing/, true);
+    await click(button("Generate matched batches"));
+    await settle();
+    expect(sentCommands()).toEqual(["sprite_generate_sheet", "sprite_cleanup"]);
+    expect(allByRole("checkbox", /^Keep /, view())).toHaveLength(1);
+    expect(alertText()).toBe("Couldn't remove the background. Use Apply cleanup to try again.");
+  });
+
   it("announces matched batch progress while waiting", async () => {
     let release: () => void = () => {};
     await open({ initialSpriteType: "full-body", existingExpressionNames: ["happy"] });
@@ -329,7 +374,7 @@ describe("review step", () => {
 });
 
 describe("opening, closing and owners", () => {
-  it("keeps the results but resets the settings beneath them when it opens again", async () => {
+  it("keeps the results and the settings they were made with when it opens again (decision 1)", async () => {
     await open({}, [sheetReply()]);
     await setChecked("Prefer transparent PNG", true);
     await changeValue(byRole("textbox", "Appearance", view()), "kept look");
@@ -341,9 +386,20 @@ describe("opening, closing and owners", () => {
     hostEvents.setOpen(true);
     await settle();
     expect(allByRole("checkbox", /^Keep /, view())).toHaveLength(6);
-    expect(byRole<HTMLInputElement>("checkbox", "Transparent background", view()).checked).toBe(false);
+    expect(byRole<HTMLInputElement>("checkbox", "Transparent background", view()).checked).toBe(true);
     await click(button("Back to setup"));
     await click(button("Discard"));
+    expect(byRole<HTMLTextAreaElement>("textbox", "Appearance", view()).value).toBe("kept look");
+    expect(byRole<HTMLInputElement>("checkbox", "Prefer transparent PNG", view()).checked).toBe(true);
+  });
+
+  it("resets the setup beneath the appearance when it opens again on the setup step", async () => {
+    await open({}, []);
+    await setChecked("Prefer transparent PNG", true);
+    await changeValue(byRole("textbox", "Appearance", view()), "kept look");
+    await click(button("Close Generate sprites"));
+    hostEvents.setOpen(true);
+    await settle();
     expect(byRole<HTMLTextAreaElement>("textbox", "Appearance", view()).value).toBe("kept look");
     expect(byRole<HTMLInputElement>("checkbox", "Prefer transparent PNG", view()).checked).toBe(false);
   });
@@ -382,6 +438,8 @@ describe("names that the save rule empties", () => {
     await open({}, [sheetReply(), ...SIX_UPLOADS]);
     await generate();
     await changeValue(byRole("textbox", "Sprite 1 name", view()), "FULL_");
+    expect(byRole<HTMLInputElement>("textbox", "Sprite 1 name", view()).value).toBe("FULL_");
+    await blur(byRole("textbox", "Sprite 1 name", view()));
     expect(byRole<HTMLInputElement>("textbox", "Sprite 1 name", view()).value).toBe("full_");
     expect(view().textContent).toContain("Needs a name");
     expect(button(/^Save /).textContent).toBe("Save 5 sprites");
@@ -454,6 +512,22 @@ describe("a new owner while work is still running", () => {
     expect(button("Generate sheet")).toBeTruthy();
     expect(allByRole("checkbox", /^Keep /, view())).toHaveLength(0);
     expect(sentCommands()).toEqual(["sprite_generate_sheet_preview"]);
+  });
+
+  it("stops a matched run for the old owner: the next batch is never sent", async () => {
+    const five = ["angry", "happy", "neutral", "smirk", "very_sad"];
+    await open({ initialSpriteType: "full-body", existingExpressionNames: five });
+    const first = held("sprite_generate_sheet", () => sheetReply(five.slice(0, 4), "fake:2x2-full:sheet").reply);
+    runtime.reset([first.call, sheetReply(["very_sad"], "fake:1x1-full:sheet")]);
+    await setChecked(/^Match existing/, true);
+    await click(button("Generate matched batches"));
+    expect(sentCommands()).toEqual(["sprite_generate_sheet"]);
+    await mounted!.render(OTHER_OWNER);
+    await settle();
+    first.release();
+    await settle();
+    expect(sentCommands()).toEqual(["sprite_generate_sheet"]);
+    expect(allByRole("checkbox", /^Keep /, view())).toHaveLength(0);
   });
 
   it("doesn't show the old owner's save failure or refresh for it", async () => {

@@ -4,6 +4,7 @@ import { useUIStore } from "../../../../../shared/stores/ui.store";
 import recordings from "../test-fixtures/recorded-calls.json";
 import {
   allByRole,
+  blur,
   byRole,
   changeValue,
   click,
@@ -102,8 +103,29 @@ function reviewDialog(): HTMLElement {
   return dialogNamed(/^Review Image Prompts?$/);
 }
 
-/** Each drivable scenario: the host's props, the prompt review setting, and the person's steps. */
-const SCENARIOS: Record<number, { props?: HostProps; review?: boolean; steps: () => Promise<void> }> = {
+/** Renames the sprite_upload expressions of a recording, for a decision that changed the saved names. */
+function renamedUploads(calls: RecordedCall[], rename: (expression: string) => string): RecordedCall[] {
+  return calls.map((call) => {
+    if (call.command !== "sprite_upload") return call;
+    const args = call.args as { body: { expression: string } };
+    return { ...call, args: { ...args, body: { ...args.body, expression: rename(args.body.expression) } } };
+  });
+}
+
+/**
+ * Each drivable scenario: the host's props, the prompt review setting, and the person's steps. `changed` is set where
+ * a follow-up decision made after the rebuild changed what is sent; it names the decision and turns the recorded
+ * calls into the ones expected now.
+ */
+const SCENARIOS: Record<
+  number,
+  {
+    props?: HostProps;
+    review?: boolean;
+    steps: () => Promise<void>;
+    changed?: { decision: string; expected: (recorded: RecordedCall[]) => RecordedCall[] };
+  }
+> = {
   1: {
     steps: async () => {
       await generate();
@@ -265,9 +287,13 @@ const SCENARIOS: Record<number, { props?: HostProps; review?: boolean; steps: ()
       await generate();
       await click(byRole("button", "Cancel", reviewDialog()));
       await settle();
-      await click(byRole("button", "Cancel", reviewDialog()));
-      await settle();
-      expect(alertText()).toBe("Batch 1 of 2 failed after one automatic retry: Image generation failed. Try again.");
+      expect(queryByRole("dialog", /^Review Image Prompts?$/)).toBeNull();
+      expect(alertText()).toBeNull();
+      expect(button(/^Generate /)).toBeTruthy();
+    },
+    changed: {
+      decision: "3: a cancelled review stops the run at once; the old code opened the review a second time",
+      expected: (recorded) => recorded.slice(0, 1),
     },
   },
   15: {
@@ -332,13 +358,20 @@ const SCENARIOS: Record<number, { props?: HostProps; review?: boolean; steps: ()
       for (let index = 0; index < typed.length; index += 1) {
         await changeValue(box, index === 0 ? `${typed[0]}${box.value}` : `${box.value}${typed[index]}`);
       }
-      expect(box.value).toBe("vsaderyhappy_");
+      // The box keeps what was typed and applies the rename rule when it loses focus (decision 9).
+      expect(box.value).toBe("Vsadery Happy!");
+      await blur(box);
+      expect(box.value).toBe("vsadery_happy_");
       await changeValue(byRole("textbox", "Sprite 2 name", view()), "");
       await changeValue(byRole("textbox", "Sprite 4 name", view()), "");
       await setChecked("Keep surprised", false);
       await setChecked("Keep smirk", false);
       expect(button(/^Save \d+ sprites?$/).textContent).toBe("Save 2 sprites");
       await save();
+    },
+    changed: {
+      decision: "9: the typed space is kept as _ instead of being eaten",
+      expected: (recorded) => renamedUploads(recorded, (name) => (name === "vsaderyhappy_" ? "vsadery_happy_" : name)),
     },
   },
   20: {
@@ -354,8 +387,13 @@ const SCENARIOS: Record<number, { props?: HostProps; review?: boolean; steps: ()
       await save();
       expect(alertText()).toBe("Saved 2 of 6. Couldn't save sad. Try again.");
       expect(hostEvents.spritesGenerated).toBe(1);
+      expect(button(/^Save \d+ sprites?$/).textContent).toBe("Save 4 sprites");
       await save();
       expect(hostEvents.spritesGenerated).toBe(2);
+    },
+    changed: {
+      decision: "7: the two saved before the failure are unselected, so the second Save sends only the other four",
+      expected: (recorded) => recorded.filter((_, index) => index !== 4 && index !== 5),
     },
   },
   22: {
@@ -367,6 +405,10 @@ const SCENARIOS: Record<number, { props?: HostProps; review?: boolean; steps: ()
       hostEvents.setOpen(true);
       await settle();
       await save();
+    },
+    changed: {
+      decision: "1: results made as full-body poses still save as full_ names after reopening from Expressions",
+      expected: (recorded) => renamedUploads(recorded, (name) => `full_${name}`),
     },
   },
   23: {
@@ -407,7 +449,7 @@ describe("sprite generation dialog replays the recorded calls", () => {
 
   it.each(Object.keys(SCENARIOS).map(Number))("scenario %i", async (number) => {
     const scenario = SCENARIOS[number];
-    const expected = dialogCalls(number);
+    const expected = scenario.changed ? scenario.changed.expected(dialogCalls(number)) : dialogCalls(number);
     runtime.reset(expected);
     useUIStore.setState({ reviewImagePromptsBeforeSend: scenario.review === true });
     mounted = await mount(<DialogHost {...scenario.props} />);

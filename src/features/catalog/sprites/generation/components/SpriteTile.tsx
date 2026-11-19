@@ -75,7 +75,10 @@ export function SpriteTile({
         type="text"
         aria-label={`Sprite ${number} name`}
         value={sprite.name}
-        onChange={(event) => onRename(normalizeSpriteName(event.target.value))}
+        // Typed as is (so "very happy" keeps its space); the rename rule runs when the box loses focus (decision 9).
+        // Save applies the same rule, so a name still being typed saves the same way.
+        onChange={(event) => onRename(event.target.value)}
+        onBlur={(event) => onRename(normalizeSpriteName(event.target.value))}
         className={`${fieldClass} p-1 text-xs`}
       />
       {needsName && <p className="text-xs text-amber-600 dark:text-amber-400">Needs a name</p>}

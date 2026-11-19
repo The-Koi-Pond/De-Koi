@@ -52,7 +52,7 @@ export function ReviewStep({ dialog }: { dialog: SpriteGenerationController }) {
   const single = grid.cols * grid.rows === 1;
   const hasSheet = dialog.sprites.some((sprite) => sprite.sheetIndex !== null);
   const sharedOptions = nameOptions(generation?.names ?? [], generation?.listKind ?? "expressions");
-  const warnings = duplicateWarnings(dialog.sprites, dialog.spriteType);
+  const warnings = duplicateWarnings(dialog.sprites, dialog.saveType);
   const selectedCount = dialog.sprites.filter((sprite) => sprite.selected).length;
   const noun = generation?.matched ? "full-body expressions" : generation?.type === "full-body" ? "poses" : "sprites";
   const framed = dialog.frameEditor
@@ -82,8 +82,9 @@ export function ReviewStep({ dialog }: { dialog: SpriteGenerationController }) {
           </h3>
           <p className="text-xs">{dialog.paused.names.map(spacedName).join(", ")}</p>
           <p className={hintText}>
-            The batch already retried once automatically. Retry it here when the provider is ready; successful batches
-            above are preserved.
+            {dialog.paused.cancelled
+              ? "You cancelled its prompt review. Retry it here to review and send it; successful batches above are preserved."
+              : "The batch already retried once automatically. Retry it here when the provider is ready; successful batches above are preserved."}
           </p>
           <button type="button" onClick={dialog.retryBatch} disabled={!dialog.canRetry} className={smallButton}>
             Retry batch
@@ -157,7 +158,7 @@ export function ReviewStep({ dialog }: { dialog: SpriteGenerationController }) {
               sharedOptions={sharedOptions}
               duplicateWarning={warnings.get(sprite.id) ?? null}
               framing={dialog.frameEditor?.spriteId === sprite.id}
-              needsName={sprite.selected && savableName(sprite.name, dialog.spriteType) === null}
+              needsName={sprite.selected && savableName(sprite.name, dialog.saveType) === null}
               frameDisabled={dialog.cleaning}
               onToggle={() => dialog.toggleSelected(sprite.id)}
               onRename={(name) => dialog.renameSprite(sprite.id, name)}
