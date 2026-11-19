@@ -10,6 +10,7 @@ import {
   encodedWhenUrl,
   formQuery,
   greetingsWithoutEmpty,
+  idText,
   makeCard,
   optionalText,
   stringList,
@@ -44,7 +45,7 @@ function wholeNumber(value: unknown): number {
 }
 
 function pygmalionCard(character: PygmalionCharacter): BrowserCard {
-  const id = text(character.id);
+  const id = idText(character.id);
   const avatar = text(character.avatarUrl);
   const owner = isRecord(character.owner) ? character.owner : {};
   return makeCard({
@@ -98,7 +99,12 @@ export const pygmalionProvider: BrowserProvider = {
   async search(criteria) {
     const reply = await siteGet<PygmalionSearchResponse>(pygmalionSearchPath(criteria));
     const characters = Array.isArray(reply?.characters) ? reply.characters.filter(isRecord) : [];
-    return { cards: characters.map(pygmalionCard), total: wholeNumber(reply?.totalItems), notices: [] };
+    return {
+      cards: characters.map(pygmalionCard),
+      total: wholeNumber(reply?.totalItems),
+      pageHits: characters.length,
+      notices: [],
+    };
   },
 
   async fetchDetail(card) {

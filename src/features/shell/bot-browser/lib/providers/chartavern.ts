@@ -86,7 +86,7 @@ export const chartavernProvider: BrowserProvider = {
         : typeof reply?.totalHits === "number"
           ? reply.totalHits
           : hits.length;
-    return { cards: hits.map(chartavernCard), total, notices: [] };
+    return { cards: hits.map(chartavernCard), total, pageHits: hits.length, notices: [] };
   },
 
   async fetchDetail(card) {

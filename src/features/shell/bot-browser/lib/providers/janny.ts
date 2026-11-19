@@ -1,7 +1,7 @@
 import { isRecord } from "../../../../../engine/shared/value-readers";
 import type { JannyCharacterResponse, JannyHit, JannySearchResponse } from "../../types/provider-responses";
 import { proxyImageSource, searchJannyWithFallback, siteGet } from "../site-api";
-import { first200, makeCard, optionalText, stripHtml, text, usableDetail } from "./shared";
+import { first200, idText, makeCard, optionalText, stripHtml, text, usableDetail } from "./shared";
 import type { BrowserCard, BrowserProvider, SearchCriteria } from "./types";
 
 const PAGE_SIZE = 80;
@@ -139,7 +139,7 @@ function firstResult(reply: JannySearchResponse | null | undefined) {
 }
 
 function jannyCard(hit: JannyHit): BrowserCard {
-  const id = text(hit.id);
+  const id = idText(hit.id);
   const name = text(hit.name);
   const avatar = text(hit.avatar);
   return makeCard({
@@ -195,7 +195,8 @@ export const jannyProvider: BrowserProvider = {
     const hitsOf = (result: ReturnType<typeof firstResult>) =>
       (Array.isArray(result.hits) ? result.hits : []).filter((hit): hit is JannyHit => isRecord(hit));
     const totalPages = typeof first.totalPages === "number" ? first.totalPages : 1;
-    const kept = hitsOf(first).filter(keep);
+    const firstHits = hitsOf(first);
+    const kept = firstHits.filter(keep);
 
     if (checksHere) {
       let page = criteria.page;
@@ -207,7 +208,7 @@ export const jannyProvider: BrowserProvider = {
     }
 
     const total = typeof first.totalHits === "number" ? first.totalHits : totalPages * PAGE_SIZE;
-    return { cards: kept.map(jannyCard), total, notices: [] };
+    return { cards: kept.map(jannyCard), total, pageHits: firstHits.length, notices: [] };
   },
 
   async fetchDetail(card) {

@@ -18,6 +18,7 @@ import {
   formQuery,
   greetingsWithoutEmpty,
   hasSearchText,
+  idText,
   makeCard,
   optionalText,
   stripHtml,
@@ -122,7 +123,7 @@ function characterTagNames(character: DatacatCharacter, tags: DatacatTags | null
 }
 
 function datacatCard(character: DatacatCharacter, tags: DatacatTags | null): BrowserCard {
-  const id = text(character.characterId) || text(character.character_id) || text(character.id);
+  const id = idText(character.characterId) || idText(character.character_id) || idText(character.id);
   const avatar = text(character.avatar);
   return makeCard({
     id,
@@ -210,40 +211,57 @@ export const datacatProvider: BrowserProvider = {
       const reply = await siteGet<DatacatFreshResponse>(DATACAT_FRESH_PATH);
       const characters = charactersOf(reply?.windows?.last24h ?? reply?.last24h);
       const fallback = reply?.fallback;
-      if (fallback?.partial === true && fallback.unavailableWindows?.includes("thisWeek")) {
+      const unavailable: unknown = fallback?.unavailableWindows;
+      if (
+        fallback?.partial === true &&
+        Array.isArray(unavailable) &&
+        unavailable.some((window) => window === "thisWeek")
+      ) {
         notices.push(FRESH_FALLBACK_NOTICE);
       }
       const kept = withoutExcludedTags(characters, tagsOf, criteria.excludeTags);
-      return { cards: kept.map((character) => datacatCard(character, tags)), total: characters.length, notices };
+      return {
+        cards: kept.map((character) => datacatCard(character, tags)),
+        total: characters.length,
+        pageHits: characters.length,
+        notices,
+      };
     }
 
     const reply = await siteGet<DatacatRecentResponse>(datacatRecentPath(criteria, tagIds));
     const characters = charactersOf(reply);
     const kept = withoutExcludedTags(characters, tagsOf, criteria.excludeTags);
     const total = typeof reply?.totalCount === "number" ? reply.totalCount : characters.length;
-    return { cards: kept.map((character) => datacatCard(character, tags)), total, notices };
+    return {
+      cards: kept.map((character) => datacatCard(character, tags)),
+      total,
+      pageHits: characters.length,
+      notices,
+    };
   },
 
   async fetchDetail(card) {
     if (!card.id) return null;
     const id = encodeURIComponent(card.id);
+    let download: DatacatDownloadResponse | null = null;
     try {
-      const download = await siteGet<DatacatDownloadResponse>(`datacat/download/${id}`);
-      const data = isRecord(download?.data) ? download.data : null;
-      if (data) {
-        const detail = usableDetail({
-          description: optionalText(data.description) ?? optionalText(data.personality),
-          personality: optionalText(data.personality),
-          scenario: optionalText(data.scenario),
-          firstMessage: optionalText(data.first_mes),
-          exampleDialogs: optionalText(data.mes_example),
-          creatorNotes: optionalText(data.creator_notes),
-          alternateGreetings: greetingsWithoutEmpty(data.alternate_greetings),
-        });
-        if (detail) return detail;
-      }
-    } catch {
-      // The download route is often missing for a character; the character route below is the real answer.
+      download = await siteGet<DatacatDownloadResponse>(`datacat/download/${id}`);
+    } catch (error) {
+      // The download route is often missing for a character; the character route below answers instead.
+      console.info("[bot-browser] DataCat's download route had no card; reading the character page.", error);
+    }
+    // A download that answered with data is the detail, even when nothing in it is usable.
+    if (download?.data) {
+      const data = isRecord(download.data) ? download.data : {};
+      return usableDetail({
+        description: optionalText(data.description) ?? optionalText(data.personality),
+        personality: optionalText(data.personality),
+        scenario: optionalText(data.scenario),
+        firstMessage: optionalText(data.first_mes),
+        exampleDialogs: optionalText(data.mes_example),
+        creatorNotes: optionalText(data.creator_notes),
+        alternateGreetings: greetingsWithoutEmpty(data.alternate_greetings),
+      });
     }
 
     const reply = await siteGet<DatacatCharacterResponse>(`datacat/character/${id}`);

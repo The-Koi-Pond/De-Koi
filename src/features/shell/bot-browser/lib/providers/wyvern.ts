@@ -6,6 +6,7 @@ import {
   formQuery,
   greetingsWithoutEmpty,
   hasSearchText,
+  idText,
   makeCard,
   optionalText,
   stringList,
@@ -38,7 +39,7 @@ function wyvernPicture(character: WyvernCharacter): string | null {
 }
 
 function wyvernCard(character: WyvernCharacter): BrowserCard {
-  const id = text(character.id);
+  const id = idText(character.id);
   const creator = isRecord(character.creator) ? character.creator : {};
   const statistics = isRecord(character.statistics_record)
     ? character.statistics_record
@@ -97,7 +98,7 @@ export const wyvernProvider: BrowserProvider = {
     const kept = withoutExcludedTags(results, (character) => stringList(character.tags), criteria.excludeTags);
     const total =
       typeof reply?.total === "number" ? reply.total : reply?.hasMore ? (criteria.page + 1) * PAGE_SIZE : kept.length;
-    return { cards: kept.map(wyvernCard), total, notices: [] };
+    return { cards: kept.map(wyvernCard), total, pageHits: results.length, notices: [] };
   },
 
   async fetchDetail(card) {

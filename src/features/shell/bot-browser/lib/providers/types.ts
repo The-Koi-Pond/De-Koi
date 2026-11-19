@@ -68,6 +68,8 @@ export interface SearchCriteria {
 export interface SearchResult {
   cards: BrowserCard[];
   total: number;
+  /** How many characters the site returned for this page, before any tag checks on this side. */
+  pageHits: number;
   /** Things the user should know about these results (shown above the grid). */
   notices: string[];
 }

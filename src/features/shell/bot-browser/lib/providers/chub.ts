@@ -129,7 +129,7 @@ export const chubProvider: BrowserProvider = {
     const total = hasCursor(source.cursor)
       ? (criteria.page + 1) * PAGE_SIZE
       : (criteria.page - 1) * PAGE_SIZE + nodes.length;
-    return { cards: nodes.map(chubCard), total, notices: [] };
+    return { cards: nodes.map(chubCard), total, pageHits: nodes.length, notices: [] };
   },
 
   async fetchDetail(card) {

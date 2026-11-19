@@ -22,6 +22,13 @@ export function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+/** An id as text: strings as they are, numbers in their string form, anything else empty. */
+export function idText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
+
 /** A string field, or undefined when it's missing or empty. */
 export function optionalText(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
