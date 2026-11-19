@@ -323,7 +323,7 @@ describe("strokes", () => {
     ]);
   });
 
-  it("picks a brush colour from the picture, even a see-through one, and stops picking on a tool switch", async () => {
+  it("picks a brush colour from the picture, refuses a see-through pixel, and stops picking on a tool switch", async () => {
     await open();
     await click(button("Brush"));
     await click(button("Pick"));
@@ -334,12 +334,13 @@ describe("strokes", () => {
     expect(button("Pick").getAttribute("aria-pressed")).toBe("false");
     expect(button("Undo").disabled).toBe(true);
 
+    // Decision 11: a fully see-through pixel hides its colour, so Pick refuses it and keeps picking.
     await click(button("Pick"));
     await pressPixel(3, 92);
-    expect(statusText()).toBe("Brush color picked: rgba(0, 0, 0, 0)");
-    expect(byLabel<HTMLInputElement>("Brush color", dialog()).value).toBe("#000000");
+    expect(statusText()).toBe("That pixel is see-through. Pick a visible one.");
+    expect(byLabel<HTMLInputElement>("Brush color", dialog()).value).toBe("#c83c5a");
+    expect(button("Pick").getAttribute("aria-pressed")).toBe("true");
 
-    await click(button("Pick"));
     await click(button("Pick"));
     expect(statusText()).toBe("Brush color picker canceled");
     await click(button("Pick"));

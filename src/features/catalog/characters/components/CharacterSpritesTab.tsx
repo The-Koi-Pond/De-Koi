@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   spriteKeys,
   SpriteGenerationDialog,
+  restoreSpritePointAskingFirst,
   type SpriteInfo,
   useCleanupSavedSprites,
   useDeleteSprite,
@@ -56,6 +57,8 @@ export function CharacterSpritesTab({
   const [savedCleanupStrength, setSavedCleanupStrength] = useState(35);
   const [restoringCleanup, setRestoringCleanup] = useState(false);
   const [lastCleanupRestorePointId, setLastCleanupRestorePointId] = useState<string | null>(null);
+  // Set when the restore point is an editor save's: the sprite it undoes. Null for a cleanup's.
+  const [lastEditedSprite, setLastEditedSprite] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [framingSprite, setFramingSprite] = useState<SpriteInfo | null>(null);
   const [savingFrame, setSavingFrame] = useState(false);
@@ -210,6 +213,7 @@ export function CharacterSpritesTab({
 
       if (result.processed > 0) {
         setLastCleanupRestorePointId(result.restorePointId ?? null);
+        setLastEditedSprite(null);
         toast.success(`Cleaned ${result.processed} saved sprite${result.processed === 1 ? "" : "s"} .`);
       }
       if (result.failed.length > 0) {
@@ -228,14 +232,18 @@ export function CharacterSpritesTab({
     if (!lastCleanupRestorePointId) return;
     setRestoringCleanup(true);
     try {
-      const result = await restoreSpriteCleanupPoint.mutateAsync({
-        characterId,
-        restorePointId: lastCleanupRestorePointId,
-      });
+      const result = await restoreSpritePointAskingFirst(
+        (overwriteChanged) =>
+          restoreSpriteCleanupPoint.mutateAsync({
+            characterId,
+            restorePointId: lastCleanupRestorePointId,
+            overwriteChanged,
+          }),
+        displayExpression,
+      );
+      if (!result) return;
       if (result.restored > 0) {
-        toast.success(
-          `Restored ${result.restored} sprite${result.restored === 1 ? "" : "s"} from the cleanup restore point.`,
-        );
+        toast.success(`Restored ${result.restored} sprite${result.restored === 1 ? "" : "s"} from the restore point.`);
       }
       if (result.failed.length > 0) {
         toast.warning(
@@ -245,11 +253,21 @@ export function CharacterSpritesTab({
         setLastCleanupRestorePointId(null);
       }
     } catch (err) {
-      toast.error(getErrorMessage(err, "Couldn't restore sprite cleanup point. Try again."));
+      toast.error(getErrorMessage(err, "Couldn't restore the sprites. Try again."));
     } finally {
       setRestoringCleanup(false);
     }
-  }, [characterId, lastCleanupRestorePointId, restoreSpriteCleanupPoint]);
+  }, [characterId, displayExpression, lastCleanupRestorePointId, restoreSpriteCleanupPoint]);
+
+  // An editor save's restore point replaces the older offer: undoing a cleanup after it would overwrite the edit.
+  const rememberEditRestorePoint = useCallback(
+    (restorePointId: string | undefined, expression: string) => {
+      if (!restorePointId) return;
+      setLastCleanupRestorePointId(restorePointId);
+      setLastEditedSprite(displayExpression(expression));
+    },
+    [displayExpression],
+  );
 
   const handleApplySpriteFrame = useCallback(
     async (croppedDataUrl: string) => {
@@ -257,11 +275,13 @@ export function CharacterSpritesTab({
 
       setSavingFrame(true);
       try {
-        await uploadSprite.mutateAsync({
+        const saved = await uploadSprite.mutateAsync({
           characterId,
           expression: framingSprite.expression,
           image: croppedDataUrl,
+          keepRestorePoint: true,
         });
+        rememberEditRestorePoint(saved.restorePointId, framingSprite.expression);
         toast.success(`Framed ${displayExpression(framingSprite.expression)} sprite.`);
         setFramingSprite(null);
       } catch (error) {
@@ -270,7 +290,7 @@ export function CharacterSpritesTab({
         setSavingFrame(false);
       }
     },
-    [characterId, displayExpression, framingSprite, uploadSprite],
+    [characterId, displayExpression, framingSprite, rememberEditRestorePoint, uploadSprite],
   );
 
   const handleApplyWandCleanup = useCallback(
@@ -279,11 +299,13 @@ export function CharacterSpritesTab({
 
       setSavingWandCleanup(true);
       try {
-        await uploadSprite.mutateAsync({
+        const saved = await uploadSprite.mutateAsync({
           characterId,
           expression: wandCleanupSprite.expression,
           image: cleanedDataUrl,
+          keepRestorePoint: true,
         });
+        rememberEditRestorePoint(saved.restorePointId, wandCleanupSprite.expression);
         toast.success(`Cleaned ${displayExpression(wandCleanupSprite.expression)} sprite.`);
         setWandCleanupSprite(null);
       } catch (error) {
@@ -292,7 +314,7 @@ export function CharacterSpritesTab({
         setSavingWandCleanup(false);
       }
     },
-    [characterId, displayExpression, uploadSprite, wandCleanupSprite],
+    [characterId, displayExpression, rememberEditRestorePoint, uploadSprite, wandCleanupSprite],
   );
 
   return (
@@ -318,6 +340,7 @@ export function CharacterSpritesTab({
         setSavedCleanupStrength={setSavedCleanupStrength}
         restoringCleanup={restoringCleanup}
         lastCleanupRestorePointId={lastCleanupRestorePointId}
+        lastEditedSprite={lastEditedSprite}
         folderProgress={folderProgress}
         spriteGenerationUnavailable={spriteGenerationUnavailable}
         spriteGenerationReason={spriteGenerationReason}

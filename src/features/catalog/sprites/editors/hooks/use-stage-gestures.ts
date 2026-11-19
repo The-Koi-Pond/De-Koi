@@ -128,6 +128,11 @@ export function useStageGestures(options: StageGestureOptions) {
     const current = editing.current;
     if (picking && tool === "brush" && brush.paintMode === "color") {
       const rgba = pixelAt(current, pixel.x, pixel.y);
+      // A fully see-through pixel's colour is hidden (usually black after loading); keep picking instead.
+      if (rgba[3] === 0) {
+        setStatus(CLEANUP_TEXT.pickSeeThrough, false);
+        return;
+      }
       onPicked(rgbToHex(rgba[0], rgba[1], rgba[2]));
       setStatus(pickedColorText(rgba));
       return;
