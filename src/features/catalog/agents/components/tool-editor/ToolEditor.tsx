@@ -39,7 +39,7 @@ export function ToolEditor() {
             the identifier the AI will use to call this function.
           </p>
           {editor.showScriptWarning && (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
               Script custom tools are disabled in this runtime. Convert this tool to a static result or webhook before
               saving.
             </div>

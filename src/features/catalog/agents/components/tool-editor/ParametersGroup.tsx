@@ -1,9 +1,12 @@
 import { Code2, Minus, Plus } from "lucide-react";
+import { useId } from "react";
 import { cn } from "../../../../../shared/lib/utils";
 import { FIELD_SURFACE, FieldGroup, NOTE } from "./FieldGroup";
 import {
+  DUPLICATE_PARAMETER_NOTE,
   newToolParameter,
   parameterDescriptionText,
+  parameterRowNotes,
   parameterTypeFromOption,
   parameterTypeLabel,
   parameterTypeOptions,
@@ -16,6 +19,8 @@ const PARAM_CONTROL = cn(FIELD_SURFACE, "rounded-lg px-2 py-1.5 text-xs");
 
 export function ParametersGroup({ editor }: { editor: ToolEditorModel }) {
   const { form, edit } = editor;
+  const noteId = useId();
+  const notes = parameterRowNotes(form.parameters);
 
   const changeRow = (index: number, change: Partial<ToolParameter>) =>
     edit((current) => ({
@@ -44,6 +49,7 @@ export function ParametersGroup({ editor }: { editor: ToolEditorModel }) {
                   onChange={(event) => changeRow(index, { name: event.target.value })}
                   placeholder="param_name"
                   aria-label="Parameter name"
+                  aria-describedby={notes[index] ? `${noteId}-${index}` : undefined}
                   className={cn(PARAM_CONTROL, "w-32 min-w-0 font-mono")}
                 />
                 <select
@@ -77,6 +83,17 @@ export function ParametersGroup({ editor }: { editor: ToolEditorModel }) {
                 aria-label="Parameter description"
                 className={cn(PARAM_CONTROL, "w-full")}
               />
+              {notes[index] && (
+                <p
+                  id={`${noteId}-${index}`}
+                  className={cn(
+                    NOTE,
+                    notes[index] === DUPLICATE_PARAMETER_NOTE && "text-amber-800 dark:text-amber-200",
+                  )}
+                >
+                  {notes[index]}
+                </p>
+              )}
             </div>
             <button
               type="button"

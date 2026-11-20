@@ -8,6 +8,7 @@ import {
   type Snapshot,
   type StepResult,
 } from "./tool-editor-replay-harness";
+import { parameterRowNotes, type ToolParameter } from "./tool-form";
 import actionsJson from "./test-fixtures/recorded-actions.json";
 import showJson from "./test-fixtures/recorded-show.json";
 
@@ -185,6 +186,35 @@ function extrasPayload(properties: Record<string, unknown>) {
 
 const { notype: _removed, ...EXTRAS_WITHOUT_NOTYPE } = EXTRAS_SCHEMA_PROPERTIES;
 
+// ── Follow-ups to the rebuild (inherited issues, decision 7) ───────────────────────
+
+const PARAMETERS_INTRO = "Define the arguments the AI can pass when calling this tool.";
+
+/**
+ * Every step: a parameter row with no name says it won't be saved, and rows sharing a name say only the last
+ * is saved. The note is the row's last text, right after its "Required" label.
+ */
+function withRowNotes(recorded: Snapshot): Snapshot {
+  const names = recorded.fields.filter((field) => field.placeholder === "param_name").map((field) => field.value);
+  const notes = parameterRowNotes(names.map((name) => ({ name: String(name) }) as ToolParameter));
+  if (!notes.some(Boolean)) return recorded;
+  const start = recorded.text.indexOf(PARAMETERS_INTRO);
+  expect(start).toBeGreaterThan(-1);
+  let row = -1;
+  const rows = recorded.text.slice(start).replace(/Required/g, (match) => {
+    row += 1;
+    return `${match}${notes[row] ?? ""}`;
+  });
+  expect(row + 1, "one Required label per row").toBe(notes.length);
+  return { ...recorded, text: recorded.text.slice(0, start) + rows };
+}
+
+/** A create that answered without an id opens the new row, as a create with an id does (`new:save-order`). */
+function asCreateWithId(_recorded: Snapshot): Snapshot {
+  const withId = scenarios.find(({ scenario }) => scenario.id === "new:save-order")!.scenario.steps[6]!;
+  return snapshotOf(withId);
+}
+
 /** Every intended difference, by scenario id and step index. Nothing else may differ. */
 const INTENDED: Record<string, Record<number, StepExpectation>> = {
   // D1: a stored tool keeps its on/off state, read as chats read it.
@@ -219,6 +249,8 @@ const INTENDED: Record<string, Record<number, StepExpectation>> = {
     1: withIntegerOption,
     2: (recorded) => withUpdatePayload(withIntegerOption(recorded), extrasPayload(EXTRAS_WITHOUT_NOTYPE)),
   },
+  // Follow-up: the new tool is found in the refreshed list, so a second Save updates it instead of creating it again.
+  "new:create-no-id": { 5: asCreateWithId },
 };
 
 // D3: the old editor left the failed delete as an unhandled rejection; the rebuild handles it.
@@ -261,7 +293,7 @@ describe("ToolEditor replays the recorded old editor", () => {
         }
         const recordedSnapshot = snapshotOf(recorded);
         const intended = INTENDED[scenario.id]?.[index];
-        const expected = intended ? intended(recordedSnapshot) : recordedSnapshot;
+        const expected = withRowNotes(intended ? intended(recordedSnapshot) : recordedSnapshot);
         const actual = snapshotOf(result);
         const { calls: actualCalls, ...actualRest } = actual;
         const { calls: expectedCalls, ...expectedRest } = expected;

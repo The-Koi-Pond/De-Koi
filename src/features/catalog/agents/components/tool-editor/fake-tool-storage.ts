@@ -52,6 +52,10 @@ export const fakeToolStorage = {
   createNoId() {
     state.createNoId = true;
   },
+  /** Stores a row behind the editor's back, as another tab would (seen after the next list). */
+  insertRow(row: Row) {
+    state.rows.push(copy(row));
+  },
   /** Changes a stored row behind the editor's back (seen after the next list). */
   patchRow(id: string, patch: Record<string, unknown>) {
     const index = state.rows.findIndex((row) => row.id === id);

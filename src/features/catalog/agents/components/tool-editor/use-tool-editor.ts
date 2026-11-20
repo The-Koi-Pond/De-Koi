@@ -113,8 +113,18 @@ export function useToolEditor() {
     }
   }
 
+  function listedRows(): CustomToolRow[] {
+    return queryClient.getQueryData<CustomToolRow[]>(TOOL_LIST_KEY) ?? [];
+  }
+
   function listedRow(id: string): CustomToolRow | undefined {
-    return queryClient.getQueryData<CustomToolRow[]>(TOOL_LIST_KEY)?.find((tool) => tool.id === id);
+    return listedRows().find((tool) => tool.id === id);
+  }
+
+  /** The id of the one listed row that wasn't listed before and has this name, or null when not exactly one. */
+  function onlyNewRowId(listedBefore: ReadonlySet<string>, name: string): string | null {
+    const added = listedRows().filter((tool) => !listedBefore.has(tool.id) && tool.name === name);
+    return added.length === 1 ? added[0]!.id : null;
   }
 
   async function save(): Promise<boolean> {
@@ -137,14 +147,21 @@ export function useToolEditor() {
     try {
       const payload = toolSavePayload(form);
       if (isNew) {
-        const id = storedRowId(await createTool.mutateAsync(payload));
+        const listedBefore = new Set(listedRows().map((tool) => tool.id));
+        const returnedId = storedRowId(await createTool.mutateAsync(payload));
         await listRefreshed();
         if (!stillOpen()) return true;
-        if (id) {
-          // Opening the stored tool reloads the form, unless the edits made meanwhile should stay.
-          if (editedMeanwhile()) setLoaded({ id, row: listedRow(id) });
-          openToolDetail(id);
+        // A create that answers without an id: the new row is the one the refreshed list gained with this name.
+        const id = returnedId ?? onlyNewRowId(listedBefore, payload.name);
+        if (!id) {
+          // The saved tool can't be told apart, so leave for the list (where it shows) rather than stay on a
+          // new-tool form whose next Save would create it a second time.
+          closeToolDetail();
+          return true;
         }
+        // Opening the stored tool reloads the form, unless the edits made meanwhile should stay.
+        if (editedMeanwhile()) setLoaded({ id, row: listedRow(id) });
+        openToolDetail(id);
       } else {
         const stored: unknown = await updateTool.mutateAsync({ id: savedId, ...payload });
         await listRefreshed();
