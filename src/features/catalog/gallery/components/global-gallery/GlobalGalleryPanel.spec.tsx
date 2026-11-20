@@ -1,7 +1,7 @@
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeGallery } from "./fake-gallery-storage";
-import { GalleryHarness, type Recording } from "./gallery-replay-harness";
+import { GalleryHarness, makeDataTransfer, type Recording } from "./gallery-replay-harness";
 import showJson from "./test-fixtures/recorded-show.json";
 
 const virtualizer = vi.hoisted(() => ({ real: false }));
@@ -176,13 +176,36 @@ describe("lightbox keyboard", () => {
     await panel.key("Tab", true);
     expect(focusName()).toBe("button:Close");
 
-    // Focus that slipped outside the dialog comes back in.
+    // Between the ends the browser moves focus itself; the lightbox does nothing.
+    act(() => dialog(panel)!.querySelector<HTMLElement>('a[title="Download"]')!.focus());
+    await panel.key("Tab");
+    expect(focusName()).toBe("a:Download");
+  });
+
+  it("leaves focus outside the lightbox alone, as in a confirm dialog opened from it", async () => {
+    const panel = await open();
+    await panel.click(panel.card("img-1").querySelector("button")!);
+    // `outside` stands in for a control of a dialog above the lightbox.
     act(() => panel.outside.focus());
     await panel.key("Tab");
-    expect(focusName()).toBe("select:Move image to folder");
-    act(() => panel.outside.focus());
+    expect(document.activeElement).toBe(panel.outside);
     await panel.key("Tab", true);
-    expect(focusName()).toBe("button:Close");
+    expect(document.activeElement).toBe(panel.outside);
+  });
+
+  it("ignores a Tab another handler already took", async () => {
+    const panel = await open();
+    await panel.click(panel.card("img-1").querySelector("button")!);
+    const takeTab = (event: KeyboardEvent) => {
+      if (event.key === "Tab") event.preventDefault();
+    };
+    document.addEventListener("keydown", takeTab, true);
+    try {
+      await panel.key("Tab");
+      expect(focusName()).toBe("button:Close");
+    } finally {
+      document.removeEventListener("keydown", takeTab, true);
+    }
   });
 
   it("skips the folder dropdown while a move runs", async () => {
@@ -268,5 +291,114 @@ describe("moving from the lightbox", () => {
       ["update", "global-gallery", "img-2", { folderId: "f-3" }],
       ["list", "global-gallery", { orderBy: "createdAt", descending: true, limit: 48 }],
     ]);
+  });
+});
+
+describe("deleting from the lightbox", () => {
+  async function deleteFromLightbox(panel: GalleryHarness) {
+    await panel.click(panel.card("img-1").querySelector("button")!);
+    panel.takeCalls();
+    await panel.click(dialog(panel)!.querySelector('button[title="Delete"]')!);
+  }
+
+  it("closes the lightbox right after the confirm, without waiting for the list refresh", async () => {
+    const panel = await open();
+    fakeGallery.hold("list:global-gallery");
+    await deleteFromLightbox(panel);
+    expect(dialog(panel)).toBeNull();
+    const calls = panel.takeCalls();
+    expect(calls.filter((call) => call[0] === "delete")).toEqual([["delete", "global-gallery", "img-1"]]);
+    expect(calls.at(-1)).toEqual(["list", "global-gallery", { orderBy: "createdAt", descending: true, limit: 48 }]);
+    await panel.release("list:global-gallery");
+    expect(dialog(panel)).toBeNull();
+  });
+
+  it("closes the lightbox even when the delete then fails", async () => {
+    const panel = await open();
+    fakeGallery.hold("delete");
+    fakeGallery.fail("delete", "locked");
+    await deleteFromLightbox(panel);
+    expect(dialog(panel)).toBeNull();
+
+    await panel.release("delete");
+    expect(dialog(panel)).toBeNull();
+    expect(panel.takeCalls()).toEqual([
+      [
+        "confirm",
+        { title: "Delete Image", message: "Delete this gallery image?", confirmLabel: "Delete", tone: "destructive" },
+      ],
+      ["delete", "global-gallery", "img-1"],
+      ["toast", "error", "Couldn't save that change. Try again."],
+    ]);
+    expect(panel.card("img-1")).toBeDefined();
+  });
+
+  it("keeps the lightbox open when the confirm is cancelled", async () => {
+    const panel = await open();
+    fakeGallery.answer(false);
+    await deleteFromLightbox(panel);
+    expect(dialog(panel)).not.toBeNull();
+  });
+});
+
+describe("dropping a card", () => {
+  it("moves only the image named in the drop's text/plain; a drop without an id does nothing", async () => {
+    const panel = await open();
+    await panel.drag("dragstart", panel.card("img-2"));
+    await panel.drag("dragover", panel.chip("Reactions"));
+    panel.takeCalls();
+    await panel.drag("drop", panel.chip("Reactions"), makeDataTransfer());
+    expect(panel.takeCalls()).toEqual([]);
+    expect(fakeGallery.images.find((image) => image.id === "img-2")!.folderId).toBeNull();
+    // The drag still ends: no fading, no ring.
+    expect(panel.card("img-2").classList.contains("opacity-40")).toBe(false);
+    expect(panel.chip("Reactions").classList.contains("ring-2")).toBe(false);
+  });
+});
+
+describe("renaming a folder", () => {
+  it("compares the trimmed name with the stored name as stored", async () => {
+    harness = new GalleryHarness(recording, {
+      images: "IMAGES",
+      folders: [{ id: "f-9", name: " Faces ", createdAt: "2026-01-09T00:00:00.000Z" }],
+    });
+    await harness.mount();
+    await harness.click(harness.chip(" Faces "));
+    harness.takeCalls();
+    fakeGallery.answer("Faces");
+    await harness.click(harness.buttonNamed("Rename folder"));
+    expect(harness.takeCalls().slice(1, 2)).toEqual([["update", "gallery-folders", "f-9", { name: "Faces" }]]);
+  });
+
+  it("still does nothing when the trimmed name equals the stored one", async () => {
+    const panel = await open();
+    await panel.click(panel.chip("Reactions"));
+    panel.takeCalls();
+    fakeGallery.answer("  Reactions ");
+    await panel.click(panel.buttonNamed("Rename folder"));
+    expect(panel.takeCalls().map((call) => call[0])).toEqual(["prompt"]);
+  });
+});
+
+describe("a folder whose name is missing", () => {
+  it('labels the upload button Upload to ""', async () => {
+    harness = new GalleryHarness(recording, {
+      images: "IMAGES",
+      folders: [{ id: "f-9", name: null, createdAt: "2026-01-09T00:00:00.000Z" } as never],
+    });
+    await harness.mount();
+    await harness.click(harness.chip(""));
+    expect(harness.buttonNamed('Upload to ""')).toBeDefined();
+    expect(harness.element.textContent).not.toContain("null");
+  });
+});
+
+describe("the lightbox on phones", () => {
+  it("uses only the safe-area inset as top padding below md, and 1rem elsewhere", async () => {
+    const panel = await open();
+    await panel.click(panel.card("img-1").querySelector("button")!);
+    const classes = [...dialog(panel)!.classList];
+    expect(classes).toContain("p-4");
+    expect(classes).toContain("max-md:pt-[env(safe-area-inset-top)]");
   });
 });

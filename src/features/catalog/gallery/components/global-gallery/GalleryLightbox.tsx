@@ -43,19 +43,18 @@ export function GalleryLightbox({ image, folders, folderId, moving, onMove, onDe
 
   useEffect(() => {
     const keepFocusInside = (event: KeyboardEvent) => {
-      if (event.key !== "Tab" || !dialogRef.current) return;
+      if (event.key !== "Tab" || event.defaultPrevented || !dialogRef.current) return;
       const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
       const first = focusable[0];
       const last = focusable.at(-1);
-      if (!first || !last) return;
+      // Only wrap at the lightbox's own ends; focus elsewhere (a confirm dialog opened from here) is left alone.
       const active = document.activeElement;
-      const inside = active instanceof Node && dialogRef.current.contains(active);
-      if (event.shiftKey && (active === first || !inside)) {
+      if (event.shiftKey && first && active === first) {
         event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && (active === last || !inside)) {
+        last?.focus();
+      } else if (!event.shiftKey && last && active === last) {
         event.preventDefault();
-        first.focus();
+        first?.focus();
       }
     };
     document.addEventListener("keydown", keepFocusInside);
@@ -73,7 +72,7 @@ export function GalleryLightbox({ image, folders, folderId, moving, onMove, onDe
       aria-modal="true"
       aria-label={lightboxLabel(image)}
       onClick={closeOnBackdrop}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 max-md:pt-[env(safe-area-inset-top)]"
     >
       <div className="flex max-h-[90vh] w-[min(90vw,40rem)] flex-col gap-3">
         <img src={src} alt={imageAlt(image)} className="max-h-[70vh] w-full rounded-xl object-contain shadow-2xl" />

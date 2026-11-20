@@ -85,7 +85,7 @@ function namedList<T>(recording: Recording, value: string | T[]): T[] {
 }
 
 /** A `dataTransfer` stand-in shared from the last drag start, as the recorder's was. */
-function makeDataTransfer() {
+export function makeDataTransfer() {
   const data = new Map<string, string>();
   return {
     setData: (type: string, value: string) => void data.set(type, value),
@@ -224,10 +224,11 @@ export class GalleryHarness {
     await settle();
   }
 
-  async drag(type: string, target: Element) {
+  /** A drag event carrying the `dataTransfer` shared from the last drag start, or the one given. */
+  async drag(type: string, target: Element, dataTransfer?: ReturnType<typeof makeDataTransfer>) {
     if (type === "dragstart") this.dataTransfer = makeDataTransfer();
     const event = new Event(type, { bubbles: true, cancelable: true });
-    Object.defineProperty(event, "dataTransfer", { value: this.dataTransfer });
+    Object.defineProperty(event, "dataTransfer", { value: dataTransfer ?? this.dataTransfer });
     act(() => {
       target.dispatchEvent(event);
     });

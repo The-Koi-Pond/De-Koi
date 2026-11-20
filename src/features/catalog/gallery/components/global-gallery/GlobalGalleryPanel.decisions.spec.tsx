@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { onlineManager } from "@tanstack/react-query";
+import { act, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useEscapeOverlay } from "../../../../../shared/hooks/use-escape-overlay";
 import { fakeGallery } from "./fake-gallery-storage";
@@ -51,6 +52,7 @@ async function open(before: (() => void) | null = null) {
 }
 
 afterEach(async () => {
+  act(() => onlineManager.setOnline(true));
   await harness?.unmount();
   harness = null;
 });
@@ -143,6 +145,25 @@ describe("Decision 3: a gallery that fails to load says so", () => {
     expect(text(panel).startsWith("6 images")).toBe(true);
     expect(text(panel)).not.toContain("Couldn't load the gallery.");
     expect(panel.element.querySelectorAll('[draggable="true"]')).toHaveLength(6);
+    expect(writes(fakeGallery.calls)).toEqual([]);
+  });
+
+  it("shows the error box when the first load is paused offline, and Retry loads it once back online", async () => {
+    onlineManager.setOnline(false);
+    const panel = await open();
+    expect(fakeGallery.calls.filter((call) => call[1] === "global-gallery")).toEqual([]);
+    expect(text(panel)).toContain("Couldn't load the gallery.");
+    expect(panel.element.querySelectorAll(".shimmer")).toHaveLength(0);
+    expect(text(panel).startsWith("0 images")).toBe(true);
+
+    // Still offline: the retry pauses again and the box stays.
+    await panel.click(panel.button("Retry"));
+    expect(text(panel)).toContain("Couldn't load the gallery.");
+
+    act(() => onlineManager.setOnline(true));
+    await panel.click(panel.button("Retry"));
+    expect(text(panel).startsWith("6 images")).toBe(true);
+    expect(text(panel)).not.toContain("Couldn't load the gallery.");
     expect(writes(fakeGallery.calls)).toEqual([]);
   });
 
@@ -247,6 +268,19 @@ describe("Decision 5: a new folder is selected once the folder list has it", () 
       expect(panel.buttons().some((button) => button.getAttribute("aria-label") === 'Upload to "Memes"')).toBe(false);
     },
   );
+
+  it("keeps a chip picked while the create itself is still running", async () => {
+    const panel = await open();
+    fakeGallery.hold("create");
+    fakeGallery.answer("Memes");
+    await panel.click(panel.buttonNamed("New folder"));
+    await panel.click(panel.chip("Unfiled"));
+
+    await panel.release("create");
+    expect(pressedChips(panel).map(([chip]) => chip)).toContain("Memes");
+    expect(pressedChips(panel).find(([, pressed]) => pressed === "true")).toEqual(["Unfiled", "true"]);
+    expect(panel.buttons().some((button) => button.getAttribute("aria-label") === 'Upload to "Memes"')).toBe(false);
+  });
 
   it("selects nothing new when the create fails", async () => {
     const panel = await open();

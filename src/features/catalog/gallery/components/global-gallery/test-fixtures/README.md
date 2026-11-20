@@ -14,15 +14,15 @@ gallery hooks and these stand-ins:
   images newest first (by `createdAt` string, then `id`, both descending), after the `before` cursor
   (`"<createdAt>|<id>"`) when given, cut to `options.limit`. `list("gallery-folders")` returns the folders in stored
   order. `create("gallery-folders", { name })` stores and returns `{ name, id: "new-folder-<n>", createdAt:
-  "2026-02-0<n>T12:00:00.000Z" }`. `update(entity, id, patch)` merges and returns the row. `delete("global-gallery",
-  id)` removes the image; `delete("gallery-folders", id)` removes the folder and moves its images to `folderId: null`.
+"2026-02-0<n>T12:00:00.000Z" }`. `update(entity, id, patch)` merges and returns the row. `delete("global-gallery",
+id)` removes the image; `delete("gallery-folders", id)` removes the folder and moves its images to `folderId: null`.
   `<n>` counts creates and uploads together within a scenario, from 1.
 - `galleryApi.uploadGlobal(file, folderId)` (`shared/api/image-generation-api`): stores and returns
   `{ id: "up-<n>", folderId, filePath: "/data/gallery/<name>", filename: <name>, prompt: "", provider: "upload",
-  model: "", width: 64, height: 64, createdAt: "2026-03-0<n>T12:00:00.000Z", url: "/api/gallery/file/<name>" }`, or
+model: "", width: 64, height: 64, createdAt: "2026-03-0<n>T12:00:00.000Z", url: "/api/gallery/file/<name>" }`, or
   throws `new Error(reason)` for a file named in a `failFile` step.
 - `shared/api/local-file-api`: `galleryThumbnailPath(filename, filePath)` returns `` `${filename ?? "-"}~${filePath ??
-  "-"}` ``; `resolveManagedAssetThumbnailFileUrl(kind, path, size)` returns `` `thumb:${kind}:${size}:${path}` ``,
+"-"}` ``; `resolveManagedAssetThumbnailFileUrl(kind, path, size)` returns `` `thumb:${kind}:${size}:${path}` ``,
   except it returns `null` when the path contains `img-2` and throws when it contains `raw.png`;
   `resolveGalleryFileUrl(filename, filePath)` returns `` `full:${filename}~${filePath ?? "-"}` `` when there is a
   filename, else `null`.
@@ -32,11 +32,11 @@ gallery hooks and these stand-ins:
 - `sonner`'s `toast` (and `toast.error`, `toast.warning`, `toast.success`, `toast.info`, `toast.message`): recorded as
   `["toast", kind, message]`.
 - `CustomEmojiTagButton` (`shared/components/ui/CustomEmojiTagButton`): a stand-in `<button type="button"
-  aria-label="Tag <image id>" data-kind={image.customKind ?? ""}>` (no text) whose click calls `onApply({ customKind:
-  "sticker", customName: "n_<image id>", width: 64, height: 64 })`.
+aria-label="Tag <image id>" data-kind={image.customKind ?? ""}>` (no text) whose click calls `onApply({ customKind:
+"sticker", customName: "n_<image id>", width: 64, height: 64 })`.
 - `@tanstack/react-virtual`'s `useVirtualizer({ count, estimateSize })`: returns every row (`getVirtualItems()` gives
   `{ key: i, index: i, start: i * estimateSize() }` for each `i < count`), `getTotalSize()` = `count *
-  estimateSize()`, `measureElement` does nothing.
+estimateSize()`, `measureElement` does nothing.
 
 Before mounting, an `outside` button is added to the page and focused (to see where focus returns).
 
@@ -58,8 +58,8 @@ find the control) or:
 - `dialog`: the `[role="dialog"]` element's `aria-label` and `aria-modal`, or `null`;
 - `focus`: `document.activeElement` as `<tag>:<aria-label, else title, else collapsed text>` (`null` for the body);
 - `calls`: storage calls, uploads, dialogs and toasts since the previous step, in order: `["list", entity,
-  options]`, `["create", entity, data]`, `["update", entity, id, patch]`, `["delete", entity, id]`, `["upload",
-  fileName, folderId]`, `["confirm", options]`, `["prompt", options]`, `["toast", kind, message]`.
+options]`, `["create", entity, data]`, `["update", entity, id, patch]`, `["delete", entity, id]`, `["upload",
+fileName, folderId]`, `["confirm", options]`, `["prompt", options]`, `["toast", kind, message]`.
 
 Step kinds:
 

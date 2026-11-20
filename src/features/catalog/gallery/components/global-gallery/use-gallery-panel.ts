@@ -1,6 +1,6 @@
 // The panel's state and actions: the selected chip, the sort, the open lightbox, drag-to-move, and every
 // write, each through the gallery hooks so the storage calls stay exactly the hooks' calls.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { showConfirmDialog, showPromptDialog } from "../../../../../shared/lib/app-dialogs";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
@@ -87,8 +87,11 @@ export function useGalleryPanel() {
     if (lightbox && !lightboxImage && imagesQuery.data) setLightbox(null);
   }, [imagesQuery.data, lightbox, lightboxImage]);
 
-  // A pick by the user wins over a new folder still waiting for the folder list (decision 5).
+  // Decision 5: a chip the user picks after confirming a new folder's name wins over the new folder, whether the
+  // create or the folder list refresh is still running. Each pick bumps this count.
+  const picks = useRef(0);
   const selectFilter = useCallback((next: GalleryFilter) => {
+    picks.current += 1;
     setAwaitedFolderId(null);
     setFilter(next);
   }, []);
@@ -116,8 +119,10 @@ export function useGalleryPanel() {
         confirmLabel: "Delete",
         tone: "destructive",
       });
-      // The lightbox closes on its own once the deleted image leaves the refreshed list.
-      if (confirmed) deleteImage.mutate(imageId);
+      if (!confirmed) return;
+      // The lightbox showing this image closes at once, whether or not the delete then succeeds.
+      setLightbox((current) => (current?.imageId === imageId ? null : current));
+      deleteImage.mutate(imageId);
     },
     [deleteImage],
   );
@@ -131,9 +136,10 @@ export function useGalleryPanel() {
     });
     const trimmed = name?.trim();
     if (!trimmed) return;
+    const picksBefore = picks.current;
     try {
       const folder = await createFolder.mutateAsync(trimmed);
-      setAwaitedFolderId(folder.id);
+      if (picks.current === picksBefore) setAwaitedFolderId(folder.id);
     } catch {
       toast.error("Couldn't create the folder. Try again.");
     }
@@ -148,7 +154,7 @@ export function useGalleryPanel() {
       confirmLabel: "Rename",
     });
     const trimmed = name?.trim();
-    if (!trimmed || trimmed === selectedFolder.name.trim()) return;
+    if (!trimmed || trimmed === selectedFolder.name) return;
     try {
       await renameFolder.mutateAsync({ folderId: selectedFolder.id, name: trimmed });
     } catch {
@@ -198,16 +204,16 @@ export function useGalleryPanel() {
   }, []);
 
   const drop = useCallback(
-    (target: GalleryFilter, draggedId: string) => {
-      const imageId = draggedId || draggingId;
+    (target: GalleryFilter, imageId: string) => {
       endDrag();
+      if (!imageId) return;
       const image = images.find((candidate) => candidate.id === imageId);
       if (!image) return;
       const folderId = moveTargetOf(target);
       if ((image.folderId ?? null) === folderId) return;
       dragMove.mutate({ imageId: image.id, folderId });
     },
-    [dragMove, draggingId, endDrag, images],
+    [dragMove, endDrag, images],
   );
 
   // ── Lightbox ──

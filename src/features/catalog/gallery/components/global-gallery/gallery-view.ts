@@ -109,7 +109,7 @@ export function deleteFolderMessage(name: string, imageCount: number): string {
 }
 
 export function uploadLabel(folder: GalleryFolder | undefined): string {
-  return folder ? `Upload to "${folder.name}"` : "Upload Images";
+  return folder ? `Upload to "${folder.name ?? ""}"` : "Upload Images";
 }
 
 /** Two cards per grid row. */

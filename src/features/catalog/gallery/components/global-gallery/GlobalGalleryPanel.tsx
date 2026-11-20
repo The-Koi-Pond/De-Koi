@@ -15,7 +15,9 @@ const TAG_HELP =
 export function GlobalGalleryPanel() {
   const panel = useGalleryPanel();
   const { imagesQuery, filter, selectedFolder, lightboxImage } = panel;
-  const loadFailed = imagesQuery.isError && !imagesQuery.data && !imagesQuery.isFetching;
+  // Decision 3: also when the first load is paused because the device is offline.
+  const loadFailed =
+    !imagesQuery.data && ((imagesQuery.isError && !imagesQuery.isFetching) || imagesQuery.fetchStatus === "paused");
   const loading = !imagesQuery.data && !loadFailed;
 
   return (
