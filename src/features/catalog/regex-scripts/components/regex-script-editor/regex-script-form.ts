@@ -88,9 +88,17 @@ export function orderFromInput(text: string): number {
   return Number.parseInt(text, 10) || 0;
 }
 
-/** Depth Range: an empty box means no limit. */
+/**
+ * Depth Range: an empty box means no limit. Depths are whole numbers: a number box can still hand over
+ * a decimal such as ".5" or an exponent such as "1e3", which is read as the number it is and cut to its
+ * whole part (".5" gives 0, "1e3" gives 1000) instead of becoming NaN.
+ */
 export function depthFromInput(text: string): number | null {
-  return text === "" ? null : Number.parseInt(text, 10);
+  if (text === "") return null;
+  const value = Number(text);
+  if (Number.isFinite(value)) return Math.trunc(value) || 0;
+  const whole = Number.parseInt(text, 10);
+  return Number.isNaN(whole) ? null : whole;
 }
 
 /** What Save sends, field for field and in this order. Every field is a stored contract. */

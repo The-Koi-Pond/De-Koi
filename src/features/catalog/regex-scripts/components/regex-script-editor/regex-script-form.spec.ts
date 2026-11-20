@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RegexScriptRow } from "../../hooks/use-regex-scripts";
-import { liveTestResult, regexPatternError } from "./live-test";
+import { liveTestResult, regexPatternError, samplePattern } from "./live-test";
 import {
   depthFromInput,
   newRegexScriptForm,
@@ -89,6 +89,10 @@ describe("regex script form", () => {
     expect(toggleRegexPlacement(["ai_output", "user_input"], "ai_output")).toEqual(["user_input"]);
     expect([orderFromInput(""), orderFromInput("1.5"), orderFromInput("-3")]).toEqual([0, 1, -3]);
     expect([depthFromInput(""), depthFromInput("3.9"), depthFromInput("0")]).toEqual([null, 3, 0]);
+    // A decimal with no whole part is cut to 0 (also -0), never NaN.
+    expect([".5", "-.5", "-2.5", "1e3", "1e-3", "-0.5"].map(depthFromInput)).toEqual([0, 0, -2, 1000, 0, 0]);
+    expect(Object.is(depthFromInput("-.5"), 0)).toBe(true);
+    expect(Object.is(depthFromInput("-0.5"), 0)).toBe(true);
   });
 
   it("counts the name in code points and treats a damaged name or pattern as empty", () => {
@@ -133,11 +137,18 @@ describe("live test", () => {
   });
 
   it("applies the script with sample macro values and leaves the text alone when it can't run", () => {
-    const base = { replaceString: "[{{char}}]", flags: "g", trimStrings: [], patternError: null };
-    expect(liveTestResult({ ...base, liveText: "User and User", findRegex: "{{user}}" })).toBe(
-      "[Character] and [Character]",
-    );
-    expect(liveTestResult({ ...base, liveText: "keep", findRegex: "" })).toBe("keep");
-    expect(liveTestResult({ ...base, liveText: "keep", findRegex: "(", patternError: "bad" })).toBe("keep");
+    const base = { replaceString: "[{{char}}]", flags: "g", trimStrings: [] };
+    expect(liveTestResult({ ...base, liveText: "User and User", source: "User" })).toBe("[Character] and [Character]");
+    expect(liveTestResult({ ...base, liveText: "keep", source: null })).toBe("keep");
+    expect(liveTestResult({ ...base, liveText: "keep", source: "(" })).toBe("keep");
+  });
+
+  it("resolves the pattern's macros once, for the error check and the run alike", () => {
+    expect(samplePattern("{{user}}", "g", "x")).toEqual({ source: "User", error: null });
+    expect(samplePattern("", "g", "x")).toEqual({ source: null, error: null });
+    expect(samplePattern("(", "g", "x")).toEqual({
+      source: "(",
+      error: "Invalid regular expression: /(/g: Unterminated group",
+    });
   });
 });

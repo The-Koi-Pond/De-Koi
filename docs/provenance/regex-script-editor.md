@@ -384,6 +384,40 @@ delete: <message>`), stay open. The header's save status doesn't change (it
    accepted, the last Apply To place marking the form unsaved when it can't be
    turned off, and an edit in another tab being overwritten when this editor
    saves.
+7. **Follow-ups, shipped after the rebuild.** Four bugs carried over from the
+   old editor, fixed in their own PR:
+   - **A decimal depth became NaN.** Typing `.5` in a Depth Range box set the
+     depth to `NaN`, which the storage schema rejects with a raw message. Now
+     the box's text is read as the number it is and cut to its whole part:
+     `.5` and `-.5` give 0, `2.9` gives 2, `1e3` gives 1000.
+   - **Save & close sent a pattern that doesn't compile.** Save is disabled
+     while the find pattern has an error, but Save & close in the unsaved bar
+     wasn't. Now it shows `Fix the find pattern first: <error>` in the save
+     error banner, sends nothing and stays open.
+   - **Live Test could freeze the page.** A pattern that backtracks
+     catastrophically, like `(a+)+$` or `.*.*.*.*=`, ran on every keystroke.
+     Now every Live Test first runs the same replace, on the same text, in a
+     background worker (one is kept between runs). Only when that finishes
+     within 300 ms does the page run it. If it doesn't, the worker is ended and
+     Live Test shows `Live Test stopped: this pattern took too long on this
+text and could freeze the app. Patterns with repeats inside repeats, like
+(a+)+, or many repeats in a row, like .*.*.*, often do this.` While a run
+     is being tried (a few milliseconds), the previous result stays shown.
+     Where no worker can run it shows `Live Test can't run here: it needs a
+background worker to try the pattern safely.` The pattern's macros are
+     resolved once, so the pattern error, the trial and the page all see the
+     same pattern (`{{random}}` would otherwise differ). Saving is still
+     allowed.
+   - **Typing during a save was lost.** The list refresh after a save reset
+     the form, dropping anything typed while the save was on its way. Now a
+     refreshed row that matches what one of this editor's saves sent doesn't
+     reset the form, so those edits stay, still unsaved. This covers several
+     saves in a row and a new script's first save; while a new script's row is
+     on its way the form stays up instead of showing "not found". Only the
+     newest save, while its script is still open, marks the form saved, and
+     Save & close stays open when more was typed during its save. A row that
+     doesn't match a sent save (a change from anywhere else) still reloads
+     the form, as before.
 
 ## Tests
 

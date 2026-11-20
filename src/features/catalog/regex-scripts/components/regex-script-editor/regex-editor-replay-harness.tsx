@@ -7,9 +7,63 @@ import { createRoot, type Root } from "react-dom/client";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { fakeRegexStorage } from "./fake-regex-storage";
 import { PATTERN_ERROR_RING } from "./PatternFields";
+import { resetTrialWorker } from "./live-test";
 import { RegexScriptEditor } from "./RegexScriptEditor";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+/**
+ * Stands in for the browser's Worker in Live Test's trial runs (jsdom has none). In "run" mode it really
+ * runs the replace, on this thread (every recorded pattern is quick); in "hang" mode it never answers a
+ * trial, like a pattern that backtracks catastrophically.
+ */
+export class FakeTrialWorker {
+  static mode: "run" | "hang" = "run";
+  static made: FakeTrialWorker[] = [];
+  onmessage: ((event: { data: unknown }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  jobs: { source: string; flags: string; text: string }[] = [];
+  terminated = false;
+
+  constructor() {
+    FakeTrialWorker.made.push(this);
+  }
+
+  postMessage(job: { type?: string; id: number; source: string; flags: string; text: string }) {
+    if (job.type !== "ready") {
+      this.jobs.push({ source: job.source, flags: job.flags, text: job.text });
+      if (FakeTrialWorker.mode === "hang") return;
+      try {
+        job.text.replace(new RegExp(job.source, job.flags), "");
+      } catch {
+        // The real worker answers either way.
+      }
+    }
+    queueMicrotask(() => {
+      if (!this.terminated) this.onmessage?.({ data: job.id });
+    });
+  }
+
+  terminate() {
+    this.terminated = true;
+  }
+}
+
+/** Picks how Live Test's trial runs behave: the stand-in worker in a mode, or no Worker at all. */
+export function setTrialWorkers(mode: "run" | "hang" | "none") {
+  resetTrialWorker();
+  FakeTrialWorker.made = [];
+  const scope = globalThis as { Worker?: unknown };
+  if (mode === "none") {
+    delete scope.Worker;
+    return;
+  }
+  FakeTrialWorker.mode = mode;
+  scope.Worker = FakeTrialWorker;
+  if (typeof URL.createObjectURL !== "function") URL.createObjectURL = () => "blob:trial-worker";
+}
+
+setTrialWorkers("run");
 
 export type Step = [string, ...unknown[]];
 

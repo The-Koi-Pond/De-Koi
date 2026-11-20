@@ -1,8 +1,8 @@
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
-import { fakeRegexStorage } from "./fake-regex-storage";
-import { EditorHarness, settle, type Recording } from "./regex-editor-replay-harness";
+import { fakeRegexStorage, fakeStorageApi } from "./fake-regex-storage";
+import { EditorHarness, FakeTrialWorker, setTrialWorkers, settle, type Recording } from "./regex-editor-replay-harness";
 import showJson from "./test-fixtures/recorded-show.json";
 
 vi.mock("../../../../../shared/api/storage-api", async (importOriginal) => ({
@@ -312,5 +312,298 @@ describe("Decision 5: toggles are announced", () => {
     expect(
       editor.buttons().filter((button) => button.getAttribute("aria-label") === "Remove trim string"),
     ).toHaveLength(2);
+  });
+});
+
+describe("Follow-ups after the rebuild", () => {
+  function lastSave() {
+    const call = savesAndDeletes().at(-1)!;
+    return call[call.length - 1] as Record<string, unknown>;
+  }
+
+  it("cuts a decimal depth to a whole number instead of sending NaN", async () => {
+    const editor = await open("rx-1");
+    await editor.type(editor.field("Min"), ".5");
+    await editor.type(editor.field("Max"), "2.9");
+    expect(editor.field("Min").value).toBe("0");
+    await editor.click(editor.button("Save"));
+
+    expect(bannerText(editor)).toBeNull();
+    expect(lastSave()).toMatchObject({ minDepth: 0, maxDepth: 2 });
+  });
+
+  it("Save & close won't send a pattern that doesn't compile", async () => {
+    const editor = await open("rx-1");
+    await editor.type(editor.field(FIND), "(");
+    await editor.click(editor.buttonWith("aria-label", "Back to regex scripts"));
+    await editor.click(editor.button("Save & close"));
+
+    expect(useUIStore.getState()).toMatchObject({ regexDetailId: "rx-1", editorDirty: true });
+    expect(bannerText(editor)).toMatch(/^Fix the find pattern first: Invalid regular expression/);
+    expect(savesAndDeletes()).toEqual([]);
+    expect(editor.field(FIND).value).toBe("(");
+  });
+
+  describe("Live Test tries every pattern in a background worker first", () => {
+    const CATASTROPHIC = "(a+)+$";
+    // The bundled Clean HTML script: nested repeats whose branches can't overlap, so it runs fast.
+    const CLEAN_HTML = String.raw`[ \t]?<(?!--)(?!\/?(?:font|lie|filter)\b)(?:"[^"]*"|'[^']*'|[^'">])*>`;
+    const REPLACE = "e.g. $1 or leave empty to remove";
+    const wait = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+
+    afterEach(() => setTrialWorkers("run"));
+
+    it("stops a pattern whose trial run takes too long, and says why", async () => {
+      setTrialWorkers("hang");
+      const editor = await open("rx-1");
+      await editor.type(editor.field(FIND), CATASTROPHIC);
+      await editor.type(editor.field(LIVE), "a".repeat(40) + "!");
+      expect(editor.element.textContent).not.toContain("Live Test stopped");
+
+      await wait(400);
+      expect(editor.snapshot().result).toBeNull();
+      expect(editor.element.textContent).toContain("Live Test stopped: this pattern took too long on this text");
+      const last = FakeTrialWorker.made.at(-1)!;
+      expect(last.jobs).toEqual([{ source: CATASTROPHIC, flags: "gi", text: "a".repeat(40) + "!" }]);
+      expect(last.terminated).toBe(true);
+      // Saving it is still the writer's call.
+      await editor.click(editor.button("Save"));
+      expect(lastSave()).toMatchObject({ findRegex: CATASTROPHIC });
+    });
+
+    it.each([String.raw`\*([^*]+)\*`, "[^](a+)+$|]", ".*.*.*.*.*.*.*.*=", String.raw`(\w|\d)+$`])(
+      "never runs %s on the page before its trial answers",
+      async (pattern) => {
+        setTrialWorkers("hang");
+        const editor = await open("rx-1");
+        await editor.type(editor.field(FIND), pattern);
+        await editor.type(editor.field(LIVE), "say *hi* " + "a".repeat(30));
+        expect(editor.snapshot().result).toBeNull();
+        await wait(400);
+        expect(editor.snapshot().result).toBeNull();
+        expect(editor.element.textContent).toContain("Live Test stopped");
+      },
+    );
+
+    it("runs a nested pattern whose trial finishes quickly", async () => {
+      const editor = await open("rx-1");
+      await editor.type(editor.field(FIND), CLEAN_HTML);
+      await editor.type(editor.field(REPLACE), "");
+      await editor.type(editor.field(LIVE), 'a <b class="x">bold</b> <font>kept</font>');
+
+      expect(editor.snapshot().result).toBe("abold <font>kept</font>");
+      expect(editor.element.textContent).not.toContain("Live Test s");
+    });
+
+    it.each(["{{lastInput}}", "a{2,}", String.raw`\d{1,500}`, "(?:foo|bar)+", String.raw`(\s+)?$`])(
+      "runs %s after its trial",
+      async (pattern) => {
+        const editor = await open("rx-1");
+        await editor.type(editor.field(FIND), pattern);
+        await editor.type(editor.field(LIVE), "aa foo 12 *x*");
+
+        expect(editor.snapshot().result).not.toBeNull();
+        expect(editor.element.textContent).not.toContain("Live Test s");
+      },
+    );
+
+    it("tries and runs the very same pattern when a macro resolves differently each time", async () => {
+      const editor = await open("rx-1");
+      await editor.type(editor.field(REPLACE), "");
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        await editor.type(editor.field(FIND), `{{random::x::y}}${"+".repeat(attempt % 2)}`);
+        await editor.type(editor.field(LIVE), `xy${attempt}`);
+        const job = FakeTrialWorker.made.flatMap((worker) => worker.jobs).at(-1)!;
+        expect(editor.snapshot().result).toBe(job.text.replace(new RegExp(job.source, job.flags), ""));
+      }
+    });
+
+    it("keeps showing the last result while the next trial runs", async () => {
+      const editor = await open("rx-1");
+      await editor.type(editor.field(LIVE), "say *hi*");
+      expect(editor.snapshot().result).toBe("say hi");
+
+      setTrialWorkers("hang");
+      await editor.type(editor.field(LIVE), "say *hi* " + "a".repeat(30));
+      expect(editor.snapshot().result).toBe("say hi");
+      await wait(400);
+      expect(editor.snapshot().result).toBeNull();
+      expect(editor.element.textContent).toContain("Live Test stopped");
+    });
+
+    it("says so where no background worker can run", async () => {
+      setTrialWorkers("none");
+      const editor = await open("rx-1");
+      await editor.type(editor.field(LIVE), "say *hi*");
+
+      expect(editor.snapshot().result).toBeNull();
+      expect(editor.element.textContent).toContain("Live Test can't run here");
+    });
+
+    it("keeps one worker between quick trials and ends the rest", async () => {
+      const editor = await open("rx-1");
+      for (const text of ["a", "ab", "abc", "*abc*"]) await editor.type(editor.field(LIVE), text);
+      expect(FakeTrialWorker.made.filter((worker) => !worker.terminated)).toHaveLength(1);
+      await editor.unmount();
+      harness = null;
+      expect(FakeTrialWorker.made.filter((worker) => !worker.terminated).length).toBeLessThanOrEqual(1);
+    });
+  });
+
+  it("keeps what was typed while a save was on its way, still unsaved", async () => {
+    const editor = await open("rx-1");
+    await editor.type(editor.field(NAME), "First");
+    fakeRegexStorage.hold();
+    await editor.click(editor.button("Save"));
+    await editor.type(editor.field(NAME), "Second");
+    act(() => fakeRegexStorage.release());
+    await settle();
+
+    expect(lastSave()).toMatchObject({ name: "First" });
+    expect(editor.field(NAME).value).toBe("Second");
+    expect(useUIStore.getState().editorDirty).toBe(true);
+
+    await editor.click(editor.button("Save"));
+    expect(lastSave()).toMatchObject({ name: "Second" });
+    expect(editor.field(NAME).value).toBe("Second");
+    expect(useUIStore.getState().editorDirty).toBe(false);
+  });
+
+  it("Save & close stays open when more was typed during the save", async () => {
+    const editor = await open("rx-1");
+    await editor.type(editor.field(NAME), "First");
+    await editor.click(editor.buttonWith("aria-label", "Back to regex scripts"));
+    fakeRegexStorage.hold();
+    await editor.click(editor.button("Save & close"));
+    await editor.type(editor.field(NAME), "Second");
+    act(() => fakeRegexStorage.release());
+    await settle();
+
+    expect(useUIStore.getState()).toMatchObject({ regexDetailId: "rx-1", editorDirty: true });
+    expect(editor.field(NAME).value).toBe("Second");
+  });
+
+  it("keeps what was typed during a new script's first save", async () => {
+    const editor = await open("__new__");
+    await editor.type(editor.field(FIND), "x+");
+    await editor.type(editor.field(LIVE), "xxx y");
+    fakeRegexStorage.hold();
+    await editor.click(editor.button("Save"));
+    await editor.type(editor.field(NAME), "Typed during");
+    act(() => fakeRegexStorage.release());
+    await settle();
+
+    expect(useUIStore.getState()).toMatchObject({ regexDetailId: "created-1", editorDirty: true });
+    expect(lastSave()).toMatchObject({ name: "New Regex Script", findRegex: "x+" });
+    expect(editor.field(NAME).value).toBe("Typed during");
+    expect(editor.field(FIND).value).toBe("x+");
+    expect(editor.field(LIVE).value).toBe("xxx y");
+  });
+
+  /** Holds the list refresh until `releaseAll`, then lets later refreshes through. */
+  function holdListRefresh() {
+    const realList = fakeStorageApi.list.bind(fakeStorageApi);
+    let waiting: Array<() => void> = [];
+    let holding = true;
+    const spy = vi.spyOn(fakeStorageApi, "list").mockImplementation(async (entity: string, options?: unknown) => {
+      if (holding && entity === "regex-scripts") await new Promise<void>((resolve) => waiting.push(resolve));
+      return realList(entity, options);
+    });
+    return {
+      async releaseAll() {
+        holding = false;
+        const release = waiting;
+        waiting = [];
+        await act(async () => release.forEach((resolve) => resolve()));
+        await settle();
+      },
+      restore: () => spy.mockRestore(),
+    };
+  }
+
+  it("two saves in a row: the first one's refresh doesn't undo the second, or what was typed after it", async () => {
+    const editor = await open("rx-1");
+    await editor.type(editor.field(NAME), "First");
+    const refresh = holdListRefresh();
+    await editor.click(editor.button("Save"));
+    await editor.type(editor.field(NAME), "Second");
+    fakeRegexStorage.hold();
+    await editor.click(editor.button("Save"));
+    await editor.type(editor.field(NAME), "Third");
+    await refresh.releaseAll();
+    expect(editor.field(NAME).value).toBe("Third");
+
+    act(() => fakeRegexStorage.release());
+    await settle();
+    expect(savesAndDeletes().map((call) => (call.at(-1) as { name: string }).name)).toEqual(["First", "Second"]);
+    expect(editor.field(NAME).value).toBe("Third");
+    expect(useUIStore.getState().editorDirty).toBe(true);
+    refresh.restore();
+  });
+
+  it("two saves in a row, nothing typed after: the form stays on the second until it's saved", async () => {
+    const editor = await open("rx-1");
+    await editor.type(editor.field(NAME), "First");
+    const refresh = holdListRefresh();
+    await editor.click(editor.button("Save"));
+    await editor.type(editor.field(NAME), "Second");
+    fakeRegexStorage.hold();
+    await editor.click(editor.button("Save"));
+    await refresh.releaseAll();
+    expect(editor.field(NAME).value).toBe("Second");
+    expect(useUIStore.getState().editorDirty).toBe(true);
+
+    act(() => fakeRegexStorage.release());
+    await settle();
+    expect(editor.field(NAME).value).toBe("Second");
+    expect(useUIStore.getState().editorDirty).toBe(false);
+    refresh.restore();
+  });
+
+  it("a save that finishes after another script opened leaves that script clean", async () => {
+    const editor = await open("rx-1");
+    await editor.type(editor.field(NAME), "First");
+    fakeRegexStorage.hold();
+    await editor.click(editor.button("Save"));
+    await editor.type(editor.field(NAME), "Second");
+    act(() => useUIStore.getState().openRegexDetail("rx-2"));
+    await settle();
+    act(() => fakeRegexStorage.release());
+    await settle();
+
+    expect(useUIStore.getState()).toMatchObject({ regexDetailId: "rx-2", editorDirty: false });
+    expect(editor.element.textContent).not.toContain("Unsaved");
+  });
+
+  it("a save that stores nothing new still lets a later outside change reload the form", async () => {
+    const editor = await open("rx-1");
+    const toggle = () => editor.buttonWith("role", "switch");
+    await editor.click(toggle());
+    await editor.click(toggle());
+    await editor.click(editor.button("Save"));
+    await editor.type(editor.field(NAME), "Unsaved name");
+    await act(() => fakeStorageUpdateElsewhere("rx-1", { name: "Changed elsewhere" }));
+    await act(() => editor.queryClient.invalidateQueries({ queryKey: ["regex-scripts"] }));
+    await settle();
+
+    expect(editor.field(NAME).value).toBe("Changed elsewhere");
+    expect(useUIStore.getState().editorDirty).toBe(false);
+  });
+
+  it("a save with nothing typed during it still reloads from the stored row", async () => {
+    const editor = await open("rx-1");
+    await editor.type(editor.field(NAME), "Renamed");
+    fakeRegexStorage.hold();
+    await editor.click(editor.button("Save"));
+    act(() => fakeRegexStorage.release());
+    await settle();
+
+    expect(editor.field(NAME).value).toBe("Renamed");
+    expect(useUIStore.getState().editorDirty).toBe(false);
+    // A later change from elsewhere still reloads the form, as before.
+    await act(() => fakeStorageUpdateElsewhere("rx-1", { name: "Changed elsewhere" }));
+    await act(() => editor.queryClient.invalidateQueries({ queryKey: ["regex-scripts"] }));
+    await settle();
+    expect(editor.field(NAME).value).toBe("Changed elsewhere");
   });
 });

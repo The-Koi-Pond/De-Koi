@@ -21,6 +21,11 @@ export function LiveTestGroup({ editor }: { editor: RegexScriptEditorModel }) {
           "w-full resize-y rounded-xl px-4 py-3 font-mono text-xs leading-relaxed",
         )}
       />
+      {editor.liveTestNote && (
+        <p role="status" className="text-[0.625rem] text-[var(--muted-foreground)]">
+          {editor.liveTestNote}
+        </p>
+      )}
       {editor.result !== null && (
         <div className="rounded-xl bg-[var(--card)] p-4 ring-1 ring-[var(--border)]">
           <p className="mb-1 text-[0.625rem] text-[var(--muted-foreground)]">Result:</p>
