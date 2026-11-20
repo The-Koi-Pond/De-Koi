@@ -1,5 +1,4 @@
 import { resolveMacros, type MacroContext } from "../../../../../engine/shared/macros/macro-engine";
-import { isPatternSafe } from "../../../../../engine/shared/regex/regex-safety";
 import { applyRegexScriptReplacement } from "../../../../../engine/shared/regex/regex-script-application";
 
 /** Sample values the editor resolves macros with: Live Test and the pattern check never see a real chat. */
@@ -35,109 +34,128 @@ function sampleResolver(liveText: string): (text: string) => string {
   return (text) => resolveMacros(text, context, { trimResult: false });
 }
 
+/** The find pattern with macros resolved by the sample values, resolved once so every use sees the same. */
+export interface SamplePattern {
+  /** The resolved pattern, or null when there's nothing to run. */
+  source: string | null;
+  /** The browser's own message when it isn't a valid regex. */
+  error: string | null;
+}
+
+export function samplePattern(pattern: string, flags: string, liveText: string): SamplePattern {
+  if (!pattern) return { source: null, error: null };
+  let source: string;
+  try {
+    source = sampleResolver(liveText)(pattern);
+  } catch (error) {
+    return { source: null, error: error instanceof Error ? error.message : String(error) };
+  }
+  if (!source) return { source: null, error: null };
+  try {
+    new RegExp(source, flags);
+    return { source, error: null };
+  } catch (error) {
+    return { source, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** The browser's own message when the pattern (macros resolved with sample values) isn't a valid regex. */
 export function regexPatternError(pattern: string, flags: string, liveText: string): string | null {
-  if (!pattern) return null;
-  try {
-    const resolved = sampleResolver(liveText)(pattern);
-    if (!resolved) return null;
-    new RegExp(resolved, flags);
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
+  return samplePattern(pattern, flags, liveText).error;
 }
 
-/** What Live Test shows when a pattern took too long in its trial run. */
-export const LIVE_TEST_SLOW_NOTE =
-  "Live Test stopped: this pattern took too long on this text and could freeze the app. It repeats a repeated group, like (a+)+.";
-
-/** What Live Test shows when a risky pattern can't be given a trial run (no background workers here). */
-export const LIVE_TEST_UNTESTED_NOTE =
-  "Live Test skipped: this pattern repeats a repeated group, like (a+)+, which can freeze the app, and it can't be tried safely here.";
-
-/**
- * The app's regex safety check also turns down shapes that can't hang on their own: literal braces such
- * as an unknown {{macro}} left in the pattern, an open-ended count like {2,}, large counts and long
- * patterns. Hand it a copy where literal braces are escaped and an open-ended count reads as "+", so only
- * a repeat nested in a repeat is what it reports.
- */
-function forNestingCheck(pattern: string): string {
-  return pattern.replace(/\\[\s\S]|\{(\d+),(\d*)\}|\{(?!\d+(?:,\d*)?\})/g, (match: string, _low, high) => {
-    if (match.startsWith("\\")) return match;
-    if (match === "{") return "\\{";
-    return high === "" ? "+" : match;
-  });
+interface LiveTestInput {
+  liveText: string;
+  /** The resolved find pattern from `samplePattern`. */
+  source: string | null;
+  replaceString: string;
+  flags: string;
+  trimStrings: readonly string[];
 }
 
-/** The find pattern with macros resolved by the sample values, or null when there's nothing to run. */
-export function sampleResolvedPattern(pattern: string, liveText: string): string | null {
-  if (!pattern) return null;
+/** What the script would turn the Live Test text into. Anything that can't run leaves the text as it is. */
+export function liveTestResult({ liveText, source, replaceString, flags, trimStrings }: LiveTestInput): string {
+  if (!source) return liveText;
   try {
-    return sampleResolver(liveText)(pattern) || null;
+    return applyRegexScriptReplacement(
+      liveText,
+      new RegExp(source, flags),
+      replaceString,
+      trimStrings,
+      sampleResolver(liveText),
+    );
   } catch {
-    return null;
+    // A preview of half-typed input: whatever can't run shows the sample unchanged.
+    return liveText;
   }
 }
 
-/**
- * True when a resolved pattern repeats a repeated group, the shape that can backtrack catastrophically.
- * It's only a shape check: many such patterns are fine (the branches of `(?:"[^"]*"|[^">])*` can't
- * overlap), so a risky pattern gets a timed trial run before Live Test runs it on the page.
- */
-export function regexPatternRisky(resolvedPattern: string): boolean {
-  return !isPatternSafe(forNestingCheck(resolvedPattern), {
-    maxLength: Number.POSITIVE_INFINITY,
-    maxRepetition: Number.MAX_SAFE_INTEGER,
-  });
-}
+/** What Live Test shows when the pattern took too long in its trial run. */
+export const LIVE_TEST_SLOW_NOTE =
+  "Live Test stopped: this pattern took too long on this text and could freeze the app. Patterns with repeats inside repeats, like (a+)+, or many repeats in a row, like .*.*.*, often do this.";
 
-/** How long the trial run may take once the worker is up, and how long the worker may take to start. */
+/** What Live Test shows where no background worker can run the trial. */
+export const LIVE_TEST_UNTESTED_NOTE =
+  "Live Test can't run here: it needs a background worker to try the pattern safely.";
+
+/** How long a trial may run once its worker is up, and how long a new worker may take to start. */
 const TRIAL_LIMIT_MS = 300;
 const WORKER_START_LIMIT_MS = 3000;
 
+// Every message carries the id of its trial; "ready" answers the start-up check.
 const TRIAL_WORKER_SOURCE = `
 self.onmessage = (event) => {
-  if (event.data && event.data.type === "ready") {
-    self.postMessage("ready");
-    return;
+  const job = event.data;
+  if (job.type !== "ready") {
+    try {
+      job.text.replace(new RegExp(job.source, job.flags), "");
+    } catch {}
   }
-  const { source, flags, text } = event.data;
-  try {
-    text.replace(new RegExp(source, flags), "");
-  } catch {}
-  self.postMessage("done");
+  self.postMessage(job.id);
 };
 `;
 
-let trialWorkerUrl: string | null = null;
+interface TrialWorker {
+  worker: Worker;
+  ready: boolean;
+}
 
-function trialWorkerSource(): string | null {
-  if (trialWorkerUrl) return trialWorkerUrl;
+let workerUrl: string | null = null;
+/** One worker kept between trials, so a keystroke doesn't start a new one. Ended whenever a trial is cut off. */
+let idleWorker: TrialWorker | null = null;
+let nextTrialId = 1;
+
+function takeWorker(): TrialWorker | null {
+  if (idleWorker) {
+    const taken = idleWorker;
+    idleWorker = null;
+    return taken;
+  }
   if (typeof Worker !== "function" || typeof URL.createObjectURL !== "function") return null;
   try {
-    trialWorkerUrl = URL.createObjectURL(new Blob([TRIAL_WORKER_SOURCE], { type: "text/javascript" }));
+    workerUrl ??= URL.createObjectURL(new Blob([TRIAL_WORKER_SOURCE], { type: "text/javascript" }));
+    return { worker: new Worker(workerUrl), ready: false };
   } catch {
     return null;
   }
-  return trialWorkerUrl;
 }
 
 export type TrialVerdict = "fast" | "slow" | "untested";
 
 /**
- * Runs the same replace Live Test would run, in a throwaway background worker, and reports whether it
- * finished within the limit. A slow run is stopped by ending the worker, so the page never hangs.
- * `cancel` ends it early (the text or pattern changed) without a verdict.
+ * Runs the replace Live Test would run, on the same text, in a background worker, and reports whether it
+ * finished within the limit. Only after a "fast" verdict does the page run it, so a pattern that
+ * backtracks catastrophically never hangs the page: its worker is ended instead. Returns a cancel that
+ * drops the trial without a verdict (the pattern or text changed).
  */
 export function trialRunRegex(
   source: string,
   flags: string,
   text: string,
   onVerdict: (verdict: TrialVerdict) => void,
-): { cancel: () => void } {
-  const url = trialWorkerSource();
-  let worker: Worker | null = null;
+): () => void {
+  const id = nextTrialId++;
+  const entry = takeWorker();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
 
@@ -145,61 +163,43 @@ export function trialRunRegex(
     if (settled) return;
     settled = true;
     clearTimeout(timer);
-    worker?.terminate();
+    // A worker that answered in time is kept for the next trial; any other may still be running.
+    if (entry && verdict === "fast" && idleWorker === null) idleWorker = entry;
+    else entry?.worker.terminate();
     if (verdict) onVerdict(verdict);
   };
 
-  if (!url) {
+  if (!entry) {
     queueMicrotask(() => finish("untested"));
-    return { cancel: () => finish(null) };
+    return () => finish(null);
   }
-  try {
-    worker = new Worker(url);
-  } catch {
-    queueMicrotask(() => finish("untested"));
-    return { cancel: () => finish(null) };
-  }
-  timer = setTimeout(() => finish("untested"), WORKER_START_LIMIT_MS);
-  worker.onmessage = (event: MessageEvent<string>) => {
-    if (event.data === "ready") {
+  const run = () => {
+    timer = setTimeout(() => finish("slow"), TRIAL_LIMIT_MS);
+    entry.worker.postMessage({ id, source, flags, text });
+  };
+  entry.worker.onmessage = (event: MessageEvent<number>) => {
+    if (event.data !== id) return;
+    if (!entry.ready) {
+      entry.ready = true;
       clearTimeout(timer);
-      timer = setTimeout(() => finish("slow"), TRIAL_LIMIT_MS);
-      worker?.postMessage({ source, flags, text });
+      run();
     } else {
       finish("fast");
     }
   };
-  worker.onerror = () => finish("untested");
-  worker.postMessage({ type: "ready" });
-  return { cancel: () => finish(null) };
-}
-
-interface LiveTestInput {
-  liveText: string;
-  findRegex: string;
-  replaceString: string;
-  flags: string;
-  trimStrings: readonly string[];
-  patternError: string | null;
-}
-
-/** What the script would turn the Live Test text into. Anything that can't run leaves the text as it is. */
-export function liveTestResult({
-  liveText,
-  findRegex,
-  replaceString,
-  flags,
-  trimStrings,
-  patternError,
-}: LiveTestInput): string {
-  if (!findRegex || patternError) return liveText;
-  try {
-    const resolve = sampleResolver(liveText);
-    const resolved = resolve(findRegex);
-    if (!resolved) return liveText;
-    return applyRegexScriptReplacement(liveText, new RegExp(resolved, flags), replaceString, trimStrings, resolve);
-  } catch {
-    // A preview of half-typed input: whatever can't run shows the sample unchanged.
-    return liveText;
+  entry.worker.onerror = () => finish("untested");
+  if (entry.ready) {
+    run();
+  } else {
+    timer = setTimeout(() => finish("untested"), WORKER_START_LIMIT_MS);
+    entry.worker.postMessage({ type: "ready", id });
   }
+  return () => finish(null);
+}
+
+/** Ends the kept worker and forgets it (tests swap the Worker class between cases). */
+export function resetTrialWorker() {
+  idleWorker?.worker.terminate();
+  idleWorker = null;
+  workerUrl = null;
 }

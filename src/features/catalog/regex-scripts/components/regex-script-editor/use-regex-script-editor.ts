@@ -13,9 +13,7 @@ import {
   LIVE_TEST_SLOW_NOTE,
   LIVE_TEST_UNTESTED_NOTE,
   liveTestResult,
-  regexPatternError,
-  regexPatternRisky,
-  sampleResolvedPattern,
+  samplePattern,
   trialRunRegex,
   type TrialVerdict,
 } from "./live-test";
@@ -41,14 +39,10 @@ interface LoadedSource {
   row: RegexScriptRow | undefined;
 }
 
-/**
- * A save whose list refresh hasn't reached the form yet: the script it is for (the new id once a new
- * script is created) and how many edits the form had when the save was sent.
- */
-interface PendingEcho {
-  id: string;
-  fromNew: boolean;
-  edits: number;
+/** A save sent from this editor whose refreshed row hasn't come back yet: the script and what was sent. */
+interface SentSave {
+  scriptId: string;
+  payload: string;
 }
 
 /** The Live Test text and the script it was typed for. */
@@ -57,8 +51,20 @@ interface LiveTestState {
   text: string;
 }
 
+/** What Live Test shows under the text box. */
+interface LiveTestShown {
+  result: string | null;
+  note: string | null;
+}
+
+const NOTHING_SHOWN: LiveTestShown = { result: null, note: null };
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function payloadKey(form: RegexScriptForm): string {
+  return JSON.stringify(regexScriptSavePayload(form));
 }
 
 export function useRegexScriptEditor() {
@@ -73,9 +79,18 @@ export function useRegexScriptEditor() {
   const updateScript = useUpdateRegexScript();
   const deleteScript = useDeleteRegexScript();
 
+  // Saves finish after awaits, so they read the open script and the edit count from refs.
+  const openId = useRef(regexDetailId);
+  openId.current = regexDetailId;
+  const editCount = useRef(0);
+  const saveCount = useRef(0);
+  const sentSaves = useRef<SentSave[]>([]);
+  // A script this editor just created from New, until the list hands over its row.
+  const justCreated = useRef<string | null>(null);
+
   const isNew = regexDetailId === NEW_REGEX_SCRIPT_ID;
   const row = isNew || !regexDetailId ? undefined : scripts?.find((script) => script.id === regexDetailId);
-  const found = isNew || row !== undefined;
+  const found = isNew || row !== undefined || (regexDetailId !== null && regexDetailId === justCreated.current);
 
   const [loaded, setLoaded] = useState<LoadedSource | null>(null);
   const [form, setForm] = useState<RegexScriptForm>(newRegexScriptForm);
@@ -87,26 +102,33 @@ export function useRegexScriptEditor() {
   const [leaving, setLeaving] = useState(false);
   const [liveTest, setLiveTest] = useState<LiveTestState>({ scriptId: null, text: "" });
   const savedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // Counts every edit, so a save can tell whether anything was typed after it was sent.
-  const editCount = useRef(0);
-  const pendingEcho = useRef<PendingEcho | null>(null);
+
+  /** True (and forgets it) when this copy of the row is what one of this editor's saves sent. */
+  function isOwnSave(id: string, stored: RegexScriptRow): boolean {
+    const key = payloadKey(regexScriptFormFromRow(stored));
+    const index = sentSaves.current.findIndex((sent) => sent.scriptId === id && sent.payload === key);
+    if (index === -1) return false;
+    sentSaves.current = sentSaves.current.slice(index + 1);
+    return true;
+  }
 
   // Reset the form whenever the open id changes (also to a missing one, so abandoned edits never come
-  // back) or the list hands over a new copy of this row (a save refreshes the list). Done while
-  // rendering so no frame shows the previous script.
+  // back) or the list hands over a new copy of this row. Done while rendering so no frame shows the
+  // previous script. The copy a save of this editor brings back doesn't reset it: the form already
+  // holds those values, or newer edits typed while the save was on its way.
   if (loaded === null || loaded.id !== regexDetailId || loaded.row !== row) {
-    const echo = pendingEcho.current;
-    const isEcho =
-      echo !== null &&
-      regexDetailId === echo.id &&
-      (loaded?.id === echo.id || (echo.fromNew && loaded?.id === NEW_REGEX_SCRIPT_ID));
-    // The refreshed copy of the script just saved has arrived once its row shows up.
-    if (isEcho && row !== undefined) pendingEcho.current = null;
-    if (isEcho && editCount.current !== echo.edits) {
-      // Edits typed while the save was on its way aren't in that copy: keep them, still unsaved.
+    const created = regexDetailId !== null && regexDetailId === justCreated.current;
+    const sameScript =
+      loaded !== null && (loaded.id === regexDetailId || (created && loaded.id === NEW_REGEX_SCRIPT_ID));
+    if (sameScript && created && row === undefined) {
+      // The new script is saved but the list hasn't caught up yet.
+      setLoaded({ id: regexDetailId, row });
+    } else if (sameScript && row !== undefined && regexDetailId !== null && isOwnSave(regexDetailId, row)) {
+      justCreated.current = null;
       setLoaded({ id: regexDetailId, row });
     } else {
-      if (!isEcho) pendingEcho.current = null;
+      sentSaves.current = [];
+      justCreated.current = null;
       resetFor(regexDetailId, row);
     }
   }
@@ -136,41 +158,49 @@ export function useRegexScriptEditor() {
     [characterSummaries],
   );
 
-  const patternError = useMemo(
-    () => regexPatternError(form.findRegex, form.flags, liveTest.text),
+  // Macros are resolved once per pattern and text, so the trial run and the page run the same pattern
+  // (a macro such as {{random}} would otherwise resolve differently each time).
+  const sample = useMemo(
+    () => samplePattern(form.findRegex, form.flags, liveTest.text),
     [form.findRegex, form.flags, liveTest.text],
   );
+  const patternError = sample.error;
 
-  // A pattern with a repeat inside a repeat gets a timed trial run in a background worker before Live
-  // Test runs it here, so one that backtracks catastrophically can't hang the page.
-  const trialKey = useMemo(() => {
-    if (!liveTest.text || patternError !== null) return null;
-    const resolved = sampleResolvedPattern(form.findRegex, liveTest.text);
-    return resolved && regexPatternRisky(resolved) ? JSON.stringify([resolved, form.flags, liveTest.text]) : null;
-  }, [form.findRegex, form.flags, liveTest.text, patternError]);
+  // Live Test runs a pattern on the page only after the same replace, on the same text, finished in time
+  // in a background worker, so one that backtracks catastrophically can't hang the page.
+  const trialKey =
+    liveTest.text && sample.source !== null && sample.error === null
+      ? JSON.stringify([sample.source, form.flags, liveTest.text])
+      : null;
   const [trial, setTrial] = useState<{ key: string; verdict: TrialVerdict } | null>(null);
   useEffect(() => {
     if (trialKey === null) return;
     const [source, flags, text] = JSON.parse(trialKey) as [string, string, string];
-    return trialRunRegex(source, flags, text, (verdict) => setTrial({ key: trialKey, verdict })).cancel;
+    return trialRunRegex(source, flags, text, (verdict) => setTrial({ key: trialKey, verdict }));
   }, [trialKey]);
-  // null while the trial run is still going: no result and no note yet.
+  // Nothing to try (no pattern, or one that doesn't compile) counts as fast; null while the trial runs.
   const trialVerdict: TrialVerdict | null = trialKey === null ? "fast" : trial?.key === trialKey ? trial.verdict : null;
 
-  const result = useMemo(
-    () =>
-      liveTest.text && trialVerdict === "fast"
-        ? liveTestResult({
-            liveText: liveTest.text,
-            findRegex: form.findRegex,
-            replaceString: form.replaceString,
-            flags: form.flags,
-            trimStrings: form.trimStrings,
-            patternError,
-          })
-        : null,
-    [liveTest.text, trialVerdict, form.findRegex, form.replaceString, form.flags, form.trimStrings, patternError],
-  );
+  const fresh = useMemo<LiveTestShown | null>(() => {
+    if (!liveTest.text) return NOTHING_SHOWN;
+    if (trialVerdict === null) return null;
+    if (trialVerdict === "slow") return { result: null, note: LIVE_TEST_SLOW_NOTE };
+    if (trialVerdict === "untested") return { result: null, note: LIVE_TEST_UNTESTED_NOTE };
+    return {
+      result: liveTestResult({
+        liveText: liveTest.text,
+        source: sample.source,
+        replaceString: form.replaceString,
+        flags: form.flags,
+        trimStrings: form.trimStrings,
+      }),
+      note: null,
+    };
+  }, [liveTest.text, trialVerdict, sample.source, form.replaceString, form.flags, form.trimStrings]);
+  // While a trial runs (a few milliseconds), keep showing what was there, so the result doesn't blink.
+  const lastShown = useRef<LiveTestShown>(NOTHING_SHOWN);
+  const shown = fresh ?? lastShown.current;
+  lastShown.current = shown;
 
   /** Every edit to a saved field marks the form unsaved. */
   const edit = useCallback((change: (current: RegexScriptForm) => Partial<RegexScriptForm>) => {
@@ -202,33 +232,42 @@ export function useRegexScriptEditor() {
       setSaveError(`Fix the find pattern first: ${patternError}`);
       return false;
     }
+    const startedOn = regexDetailId;
+    const order = ++saveCount.current;
+    const editsAtSend = editCount.current;
+    const payload = regexScriptSavePayload(form);
+    const sent: SentSave = { scriptId: startedOn, payload: JSON.stringify(payload) };
+    sentSaves.current.push(sent);
     setSaving(true);
-    const echo: PendingEcho = { id: regexDetailId, fromNew: isNew, edits: editCount.current };
-    pendingEcho.current = echo;
     try {
-      const payload = regexScriptSavePayload(form);
       if (isNew) {
         const created = await createScript.mutateAsync(payload);
         if (created?.id) {
-          echo.id = created.id;
-          // The script just created is the one being edited, so its Live Test text stays.
-          setLiveTest((current) => ({ ...current, scriptId: created.id }));
+          sent.scriptId = created.id;
+          if (openId.current === startedOn) {
+            justCreated.current = created.id;
+            // The script just created is the one being edited, so its Live Test text stays.
+            setLiveTest((current) => ({ ...current, scriptId: created.id }));
+          }
           openRegexDetail(created.id);
         }
       } else {
-        await updateScript.mutateAsync({ id: regexDetailId, ...payload });
+        await updateScript.mutateAsync({ id: startedOn, ...payload });
       }
-      const typedSince = editCount.current !== echo.edits;
-      setDirty(typedSince);
-      setLeaving(false);
-      if (!typedSince) flashSaved();
+      // Only the newest save, while its script is still open, decides whether the form is saved.
+      if (order === saveCount.current && openId.current === startedOn) {
+        const typedSince = editCount.current !== editsAtSend;
+        setDirty(typedSince);
+        setLeaving(false);
+        if (!typedSince) flashSaved();
+      }
       return true;
     } catch (error) {
-      if (pendingEcho.current === echo) pendingEcho.current = null;
+      sentSaves.current = sentSaves.current.filter((entry) => entry !== sent);
       setSaveError(error instanceof Error ? error.message : "Failed to save regex script");
       return false;
     } finally {
-      setSaving(false);
+      if (order === saveCount.current) setSaving(false);
     }
   }
 
@@ -281,9 +320,8 @@ export function useRegexScriptEditor() {
     liveText: liveTest.text,
     setLiveText,
     patternError,
-    result,
-    liveTestNote:
-      trialVerdict === "slow" ? LIVE_TEST_SLOW_NOTE : trialVerdict === "untested" ? LIVE_TEST_UNTESTED_NOTE : null,
+    result: shown.result,
+    liveTestNote: shown.note,
     dirty,
     saving,
     saved,
