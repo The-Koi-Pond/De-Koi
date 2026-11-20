@@ -124,15 +124,19 @@ export function appendReferenceGuidance(prompt: string, subjectNames: string[]):
 }
 
 /**
- * NovelAI reads the prompt as tags and draws English sentences into the picture as text; its director references carry
- * the likeness on their own. Same NovelAI detection as the Rust image provider (`infer_image_source`).
+ * Backends that run Stable Diffusion-style models read the prompt as tags, not instructions: English sentences about
+ * "attached reference images" do nothing there except get drawn into the picture as text (NovelAI, and ComfyUI with
+ * Illustrious). Their references, when a workflow uses them, carry the likeness on their own. NovelAI detection matches
+ * the Rust image provider (`infer_image_source`).
  */
+const TAG_PROMPT_IMAGE_SOURCES = new Set(["novelai", "comfyui", "runpod_comfyui", "automatic1111", "drawthings"]);
+
 export function referenceGuidanceSuitsImageConnection(connection: JsonRecord | null | undefined): boolean {
   if (!connection) return true;
   const source = (readString(connection.imageGenerationSource) || readString(connection.imageService))
     .trim()
     .toLowerCase();
-  if (source) return source !== "novelai";
+  if (source) return !TAG_PROMPT_IMAGE_SOURCES.has(source);
   const model = readString(connection.model).trim().toLowerCase();
   const baseUrl = readString(connection.baseUrl).trim().toLowerCase();
   return !(model.includes("nai-diffusion") || baseUrl.includes("novelai.net"));

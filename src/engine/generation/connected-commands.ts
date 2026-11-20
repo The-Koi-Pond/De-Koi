@@ -28,6 +28,7 @@ import {
   characterImageReferenceSubject,
   fullBodySpriteReferenceImage,
 } from "./character-image-references";
+import { connectionImagePromptWording } from "../contracts/constants/image-generation-defaults";
 import {
   compileImagePrompt,
   createDefaultImageStyleProfileSettings,
@@ -791,12 +792,15 @@ async function buildSelfiePrompt(args: {
   selfieRequest?: string;
   characterId: string | null;
   imagePromptSettings?: ImagePromptSettings;
+  /** The image connection's own Prompt wording, which wins over the app setting. */
+  connectionPromptWording?: "tags" | "descriptive" | null;
 }): Promise<{ prompt: string; negativePrompt: string; characterName: string; character: JsonRecord | null }> {
   const character = args.characterId ? await args.storage.get<JsonRecord>("characters", args.characterId) : null;
   const data = parseData(character ?? undefined);
   const characterName = nameOf(character ?? {}) || readString(data.name, "character") || "character";
   const includeAppearances = args.imagePromptSettings?.includeAppearances !== false;
-  const promptFormat = args.imagePromptSettings?.format === "tags" ? "tags" : "descriptive";
+  const promptFormat =
+    (args.connectionPromptWording ?? args.imagePromptSettings?.format) === "tags" ? "tags" : "descriptive";
   const appearance = includeAppearances
     ? readString(parseRecord(data.extensions).appearance).trim() ||
       readString(data.appearance).trim() ||
@@ -949,6 +953,7 @@ async function generateSelfie(args: {
   }
 
   try {
+    const imageConnection = await args.storage.get<JsonRecord>("connections", imageConnectionId);
     const built = await buildSelfiePrompt({
       storage: args.storage,
       llm: args.llm,
@@ -958,13 +963,13 @@ async function generateSelfie(args: {
       selfieRequest: args.selfieRequest,
       characterId,
       imagePromptSettings: args.imagePromptSettings,
+      connectionPromptWording: connectionImagePromptWording(imageConnection),
     });
     const { negativePrompt, characterName } = built;
     const referenceImages =
       boolish(metadata.selfieUseAvatarReferences, false) && built.character
         ? await selfieReferenceImages(args.visuals, built.character, characterName)
         : [];
-    const imageConnection = await args.storage.get<JsonRecord>("connections", imageConnectionId);
     const prompt =
       referenceImages.length > 0 && referenceGuidanceSuitsImageConnection(imageConnection)
         ? appendSelfieReferenceGuidance(built.prompt, characterName)

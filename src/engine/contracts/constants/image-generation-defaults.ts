@@ -3,6 +3,7 @@ import type {
   ComfyUiDefaults,
   ImageDefaultsService,
   ImageGenerationDefaultsProfile,
+  ImagePromptWording,
   NovelAiDefaults,
 } from "../types/image-generation-defaults.js";
 import { isRecord, readString } from "../../shared/value-readers";
@@ -155,6 +156,8 @@ export function normalizeImageGenerationProfile(
   const profile = createDefaultImageGenerationProfile(service);
   profile.seed = readInteger(rawProfile.seed, -1, -1, 4_294_967_295);
   profile.styleProfileId = readNullableString(rawProfile.styleProfileId);
+  const promptWording = readPromptWording(rawProfile.promptWording);
+  if (promptWording) profile.promptWording = promptWording;
 
   if (service === "automatic1111") {
     profile.automatic1111 = normalizeAutomatic1111Defaults(rawProfile.automatic1111);
@@ -227,6 +230,26 @@ function normalizeNovelAiDefaults(rawDefaults: unknown): NovelAiDefaults {
     referenceStrength: readNumber(raw.referenceStrength, DEFAULT_NOVELAI_DEFAULTS.referenceStrength, 0, 1),
     referenceFidelity: readNumber(raw.referenceFidelity, DEFAULT_NOVELAI_DEFAULTS.referenceFidelity, 0, 1),
   };
+}
+
+function readPromptWording(value: unknown): ImagePromptWording | null {
+  return value === "tags" || value === "descriptive" ? value : null;
+}
+
+/** The connection's own Prompt wording, or null when it follows the app setting. */
+export function connectionImagePromptWording(connection: unknown): ImagePromptWording | null {
+  if (!isRecord(connection)) return null;
+  let parameters: unknown = connection.defaultParameters;
+  if (typeof parameters === "string") {
+    try {
+      parameters = JSON.parse(parameters);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(parameters)) return null;
+  const profile = parameters[IMAGE_DEFAULTS_STORAGE_KEY];
+  return isRecord(profile) ? readPromptWording(profile.promptWording) : null;
 }
 
 function readNullableString(value: unknown): string | null {

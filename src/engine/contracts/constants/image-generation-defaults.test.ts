@@ -1,10 +1,37 @@
 import { describe, expect, it } from "vitest";
 import {
+  connectionImagePromptWording,
   createDefaultImageGenerationProfile,
   normalizeImageGenerationProfile,
 } from "./image-generation-defaults";
 
 describe("image generation defaults", () => {
+  it("keeps a connection's selfie prompt wording and drops unknown values", () => {
+    expect(normalizeImageGenerationProfile({ promptWording: "tags" }, "comfyui").profile.promptWording).toBe("tags");
+    expect(normalizeImageGenerationProfile({ promptWording: "descriptive" }, "comfyui").profile.promptWording).toBe(
+      "descriptive",
+    );
+    // Missing means "follow the app setting", so an untouched profile stays as it was saved.
+    const { profile, changed } = normalizeImageGenerationProfile(
+      createDefaultImageGenerationProfile("comfyui"),
+      "comfyui",
+    );
+    expect(profile).not.toHaveProperty("promptWording");
+    expect(changed).toBe(false);
+    expect(normalizeImageGenerationProfile({ promptWording: "poetry" }, "comfyui").profile).not.toHaveProperty(
+      "promptWording",
+    );
+  });
+
+  it("reads the prompt wording from a stored connection, object or JSON text", () => {
+    const profile = { imageGeneration: { service: "comfyui", promptWording: "tags" } };
+    expect(connectionImagePromptWording({ defaultParameters: profile })).toBe("tags");
+    expect(connectionImagePromptWording({ defaultParameters: JSON.stringify(profile) })).toBe("tags");
+    expect(connectionImagePromptWording({ defaultParameters: { imageGeneration: { service: "comfyui" } } })).toBeNull();
+    expect(connectionImagePromptWording({ defaultParameters: "{not json" })).toBeNull();
+    expect(connectionImagePromptWording(null)).toBeNull();
+  });
+
   it("preserves connection scoped style profile ids", () => {
     const { profile } = normalizeImageGenerationProfile(
       {

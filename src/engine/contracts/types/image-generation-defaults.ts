@@ -1,5 +1,8 @@
 export type ImageDefaultsService = "automatic1111" | "comfyui" | "novelai";
 
+/** How the selfie prompt writer words prompts for this connection. */
+export type ImagePromptWording = "tags" | "descriptive";
+
 export interface Automatic1111Defaults {
   promptPrefix: string;
   negativePromptPrefix: string;
@@ -44,6 +47,11 @@ export interface ImageGenerationDefaultsProfile {
   service: ImageDefaultsService;
   seed: number;
   styleProfileId: string | null;
+  /**
+   * Overrides the app's Prompt wording setting for selfies made with this connection. Tag-trained models (Illustrious,
+   * Pony, NovelAI) draw long English sentences as text in the picture. Missing = follow the app setting.
+   */
+  promptWording?: ImagePromptWording;
   automatic1111?: Automatic1111Defaults;
   comfyui?: ComfyUiDefaults;
   novelai?: NovelAiDefaults;
