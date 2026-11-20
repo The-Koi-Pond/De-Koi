@@ -4,6 +4,11 @@ Black-box recordings of the old weather effects (see `docs/provenance/weather-ef
 old file was deleted. One-line JSON, listed in `.prettierignore`, so the provenance report doesn't count them as
 code. Don't edit them by hand.
 
+Committed here: a subset of a larger local recording (every scenario at fixed random 0, 0.25, 0.5 and 0.999,
+plus a second seed), which was replayed against the rebuild in full before merging. The subset keeps each
+file under about 1 MB: weather rows at 0 and 0.999, time rules at 0.5, combined scenes at 0.5 and 0.999, long
+runs at 0.5 (sand at 0, 0.5 and 0.999), seed 1 only.
+
 Each file is `{ format: 1, scenarios: [...] }`. A scenario has:
 
 - `id`: `w:` weather rows, `t:` time rules, `wt:` both, `nocel:` `showCelestial: false`, `size:` canvas sizes,

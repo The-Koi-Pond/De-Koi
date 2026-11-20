@@ -13,7 +13,7 @@ const fixedRandomScenarios = FILES.flatMap((file) =>
 
 describe("WeatherEffects replays the recorded old effects", () => {
   it("covers every fixed-random scenario", () => {
-    expect(fixedRandomScenarios.length).toBe(310);
+    expect(fixedRandomScenarios.length).toBe(313);
   });
 
   it.each(fixedRandomScenarios.map(([file, scenario]) => [`${file} ${scenario.id}`, scenario] as const))(
