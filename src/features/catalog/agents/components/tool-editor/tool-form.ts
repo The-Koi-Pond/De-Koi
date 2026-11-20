@@ -12,8 +12,10 @@ export type ExecutionType = "static" | "webhook";
 
 export interface ToolParameter {
   name: string;
-  type: string;
-  description: string;
+  /** One of the five types, or a stored type outside them (any JSON value), kept and saved as stored. */
+  type: unknown;
+  /** Text, or a stored non-string description, kept and saved as stored until the user types. */
+  description: unknown;
   required: boolean;
   /** The stored property's other keys (`enum`, `items`, `default`…), saved after type and description. */
   extras: Record<string, unknown>;
@@ -76,8 +78,8 @@ export function parametersFromSchema(schema: unknown): ToolParameter[] {
     const property = isRecord(value) ? value : {};
     return {
       name,
-      type: typeof property.type === "string" ? property.type : "string",
-      description: storedText(property.description),
+      type: property.type ?? "string",
+      description: property.description ?? "",
       required: required.includes(name),
       extras: otherKeys(property, ["type", "description"]),
     };
@@ -100,9 +102,30 @@ export function toolFormFromRow(row: CustomToolRow): ToolForm {
   };
 }
 
+function isParameterType(type: unknown): type is (typeof PARAMETER_TYPES)[number] {
+  return (PARAMETER_TYPES as readonly unknown[]).includes(type);
+}
+
+/** How a stored type shows in the dropdown: a string as itself, anything else as JSON. */
+export function parameterTypeLabel(type: unknown): string {
+  return typeof type === "string" ? type : JSON.stringify(type);
+}
+
 /** The dropdown's options for a row: the five types, plus the row's own type when it isn't one of them. */
-export function parameterTypeOptions(type: string): string[] {
-  return (PARAMETER_TYPES as readonly string[]).includes(type) ? [...PARAMETER_TYPES] : [...PARAMETER_TYPES, type];
+export function parameterTypeOptions(type: unknown): string[] {
+  return isParameterType(type) ? [...PARAMETER_TYPES] : [...PARAMETER_TYPES, parameterTypeLabel(type)];
+}
+
+/** The type a dropdown choice gives: picking the row's own stored type keeps it as stored. */
+export function parameterTypeFromOption(current: unknown, option: string): unknown {
+  return isParameterType(option) || option !== parameterTypeLabel(current) ? option : current;
+}
+
+/** How a description shows in its box: text as is, numbers and booleans as written, anything else as JSON. */
+export function parameterDescriptionText(description: unknown): string {
+  if (typeof description === "string") return description;
+  if (typeof description === "number" || typeof description === "boolean") return String(description);
+  return JSON.stringify(description) ?? "";
 }
 
 /**

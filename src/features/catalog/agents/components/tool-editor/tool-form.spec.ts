@@ -3,6 +3,9 @@ import type { CustomToolRow } from "../../hooks/use-custom-tools";
 import {
   newToolForm,
   newToolParameter,
+  parameterDescriptionText,
+  parameterTypeFromOption,
+  parameterTypeLabel,
   parameterTypeOptions,
   parametersFromSchema,
   toolFormFromRow,
@@ -118,8 +121,8 @@ describe("parameters from a stored schema", () => {
     expect(
       parametersFromSchema({
         properties: {
-          zeta: { type: ["string", "null"] },
-          alpha: { description: 7 },
+          zeta: { type: null, description: null },
+          alpha: {},
           odd: "not an object",
           mid: { type: "boolean", description: "Mid" },
         },
@@ -130,6 +133,22 @@ describe("parameters from a stored schema", () => {
       { name: "alpha", type: "string", description: "", required: false, extras: {} },
       { name: "odd", type: "string", description: "", required: false, extras: {} },
       { name: "mid", type: "boolean", description: "Mid", required: true, extras: {} },
+    ]);
+  });
+
+  it("decision 5: keeps a non-string type and description as stored", () => {
+    expect(
+      parametersFromSchema({
+        properties: {
+          nullable: { type: ["string", "null"], description: 9 },
+          numbered: { type: 5, description: { text: "x" } },
+          flag: { type: "boolean", description: false },
+        },
+      }),
+    ).toEqual([
+      { name: "nullable", type: ["string", "null"], description: 9, required: false, extras: {} },
+      { name: "numbered", type: 5, description: { text: "x" }, required: false, extras: {} },
+      { name: "flag", type: "boolean", description: false, required: false, extras: {} },
     ]);
   });
 
@@ -177,6 +196,34 @@ describe("type options", () => {
 
   it("decision 5: adds a stored type that isn't one of them as a sixth option", () => {
     expect(parameterTypeOptions("integer")).toEqual(["string", "number", "boolean", "array", "object", "integer"]);
+  });
+
+  it("decision 5: shows a non-string stored type as JSON", () => {
+    expect(parameterTypeOptions(["string", "null"])).toEqual([
+      "string",
+      "number",
+      "boolean",
+      "array",
+      "object",
+      '["string","null"]',
+    ]);
+    expect(parameterTypeLabel(5)).toBe("5");
+    expect(parameterTypeLabel("number")).toBe("number");
+  });
+
+  it("decision 5: picking one of the five replaces the stored type; picking its own option keeps it", () => {
+    expect(parameterTypeFromOption(["string", "null"], "number")).toBe("number");
+    expect(parameterTypeFromOption(["string", "null"], '["string","null"]')).toEqual(["string", "null"]);
+    expect(parameterTypeFromOption(5, "5")).toBe(5);
+    expect(parameterTypeFromOption("string", "array")).toBe("array");
+  });
+
+  it("decision 5: shows a stored description as its text", () => {
+    expect(parameterDescriptionText("Unit")).toBe("Unit");
+    expect(parameterDescriptionText(9)).toBe("9");
+    expect(parameterDescriptionText(false)).toBe("false");
+    expect(parameterDescriptionText({ text: "x" })).toBe('{"text":"x"}');
+    expect(parameterDescriptionText(["a"])).toBe('["a"]');
   });
 });
 
@@ -283,9 +330,30 @@ describe("the save payload", () => {
     );
   });
 
-  it("stores a parameter named __proto__ as a plain key", () => {
-    const payload = toolSavePayload(form({ parameters: [param({ name: "__proto__" })] }));
-    expect(Object.keys(payload.parametersSchema.properties)).toEqual(["__proto__"]);
+  it("saves a parameter named __proto__ as a real property, and lists it in required", () => {
+    const payload = toolSavePayload(form({ parameters: [param({ name: "__proto__", required: true })] }));
+    const properties = payload.parametersSchema.properties;
+    expect(Object.keys(properties)).toEqual(["__proto__"]);
+    expect(Object.getPrototypeOf(properties)).toBe(Object.prototype);
+    expect(JSON.stringify(payload.parametersSchema)).toBe(
+      JSON.stringify({
+        type: "object",
+        properties: JSON.parse('{"__proto__":{"type":"string","description":""}}'),
+        required: ["__proto__"],
+      }),
+    );
+    expect(JSON.stringify(payload.parametersSchema)).toContain(
+      '"properties":{"__proto__":{"type":"string","description":""}}',
+    );
+  });
+
+  it("decision 5: saves a non-string type and description as stored", () => {
+    const payload = toolSavePayload(
+      form({ parameters: [param({ name: "q", type: ["string", "null"], description: 9, extras: { default: null } })] }),
+    );
+    expect(JSON.stringify(payload.parametersSchema.properties)).toBe(
+      JSON.stringify({ q: { type: ["string", "null"], description: 9, default: null } }),
+    );
   });
 
   it("decision 1: sends the form's on/off state", () => {

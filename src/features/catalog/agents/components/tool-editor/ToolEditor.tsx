@@ -39,7 +39,7 @@ export function ToolEditor() {
             the identifier the AI will use to call this function.
           </p>
           {editor.showScriptWarning && (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-400">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
               Script custom tools are disabled in this runtime. Convert this tool to a static result or webhook before
               saving.
             </div>
@@ -57,7 +57,7 @@ export function ToolEditor() {
                 edit(() => ({ description }));
               }}
               placeholder="Describe what this tool does — the AI reads this to decide when to call it…"
-              className={cn(FIELD_SURFACE, "w-full rounded-xl px-4 py-2.5 text-sm focus:ring-2")}
+              className={cn(FIELD_SURFACE, "w-full rounded-xl px-3 py-2.5 text-sm focus:ring-2")}
             />
           </FieldGroup>
           <ParametersGroup editor={editor} />

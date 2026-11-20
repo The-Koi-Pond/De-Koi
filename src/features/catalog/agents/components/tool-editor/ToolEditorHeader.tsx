@@ -28,8 +28,8 @@ export function ToolEditorHeader({ editor }: { editor: ToolEditorModel }) {
         aria-label="Tool name"
         className="min-w-0 flex-1 bg-transparent font-mono text-lg font-semibold outline-none placeholder:text-[var(--muted-foreground)]"
       />
-      <EditorSaveStatus dirty={editor.dirty} saving={editor.saving} saved={editor.saved} error={editor.saveError} />
       <div className="flex shrink-0 items-center gap-1.5">
+        <EditorSaveStatus dirty={editor.dirty} saving={editor.saving} saved={editor.saved} error={editor.saveError} />
         {editor.isStored && (
           <button
             type="button"
@@ -43,7 +43,7 @@ export function ToolEditorHeader({ editor }: { editor: ToolEditorModel }) {
           type="button"
           onClick={() => void editor.save()}
           disabled={editor.saving}
-          className="flex items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-[var(--primary-foreground)] shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 py-2 text-xs font-medium text-[var(--primary-foreground)] shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Save size="0.8125rem" /> Save
         </button>

@@ -348,3 +348,177 @@ describe("Decision 6: controls are announced", () => {
     expect(editor.requiredBox(0).closest("label")?.textContent).toBe("Required");
   });
 });
+
+describe("Decision 3: a save clears the delete error", () => {
+  it("replaces the delete error with the save's own result", async () => {
+    const editor = await open("tool-1");
+    fakeToolStorage.answerConfirm(true);
+    fakeToolStorage.failNext("delete", "locked");
+    await editor.click(editor.button("Delete"));
+    expect(bannerText(editor)).toBe("Couldn't delete: locked");
+
+    await editor.type(editor.field(NAME), "Bad");
+    await editor.click(editor.button("Save"));
+    expect(bannerText(editor)).toBe("Tool name must be lowercase snake_case (e.g. my_tool).");
+
+    await editor.type(editor.field(NAME), "renamed");
+    await editor.click(editor.button("Save"));
+    expect(bannerText(editor)).toBeNull();
+    expect(text(editor)).toContain("Saved");
+  });
+});
+
+describe("Decision 5: non-string stored types and descriptions", () => {
+  const imported = {
+    ...recording.rows[0]!,
+    id: "imported",
+    parametersSchema: {
+      type: "object",
+      properties: {
+        q: { type: ["string", "null"], description: 9 },
+        n: { type: 5, description: null },
+      },
+      required: [],
+    },
+  };
+
+  async function openImported() {
+    harness = new EditorHarness({ rows: [imported] }, { detailId: "imported" });
+    await harness.mount();
+    return harness;
+  }
+
+  it("shows them as text and saves them as stored", async () => {
+    const editor = await openImported();
+    expect(editor.typeSelect(0).value).toBe('["string","null"]');
+    expect([...editor.typeSelect(0).options].map((option) => option.value)).toHaveLength(6);
+    expect(editor.typeSelect(1).value).toBe("5");
+    expect(editor.field("Description of this parameter…", 0).value).toBe("9");
+    // Missing or null keeps the old default.
+    expect(editor.field("Description of this parameter…", 1).value).toBe("");
+    await editor.click(editor.button("Save"));
+
+    expect(JSON.stringify((lastPayload().parametersSchema as { properties: unknown }).properties)).toBe(
+      JSON.stringify({
+        q: { type: ["string", "null"], description: 9 },
+        n: { type: 5, description: "" },
+      }),
+    );
+  });
+
+  it("drops the stored type once another is picked, and the stored description once the user types", async () => {
+    const editor = await openImported();
+    await editor.choose(editor.typeSelect(0), "number");
+    expect(editor.typeSelect(0).options).toHaveLength(5);
+    await editor.type(editor.field("Description of this parameter…", 0), "typed");
+    await editor.click(editor.button("Save"));
+
+    const properties = (lastPayload().parametersSchema as { properties: Record<string, unknown> }).properties;
+    expect(properties.q).toEqual({ type: "number", description: "typed" });
+    expect(properties.n).toEqual({ type: 5, description: "" });
+  });
+});
+
+describe("A save that finishes after the user moved on", () => {
+  async function holdSaveOfEditedTool() {
+    const editor = await open("tool-1");
+    await editor.type(editor.field(NAME), "tool_a2");
+    fakeToolStorage.hold();
+    await editor.click(editor.button("Save"));
+    expect(text(editor)).toContain("Saving");
+    return editor;
+  }
+
+  it("leaves another tool opened meanwhile alone", async () => {
+    const editor = await holdSaveOfEditedTool();
+    await openTool("tool-2");
+    await editor.run(["release"]);
+
+    expect(useUIStore.getState()).toMatchObject({ toolDetailId: "tool-2", editorDirty: false });
+    expect(editor.field(NAME).value).toBe("post_note");
+    expect(editor.field(URL_FIELD).value).toBe("https://example.com/hook");
+    expect(text(editor)).not.toContain("Saved");
+    expect(writes()).toEqual([["update", "custom-tools", "tool-1", expect.objectContaining({ name: "tool_a2" })]]);
+
+    await editor.click(editor.button("Save"));
+    expect(writes()).toHaveLength(2);
+    expect(writes()[1]!.slice(0, 3)).toEqual(["update", "custom-tools", "tool-2"]);
+    expect(lastPayload()).toMatchObject({ name: "post_note", webhookUrl: "https://example.com/hook" });
+  });
+
+  it("leaves a new tool opened meanwhile alone", async () => {
+    const editor = await holdSaveOfEditedTool();
+    await openTool("__new__");
+    await editor.run(["release"]);
+
+    expect(useUIStore.getState()).toMatchObject({ toolDetailId: "__new__", editorDirty: false });
+    expect(editor.field(NAME).value).toBe("");
+    expect(editor.field(DESCRIPTION).value).toBe("");
+    expect(editor.field(STATIC).value).toBe("");
+    expect(writes()).toHaveLength(1);
+
+    await editor.click(editor.button("Save"));
+    expect(bannerText(editor)).toBe("Tool name is required.");
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("doesn't show its error on the tool opened meanwhile", async () => {
+    const editor = await holdSaveOfEditedTool();
+    fakeToolStorage.failNext("update", "server said no");
+    await openTool("tool-2");
+    await editor.run(["release"]);
+
+    expect(bannerText(editor)).toBeNull();
+    expect(text(editor)).not.toContain("Save failed");
+  });
+});
+
+describe("Typing while a save runs", () => {
+  it("keeps the edits, unsaved, when the saved row is unchanged", async () => {
+    const editor = await open("tool-1");
+    fakeToolStorage.hold();
+    await editor.click(editor.button("Save"));
+    await editor.type(editor.field(NAME), "typed_meanwhile");
+    await editor.run(["release"]);
+
+    expect(editor.field(NAME).value).toBe("typed_meanwhile");
+    expect(useUIStore.getState().editorDirty).toBe(true);
+    expect(text(editor).startsWith("Unsaved")).toBe(true);
+  });
+
+  it("keeps the edits, unsaved, when the saved row changed", async () => {
+    const editor = await open("tool-1");
+    await editor.type(editor.field(NAME), "x_y");
+    await editor.click(editor.button("Add Parameter"));
+    fakeToolStorage.hold();
+    await editor.click(editor.button("Save"));
+    await editor.type(editor.field(DESCRIPTION), "Typed meanwhile");
+    await editor.run(["release"]);
+    await editor.run(["refetch"]);
+
+    expect(fakeToolStorage.rows.find((row) => row.id === "tool-1")).toMatchObject({ name: "x_y" });
+    expect(editor.field(NAME).value).toBe("x_y");
+    expect(editor.field(DESCRIPTION).value).toBe("Typed meanwhile");
+    // No reload happened, so the nameless row is still there.
+    expect(editor.element.querySelectorAll("select")).toHaveLength(3);
+    expect(useUIStore.getState().editorDirty).toBe(true);
+
+    await editor.click(editor.button("Save"));
+    expect(lastPayload()).toMatchObject({ name: "x_y", description: "Typed meanwhile" });
+    expect(useUIStore.getState().editorDirty).toBe(false);
+    expect(editor.element.querySelectorAll("select")).toHaveLength(2);
+  });
+
+  it("still reloads a later change made elsewhere", async () => {
+    const editor = await open("tool-1");
+    fakeToolStorage.hold();
+    await editor.click(editor.button("Save"));
+    await editor.type(editor.field(NAME), "typed_meanwhile");
+    await editor.run(["release"]);
+    fakeToolStorage.patchRow("tool-1", { description: "Changed elsewhere" });
+    await editor.run(["refetch"]);
+
+    expect(editor.field(DESCRIPTION).value).toBe("Changed elsewhere");
+    expect(editor.field(NAME).value).toBe("check_weather");
+  });
+});
