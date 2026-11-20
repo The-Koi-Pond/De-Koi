@@ -2520,7 +2520,9 @@ function ImageGenerationDefaultsPanel({
                 placeholder="Global default"
               />
               <label className="block">
-                <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Selfie prompt wording</span>
+                <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">
+                  Selfie prompt wording
+                </span>
                 <select
                   value={value.promptWording ?? ""}
                   onChange={(event) => updatePromptWording(event.target.value)}
