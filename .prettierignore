@@ -20,3 +20,5 @@ src/features/runtime/visuals/components/weather-effects/test-fixtures/*.json
 src/features/catalog/regex-scripts/components/regex-script-editor/test-fixtures/*.json
 # Custom tool editor recordings, one line each for the same reason.
 src/features/catalog/agents/components/tool-editor/test-fixtures/*.json
+# Global gallery panel recordings, one line each for the same reason.
+src/features/catalog/gallery/components/global-gallery/test-fixtures/*.json
