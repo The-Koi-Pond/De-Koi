@@ -2,12 +2,12 @@
 // Weather effects: turn the tracker's weather and time text into a scene
 // ──────────────────────────────────────────────
 
-export type WeatherParticleType =
+type WeatherParticleType =
   "rain" | "snow" | "leaf" | "petal" | "fog" | "dust" | "ember" | "ash" | "sand" | "hail" | "aurora";
 
 export type ParticleType = WeatherParticleType | "firefly" | "star";
 
-export type CelestialBody = "sun" | "moon" | "none";
+type CelestialBody = "sun" | "moon" | "none";
 
 interface WeatherReading {
   type: WeatherParticleType;

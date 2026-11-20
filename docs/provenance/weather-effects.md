@@ -116,8 +116,9 @@ none, hour unknown (-1), no sun rays, no sunset glow.
 text:
 
 1. `\b(\d{1,2})[:.h](\d{2})\b` (`14:30`, `2.15`, `14h30`): the first number;
-   +12 if the text contains `pm` anywhere and it is under 12; 0 if the text
-   contains `am` anywhere and it is 12. Used if 0–23.
+   +12 if the text contains `pm` anywhere and it is under 12; then 0 if the
+   text contains `am` anywhere and it is now 12 (in that order, so
+   `0:30 pm, amber light` ends at 0). Used if 0–23.
 2. `\b(\d{1,2})\s*(am|pm)\b` (`2 pm`, `11am`): +12 for pm under 12, 12 am is 0.
    Used if 0–23.
 3. `\b(\d{4})\s*(?:hours?|hrs?)?\b` (`1400`): the first two digits. Used if
