@@ -89,6 +89,9 @@ describe("regex script form", () => {
     expect(toggleRegexPlacement(["ai_output", "user_input"], "ai_output")).toEqual(["user_input"]);
     expect([orderFromInput(""), orderFromInput("1.5"), orderFromInput("-3")]).toEqual([0, 1, -3]);
     expect([depthFromInput(""), depthFromInput("3.9"), depthFromInput("0")]).toEqual([null, 3, 0]);
+    // A decimal with no whole part is cut to 0 (also -0), never NaN.
+    expect([".5", "-.5", "-2.5", "1e3"].map(depthFromInput)).toEqual([0, 0, -2, 1]);
+    expect(Object.is(depthFromInput("-.5"), 0)).toBe(true);
   });
 
   it("counts the name in code points and treats a damaged name or pattern as empty", () => {

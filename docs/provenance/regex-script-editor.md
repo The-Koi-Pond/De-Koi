@@ -384,6 +384,39 @@ delete: <message>`), stay open. The header's save status doesn't change (it
    accepted, the last Apply To place marking the form unsaved when it can't be
    turned off, and an edit in another tab being overwritten when this editor
    saves.
+7. **Follow-ups, shipped after the rebuild.** Four bugs carried over from the
+   old editor, fixed in their own PR:
+   - **A decimal depth became NaN.** Typing `.5` in a Depth Range box set the
+     depth to `NaN`, which the storage schema rejects with a raw message. Now
+     the whole part is kept (`.5` and `-.5` give 0, `2.9` gives 2), the same as
+     `parseInt` already did for `2.9`.
+   - **Save & close sent a pattern that doesn't compile.** Save is disabled
+     while the find pattern has an error, but Save & close in the unsaved bar
+     wasn't. Now it shows `Fix the find pattern first: <error>` in the save
+     error banner, sends nothing and stays open.
+   - **Live Test could freeze the page.** A pattern that repeats a repeated
+     group, like `(a+)+$`, backtracks catastrophically and ran on every
+     keystroke. Now Live Test checks the pattern (macros resolved with the
+     sample values) with the app's regex safety check
+     (`engine/shared/regex/regex-safety`), set to look only at nesting:
+     literal braces (an unknown `{{macro}}`), open-ended counts like `{2,}`,
+     large counts and long patterns pass. A flagged pattern first gets a trial
+     run of the same replace in a throwaway background worker. If that
+     finishes within 300 ms, Live Test runs it as usual (the bundled Clean HTML
+     script is flagged but finishes at once). If not, the worker is ended and
+     Live Test shows `Live Test stopped: this pattern took too long on this
+text and could freeze the app. It repeats a repeated group, like (a+)+.`
+     Where no worker can run, it shows `Live Test skipped: this pattern
+repeats a repeated group, like (a+)+, which can freeze the app, and it
+can't be tried safely here.` Saving is still allowed. A pattern that
+     backtracks without nested repeats, like `(a|a)+$`, isn't flagged and
+     still runs directly.
+   - **Typing during a save was lost.** The list refresh after a save reset
+     the form, dropping anything typed while the save was on its way. Now the
+     refreshed copy of the script just saved (including a new script's first
+     save) keeps those edits and the form stays unsaved, and Save & close
+     stays open when more was typed during its save. A change from anywhere
+     else still reloads the form, as before.
 
 ## Tests
 
