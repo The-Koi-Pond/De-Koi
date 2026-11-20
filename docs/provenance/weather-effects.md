@@ -99,7 +99,9 @@ count 0, no overlay, no lightning.
 | 16  | anything else                             | dust   | 10                      | none                     | no                                |
 
 Row 2 "heavy" means it contains `heavy`, `storm` or `downpour`. Row 5 "heavy"
-means it contains `heavy`.
+means it contains `heavy`. Because row 2 comes first, `sandstorm` and
+`dust storm` read as heavy rain (with lightning), so row 8's `dust storm` never
+matches (see decision 3).
 
 **Clear sky** is true when there is no weather, or the original text matches
 `/clear|sunny|bright/i`, or it does **not** match
@@ -114,8 +116,9 @@ none, hour unknown (-1), no sun rays, no sunset glow.
 text:
 
 1. `\b(\d{1,2})[:.h](\d{2})\b` (`14:30`, `2.15`, `14h30`): the first number;
-   +12 if the text contains `pm` anywhere and it is under 12; 0 if the text
-   contains `am` anywhere and it is 12. Used if 0–23.
+   +12 if the text contains `pm` anywhere and it is under 12; then 0 if the
+   text contains `am` anywhere and it is now 12 (in that order, so
+   `0:30 pm, amber light` ends at 0). Used if 0–23.
 2. `\b(\d{1,2})\s*(am|pm)\b` (`2 pm`, `11am`): +12 for pm under 12, 12 am is 0.
    Used if 0–23.
 3. `\b(\d{4})\s*(?:hours?|hrs?)?\b` (`1400`): the first two digits. Used if
@@ -148,7 +151,9 @@ table):
   after each resize.
 
 Everything below (canvas size, particles, frames) starts over whenever the
-weather, the time of day or `showCelestial` changes, and stops on unmount.
+weather or the time of day changes, or a `showCelestial` change flips whether
+it shows the sun or moon (a change that doesn't flip it, e.g. on a rainy scene,
+does nothing). It stops on unmount.
 
 ## Canvas size
 
@@ -243,11 +248,11 @@ In this order, all in CSS pixels on the whole `W × H`:
    `R = min(W, H) · 0.035`; hour = the time's hour, or 12 when unknown.
    - Sun at `x = W·0.08 + t·W·0.84`, `y = H·0.05 + (1 − sin(t·π))·H·0.25`,
      with `t = clamp((hour − 6) / 12, 0, 1)`; drawn as in "The sun".
-   - Moon at `x = W·0.1 + clamp(n, 0, 1)·W·0.8` with `n = ((hour − 21 + 24) mod
-
-24) / 10`for hour ≥ 12, else`(hour + 3) / 10`;
- `y = H·0.05 + (1 − sin(clamp(m, 0, 1)·π))·H·0.2`with`m = (hour − 21) / 7` for hour ≥ 12, else`(hour + 3) / 7`; radius `R·1.1`; drawn as in "The
-    moon".
+   - Moon at `x = W·0.1 + clamp(n, 0, 1)·W·0.8`, where `n` is
+     `((hour − 21 + 24) mod 24) / 10` for hour ≥ 12, else `(hour + 3) / 10`;
+     `y = H·0.05 + (1 − sin(clamp(m, 0, 1)·π))·H·0.2`, where `m` is
+     `(hour − 21) / 7` for hour ≥ 12, else `(hour + 3) / 7`; radius `R·1.1`;
+     drawn as in "The moon".
 
 6. Particles, from the **last created to the first** (so stars, then fireflies,
    then the weather type, each in reverse). For each particle:
@@ -359,7 +364,10 @@ above.
    tab was busy), the flash fades by `0.88^frames` with no cap while particles
    move at most 4 frames. Recommended: keep as is (it only makes a flash end
    sooner).
-3. **No `prefers-reduced-motion`.** Particles, rays and lightning animate even
+3. **Sandstorms read as heavy rain.** Found during the rebuild: the `storm`
+   in `sandstorm` and `dust storm` hits row 2 first. Kept (the recordings pin
+   it); possible follow-up: test the sand words before row 2.
+4. **No `prefers-reduced-motion`.** Particles, rays and lightning animate even
    when the system asks for reduced motion; the only off switch is the setting.
    Recommended: not in this rebuild; possible follow-up.
 

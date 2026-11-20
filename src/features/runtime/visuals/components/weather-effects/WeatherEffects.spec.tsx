@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { capWeatherParticleMotionFrames, WeatherEffects } from "./WeatherEffects";
+import { capWeatherParticleMotionFrames, WeatherEffects } from "./index";
 
 type RafCallback = FrameRequestCallback;
 
