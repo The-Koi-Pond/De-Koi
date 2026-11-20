@@ -89,7 +89,8 @@ nothing else changes for the callers.
 
 ## Loading the form
 
-When the editor opens a script, and again whenever the id changes or the list
+When the editor opens a script, and again whenever the id changes (also to an
+id with no row, which still clears unsaved state) or the list
 gives a changed copy of that row (for example after a save refreshes the list),
 the form is filled and reset. A refresh that returns the row unchanged keeps the
 same row object (the query's structural sharing), so it resets nothing and keeps
@@ -141,7 +142,9 @@ order:
 - **Unsaved bar** (`UnsavedChangesBar`, right under the header): shown after
   Back with unsaved edits. **Keep editing** hides it. **Discard** closes the
   editor without saving. **Save & close** saves, then closes (but see decision
-  1). Its `saving` is the save-in-progress state.
+  1). Its `saving` is the save-in-progress state. The bar hides once nothing is
+  unsaved: after a successful Save from the header, and whenever the form resets
+  (another script or **New** opens, or the id has no row).
 - **Save error banner** (`SaveErrorBanner`, under that): shows the save error;
   dismissing it clears the error.
 
