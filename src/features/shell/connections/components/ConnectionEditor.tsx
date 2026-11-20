@@ -2432,6 +2432,11 @@ function ImageGenerationDefaultsPanel({
     onChange({ ...value, styleProfileId: styleProfileId.trim() || null });
   };
 
+  const updatePromptWording = (promptWording: string) => {
+    const { promptWording: _previous, ...rest } = value;
+    onChange(promptWording === "tags" || promptWording === "descriptive" ? { ...rest, promptWording } : rest);
+  };
+
   const automatic1111 = value.automatic1111 ?? createDefaultImageGenerationProfile("automatic1111").automatic1111!;
   const comfyui = value.comfyui ?? createDefaultImageGenerationProfile("comfyui").comfyui!;
   const novelai = value.novelai ?? createDefaultImageGenerationProfile("novelai").novelai!;
@@ -2514,6 +2519,23 @@ function ImageGenerationDefaultsPanel({
                 onChange={updateStyleProfileId}
                 placeholder="Global default"
               />
+              <label className="block">
+                <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">
+                  Selfie prompt wording
+                </span>
+                <select
+                  value={value.promptWording ?? ""}
+                  onChange={(event) => updatePromptWording(event.target.value)}
+                  className="mt-1 w-full rounded-lg bg-[var(--card)] px-3 py-2 text-xs ring-1 ring-[var(--border)] focus:outline-none focus:ring-sky-400/50"
+                >
+                  <option value="">Use the app setting</option>
+                  <option value="tags">Tags (anime / Illustrious / Pony models)</option>
+                  <option value="descriptive">Descriptive sentences</option>
+                </select>
+                <span className="mt-1 block text-[0.625rem] text-[var(--muted-foreground)]">
+                  Tag-trained models draw long sentences as text in the picture.
+                </span>
+              </label>
               {service === "automatic1111" ? (
                 <>
                   <NumberSetting

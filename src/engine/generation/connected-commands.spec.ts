@@ -887,6 +887,55 @@ describe("persistConnectedCommandTags", () => {
     expect(prompt).toContain("night");
   });
 
+  it("words the selfie prompt the way the image connection asks, over the app setting", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1"],
+      metadata: { imageGenConnectionId: "comfy-tags" },
+    };
+    const storage = commandStorage({
+      chats: [chat],
+      characters: [{ id: "char-1", name: "Harlequin", data: { name: "Harlequin" } }],
+      connections: [
+        {
+          id: "comfy-tags",
+          provider: "image_generation",
+          imageGenerationSource: "comfyui",
+          defaultParameters: { imageGeneration: { service: "comfyui", promptWording: "tags" } },
+        },
+        { id: "comfy-app", provider: "image_generation", imageGenerationSource: "comfyui" },
+      ],
+      lorebooks: [],
+      lorebookEntries: [],
+    });
+    const llmRequests: string[] = [];
+    const llm = {
+      complete: async (input: { messages: Array<{ content: string }> }) => {
+        llmRequests.push(input.messages.map((message) => message.content).join(" "));
+        return "1boy, selfie, white mask";
+      },
+    } as unknown as LlmGateway;
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(): Promise<T> {
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const descriptiveDevice = { format: "descriptive" as const };
+
+    await persistConnectedCommandTags(storage, chat, "here [selfie]", integrations, llm, "llm-1", descriptiveDevice);
+    expect(llmRequests[0]).toContain("concise comma-separated image tags");
+    expect(llmRequests[0]).not.toContain("natural-language description");
+
+    // A connection without its own wording follows the app setting.
+    const appChat = { ...chat, metadata: { imageGenConnectionId: "comfy-app" } };
+    await persistConnectedCommandTags(storage, appChat, "here [selfie]", integrations, llm, "llm-1", descriptiveDevice);
+    expect(llmRequests[1]).toContain("natural-language description");
+  });
+
   it("dresses the character in their usual outfit unless the selfie asked for something else", async () => {
     const chat = {
       id: "chat-1",
@@ -1119,6 +1168,7 @@ describe("persistConnectedCommandTags", () => {
           imageGenerationSource: "novelai",
           model: "nai-diffusion-4-5-full",
         },
+        { id: "comfy-1", provider: "image_generation", imageGenerationSource: "comfyui" },
       ],
       lorebooks: [],
       lorebookEntries: [],
@@ -1165,12 +1215,17 @@ describe("persistConnectedCommandTags", () => {
     expect(imageRequests[2]).toMatchObject({ connectionId: "nai-1", referenceImages: [junoFullBody] });
     expect(imageRequests[2]?.prompt).not.toEqual(expect.stringContaining("Reference guidance"));
 
+    // Same for ComfyUI: an Illustrious workflow drew the guidance paragraph as gibberish text boxes.
+    await run({ ...chat, metadata: { imageGenConnectionId: "comfy-1", selfieUseAvatarReferences: true } });
+    expect(imageRequests[3]).toMatchObject({ connectionId: "comfy-1" });
+    expect(imageRequests[3]?.prompt).not.toEqual(expect.stringContaining("Reference guidance"));
+
     // Without a full-body sprite, the avatar is the reference.
     await persistConnectedCommandTags(storage, chat, "look", integrations, undefined, null, undefined, visuals, {
       textsFirstPhoto: "send",
       textsFirstCharacterId: "char-1",
     });
-    expect(imageRequests[3]).toMatchObject({ reviewTitle: "Selfie: Mira", referenceImages: [miraAvatar] });
+    expect(imageRequests[4]).toMatchObject({ reviewTitle: "Selfie: Mira", referenceImages: [miraAvatar] });
   });
 
   it("recovers the selfie when the character hands it over without naming it, but not when he holds it back", async () => {
