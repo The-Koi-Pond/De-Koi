@@ -167,6 +167,24 @@ export function CharacterEditorTabContent({
                 className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-2.5 text-sm outline-none placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
               />
             </label>
+            <label className="block space-y-1.5">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--muted-foreground)]">
+                Selfie connection{" "}
+                <HelpTooltip text="The image connection for this character's selfies, in any chat that has selfies turned on. Useful in group chats when each character has their own setup, like a LoRA made for them. Leave it on the chat's connection to use whatever the chat picks." />
+              </span>
+              <select
+                value={(formData.extensions.selfieImageConnectionId as string) ?? ""}
+                onChange={(event) => updateExtension("selfieImageConnectionId", event.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-2.5 text-sm outline-none focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              >
+                <option value="">The chat's connection</option>
+                {imageConnections.map((connection) => (
+                  <option key={connection.id} value={connection.id}>
+                    {connection.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         )}
         {activeTab === "scenario" && (

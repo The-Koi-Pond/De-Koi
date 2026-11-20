@@ -622,6 +622,24 @@ function activeCharacterId(chat: JsonRecord): string | null {
   return stringArray(chat.characterIds)[0] ?? null;
 }
 
+/**
+ * The connection a character's selfie is made with: the character's own Selfie connection when it still exists (in a
+ * group chat each character can have their own, like a LoRA made for them), else the chat's. Returns the connection too.
+ */
+async function resolveSelfieImageConnection(
+  storage: StorageGateway,
+  chatConnectionId: string,
+  characterId: string | null,
+): Promise<{ id: string; connection: JsonRecord | null }> {
+  const character = characterId ? await storage.get<JsonRecord>("characters", characterId) : null;
+  const ownId = readString(parseRecord(parseData(character ?? undefined).extensions).selfieImageConnectionId).trim();
+  if (ownId && ownId !== chatConnectionId) {
+    const own = await storage.get<JsonRecord>("connections", ownId);
+    if (own) return { id: ownId, connection: own };
+  }
+  return { id: chatConnectionId, connection: await storage.get<JsonRecord>("connections", chatConnectionId) };
+}
+
 const SCHEDULE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 type ScheduleUpdateCommand = Extract<CharacterCommand, { type: "schedule_update" }>;
@@ -941,9 +959,9 @@ async function generateSelfie(args: {
   selfieRequest?: string;
 }): Promise<boolean> {
   const metadata = parseRecord(args.chat.metadata);
-  const imageConnectionId = readString(metadata.imageGenConnectionId).trim();
+  const chatImageConnectionId = readString(metadata.imageGenConnectionId).trim();
   const characterId = args.characterId || activeCharacterId(args.chat);
-  if (!imageConnectionId) {
+  if (!chatImageConnectionId) {
     eventsPushSelfieError(args.events, characterId, "No image generation connection configured for this chat.");
     return false;
   }
@@ -953,7 +971,11 @@ async function generateSelfie(args: {
   }
 
   try {
-    const imageConnection = await args.storage.get<JsonRecord>("connections", imageConnectionId);
+    const { id: imageConnectionId, connection: imageConnection } = await resolveSelfieImageConnection(
+      args.storage,
+      chatImageConnectionId,
+      characterId,
+    );
     const built = await buildSelfiePrompt({
       storage: args.storage,
       llm: args.llm,
@@ -1101,13 +1123,18 @@ export async function regenerateSelfieAttachment(args: {
   const prompt = readString(original.prompt).trim();
   if (!prompt) throw new Error("This selfie has no saved prompt to make it again.");
   const metadata = parseRecord(chat.metadata);
-  const imageConnectionId = readString(metadata.imageGenConnectionId).trim();
-  if (!imageConnectionId) throw new Error("Choose an image connection for selfies in this chat's settings first.");
+  const chatImageConnectionId = readString(metadata.imageGenConnectionId).trim();
+  if (!chatImageConnectionId) throw new Error("Choose an image connection for selfies in this chat's settings first.");
   if (!args.integrations?.image) throw new Error("Image generation is not available.");
 
   const characterId =
     readString(original.characterId).trim() || readString(message.characterId).trim() || activeCharacterId(chat);
   const character = characterId ? await args.storage.get<JsonRecord>("characters", characterId) : null;
+  const { id: imageConnectionId } = await resolveSelfieImageConnection(
+    args.storage,
+    chatImageConnectionId,
+    characterId,
+  );
   const characterName = nameOf(character ?? {}) || "character";
   const size =
     typeof original.width === "number" && typeof original.height === "number"
@@ -1909,7 +1936,9 @@ async function executeCommand(
         assistantAttachments,
         imagePromptSettings,
         unprompted: options?.textsFirstPhoto === "send",
-        characterId: options?.textsFirstPhoto === "send" ? options.textsFirstCharacterId : null,
+        // Whoever is replying: in a group chat the selfie is theirs, not the first character's.
+        characterId:
+          options?.textsFirstPhoto === "send" ? options.textsFirstCharacterId : (options?.replyingCharacterId ?? null),
         visuals,
         selfieRequest: options?.textsFirstPhoto === "send" ? undefined : options?.selfieRequest,
       }))

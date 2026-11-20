@@ -14,7 +14,7 @@ const OLD_SELFIE = {
   description: "lounging in his wagon",
 };
 
-function setup(overrides: { metadata?: JsonRecord; attachment?: JsonRecord } = {}) {
+function setup(overrides: { metadata?: JsonRecord; attachment?: JsonRecord; characterExtensions?: JsonRecord } = {}) {
   const chat: JsonRecord = {
     id: "chat-1",
     mode: "conversation",
@@ -29,7 +29,7 @@ function setup(overrides: { metadata?: JsonRecord; attachment?: JsonRecord } = {
   const character: JsonRecord = {
     id: "harlequin",
     name: "Harlequin",
-    data: { name: "Harlequin", extensions: { selfieAvoidTags: "blush" } },
+    data: { name: "Harlequin", extensions: { selfieAvoidTags: "blush", ...overrides.characterExtensions } },
   };
   const message: JsonRecord = {
     id: "m-1",
@@ -100,6 +100,14 @@ describe("regenerating a selfie", () => {
         characterId: "harlequin",
       }),
     ]);
+  });
+
+  it("uses the character's own selfie connection over the chat's", async () => {
+    const { generate, regenerate } = setup({ characterExtensions: { selfieImageConnectionId: "comfy-own" } });
+
+    await regenerate();
+
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "comfy-own" }));
   });
 
   it("keeps the old picture when the new one fails", async () => {
