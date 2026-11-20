@@ -147,8 +147,8 @@ and **Delete folder** (trash in the destructive color, named and titled
 ### Upload button
 
 The shared upload dropzone, full width, with an upload icon. Label:
-`Upload to "<folder name>"` while a folder is selected, otherwise
-`Upload Images`. While an upload runs it shows `Uploading…` and is disabled;
+`Upload to "<folder name>"` while a folder is selected (also a folder with an
+empty name: `Upload to ""`), otherwise `Upload Images`. While an upload runs it shows `Uploading…` and is disabled;
 while files are dragged over it, `Drop images to upload`.
 
 ### Images shown
@@ -370,14 +370,22 @@ except:
 4. **Escape in the lightbox closes the whole panel.** In the real app, Escape
    closes the lightbox and the Gallery panel behind it (found in the Chrome
    recording). Recommended: Escape closes only the lightbox; the panel stays
-   open as it was. Escape with no lightbox open is unchanged.
+   open as it was. Escape with no lightbox open is unchanged. The lightbox
+   takes part in the app's overlay Escape stack (`useEscapeOverlay`), so
+   overlays opened later win. On phone widths the app shell still closes the
+   whole Tools panel on Escape before any overlay sees the key (a
+   capture-phase listener in `AppShell.tsx` that also affects every other
+   modal opened inside that panel); fixing that is a separate shell change,
+   not part of this rebuild.
 5. **A new folder isn't selected.** In the real app the new folder's chip
    appears but **All** stays selected: the panel selects the new folder before
    the folder list has it, so the "selected folder disappeared" rule puts it
    back to **All** (the component recordings, with an instant list, don't show
    this; the Chrome recording does). Recommended: after a successful create,
    select the new folder once the folder list includes it, as "New folder"
-   above describes. Nothing else changes.
+   above describes. When the user picks a chip before the list includes the
+   new folder, that pick wins and the new folder isn't selected. Nothing else
+   changes.
 6. **Not in this rebuild** (unchanged, possible follow-ups): the counts and
    sorting only cover the loaded pages (a library over 48 images says
    `48 images` until **Load older images** is used, and Oldest first only sorts
@@ -386,8 +394,7 @@ except:
    duplicates; a second click on Delete while its confirm dialog is open opens
    another dialog; an upload where every file fails says only "Couldn't upload
    gallery images. Try again." without naming the files; a folder with an empty
-   name hides its folder bar and the upload label says `Upload Images` while
-   uploads still go into it.
+   name hides its folder bar (uploads go into it, labelled `Upload to ""`).
 
 More decisions may be added in the build PR if the recordings show a problem;
 each gets the spec writer's sign-off first.
