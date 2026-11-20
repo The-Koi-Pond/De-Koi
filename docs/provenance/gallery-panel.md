@@ -147,8 +147,8 @@ and **Delete folder** (trash in the destructive color, named and titled
 ### Upload button
 
 The shared upload dropzone, full width, with an upload icon. Label:
-`Upload to "<folder name>"` while a folder is selected, otherwise
-`Upload Images`. While an upload runs it shows `Uploading…` and is disabled;
+`Upload to "<folder name>"` while a folder is selected (also a folder with an
+empty or missing name: `Upload to ""`), otherwise `Upload Images`. While an upload runs it shows `Uploading…` and is disabled;
 while files are dragged over it, `Drop images to upload`.
 
 ### Images shown
@@ -220,8 +220,9 @@ An empty file list does nothing.
 From a card's **Delete** or the lightbox's **Delete**: a confirm dialog
 `{ title: "Delete Image", message: "Delete this gallery image?", confirmLabel: "Delete", tone: "destructive" }`.
 Cancel does nothing. Confirm deletes the image (its file goes too) and, when
-that image is open in the lightbox, closes the lightbox. A failed delete shows
-the wrapper's error toast.
+that image is open in the lightbox, closes the lightbox at once (right after
+the confirm, without waiting for the delete to finish; also when it then
+fails). A failed delete shows the wrapper's error toast.
 
 ### New folder
 
@@ -235,7 +236,8 @@ trimmed name and selected. On failure:
 
 A prompt
 `{ title: "Rename Folder", message: "Enter a new name for this folder.", defaultValue: <current name>, confirmLabel: "Rename" }`.
-Cancel, a blank name, or the same name after trimming does nothing. Otherwise
+Cancel, a blank name, or a trimmed name equal to the stored name (as stored,
+not trimmed) does nothing. Otherwise
 it renames to the trimmed name. On failure:
 `toast.error("Couldn't rename the folder. Try again.")`.
 
@@ -254,7 +256,7 @@ Dragging a card onto **Unfiled** or a folder chip moves the image there: the
 chip under the drag gets a 2px primary ring (offset by 1px) and the drag
 effect is "move". **All** isn't a drop target. Dropping onto the folder the
 image is already in does nothing. The image id travels as the drag's
-`text/plain` data. Ending the drag anywhere clears the fading and the ring. A
+`text/plain` data; a drop that carries no id does nothing. Ending the drag anywhere clears the fading and the ring. A
 failed move shows the wrapper's error toast.
 
 ### Tag as emoji / sticker
@@ -266,8 +268,10 @@ unchanged. A failed tag shows the wrapper's error toast.
 
 A full-window dialog (`role="dialog"`, `aria-modal="true"`, named by the
 image's `filename`, else `prompt`, else `Gallery image preview`) on an 80%
-black backdrop above everything (z-index 100). Clicking the backdrop closes
-it; clicking inside the content doesn't.
+black backdrop above everything (z-index 100), with 1rem padding (on phone
+widths, below `md`, the top padding is only the safe-area inset, so the
+content sits a little higher). Clicking the backdrop closes it; clicking
+inside the content doesn't.
 
 Content, at most 90% of the window height and `min(90vw, 40rem)` wide:
 
@@ -282,8 +286,10 @@ Content, at most 90% of the window height and `min(90vw, 40rem)` wide:
   **Close** button (titled `Close`).
 
 Keyboard: focus moves to **Close** when it opens and back to what had focus
-when it closes. Escape closes it. Tab and Shift+Tab cycle inside the dialog
-(links, enabled buttons, enabled selects).
+when it closes. Escape closes it. Tab on the dialog's last control (links,
+enabled buttons, enabled selects) goes to the first, Shift+Tab on the first
+goes to the last. Focus outside the lightbox (for example in a confirm dialog
+opened from it) is left alone.
 
 **Moving from the lightbox.** Picking a folder shows it at once, then saves.
 When the save fails: `toast.error("Couldn't move this image. Putting it back.")`
@@ -361,7 +367,8 @@ except:
    Recommended: the strip also shows while anything in the card has keyboard
    focus. No change with a mouse or on phones.
 3. **A gallery that fails to load looks empty.** When the first page of
-   images can't be loaded (server down, offline), the panel shows `0 images`
+   images can't be loaded (server down, or the first load is paused because
+   the device is offline), the panel shows `0 images`
    and `No images yet`, as if the library were gone. Recommended: in place of
    the loading tiles, grid and empty box, a small error box in the destructive
    color (the same look as the Presets panel's "Could not load preset
@@ -370,14 +377,23 @@ except:
 4. **Escape in the lightbox closes the whole panel.** In the real app, Escape
    closes the lightbox and the Gallery panel behind it (found in the Chrome
    recording). Recommended: Escape closes only the lightbox; the panel stays
-   open as it was. Escape with no lightbox open is unchanged.
+   open as it was. Escape with no lightbox open is unchanged. The lightbox
+   takes part in the app's overlay Escape stack (`useEscapeOverlay`), so
+   overlays opened later win. On phone widths the app shell still closes the
+   whole Tools panel on Escape before any overlay sees the key (a
+   capture-phase listener in `AppShell.tsx` that also affects every other
+   modal opened inside that panel); fixing that is a separate shell change,
+   not part of this rebuild.
 5. **A new folder isn't selected.** In the real app the new folder's chip
    appears but **All** stays selected: the panel selects the new folder before
    the folder list has it, so the "selected folder disappeared" rule puts it
    back to **All** (the component recordings, with an instant list, don't show
    this; the Chrome recording does). Recommended: after a successful create,
    select the new folder once the folder list includes it, as "New folder"
-   above describes. Nothing else changes.
+   above describes. When the user picks a chip after confirming the prompt,
+   while the create runs or before the list includes the new folder, that pick
+   wins and the new folder isn't selected. Nothing else
+   changes.
 6. **Not in this rebuild** (unchanged, possible follow-ups): the counts and
    sorting only cover the loaded pages (a library over 48 images says
    `48 images` until **Load older images** is used, and Oldest first only sorts
@@ -386,8 +402,7 @@ except:
    duplicates; a second click on Delete while its confirm dialog is open opens
    another dialog; an upload where every file fails says only "Couldn't upload
    gallery images. Try again." without naming the files; a folder with an empty
-   name hides its folder bar and the upload label says `Upload Images` while
-   uploads still go into it.
+   name hides its folder bar (uploads go into it, labelled `Upload to ""`).
 
 More decisions may be added in the build PR if the recordings show a problem;
 each gets the spec writer's sign-off first.

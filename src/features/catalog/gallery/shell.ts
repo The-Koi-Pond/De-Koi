@@ -1,1 +1,1 @@
-export { GlobalGalleryPanel } from "./components/GlobalGalleryPanel";
+export { GlobalGalleryPanel } from "./components/global-gallery";
