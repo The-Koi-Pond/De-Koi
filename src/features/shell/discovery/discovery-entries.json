@@ -997,7 +997,7 @@
     "id": "image-generation",
     "title": "Image Generation",
     "category": "Media",
-    "summary": "Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations. Selfies can be sent with the character's full-body sprite (or avatar) so they look like that character, and each character's Selfie look, outfit, headwear and avoid tags (on the Appearance tab) keep them on model; the outfit steps aside when a selfie asks for something else, like shirtless or in pajamas, and headwear comes off when the moment calls for it. A ComfyUI, AUTOMATIC1111 or NovelAI connection can set its own selfie Prompt wording (Tags for anime models, which draw long sentences as text in the picture).",
+    "summary": "Set up and test image connections, including image generation with a Codex Subscription, plus style profiles for selfies, sprites, backgrounds, tracker portraits, and scene illustrations. Selfies can be sent with the character's full-body sprite (or avatar) so they look like that character, and each character's Selfie look, outfit, headwear and avoid tags (on the Appearance tab) keep them on model; the outfit steps aside when a selfie asks for something else, like shirtless or in pajamas, and headwear comes off when the moment calls for it. A character can also have their own Selfie connection there, so in a group chat each one's selfies use their own setup. A ComfyUI, AUTOMATIC1111 or NovelAI connection can set its own selfie Prompt wording (Tags for anime models, which draw long sentences as text in the picture).",
     "keywords": [
       "image",
       "images",
@@ -1021,6 +1021,8 @@
       "reference strength",
       "reference fidelity",
       "prompt wording",
+      "selfie connection",
+      "group chat selfie",
       "comfyui",
       "dall-e"
     ],

@@ -887,6 +887,63 @@ describe("persistConnectedCommandTags", () => {
     expect(prompt).toContain("night");
   });
 
+  it("gives a group chat reply's selfie to the character replying, made with their own selfie connection", async () => {
+    const chat = {
+      id: "chat-1",
+      mode: "conversation",
+      characterIds: ["char-1", "char-2"],
+      metadata: { imageGenConnectionId: "chat-image" },
+    };
+    const juno = (selfieImageConnectionId: string) => ({
+      id: "char-2",
+      name: "Juno",
+      data: { name: "Juno", extensions: { selfieLookTags: "silver mask", selfieImageConnectionId } },
+    });
+    const connections = [
+      { id: "chat-image", provider: "image_generation", imageGenerationSource: "comfyui" },
+      { id: "juno-lora", provider: "image_generation", imageGenerationSource: "comfyui" },
+    ];
+    const build = (junoConnection: string) =>
+      commandStorage({
+        chats: [chat],
+        characters: [
+          { id: "char-1", name: "Mira", data: { name: "Mira", extensions: { selfieLookTags: "red hood" } } },
+          juno(junoConnection),
+        ],
+        connections,
+        lorebooks: [],
+        lorebookEntries: [],
+      });
+    const imageRequests: JsonRecord[] = [];
+    const integrations: IntegrationGateway = {
+      image: {
+        async generate<T = unknown>(input: Record<string, unknown>): Promise<T> {
+          imageRequests.push(input);
+          return asStorageValue<T>({ image: "data:image/png;base64,abc", mimeType: "image/png" });
+        },
+      },
+      customTools: {} as IntegrationGateway["customTools"],
+    };
+    const reply = (storage: StorageGateway, replyingCharacterId: string) =>
+      persistConnectedCommandTags(storage, chat, "here [selfie]", integrations, undefined, null, undefined, undefined, {
+        replyingCharacterId,
+      });
+
+    // Juno replies: her selfie, her look, her own connection (was: Mira's look on the chat's connection).
+    await reply(build("juno-lora"), "char-2");
+    expect(imageRequests[0]).toMatchObject({ reviewTitle: "Selfie: Juno", connectionId: "juno-lora" });
+    expect(String(imageRequests[0]?.prompt)).toContain("silver mask");
+    expect(String(imageRequests[0]?.prompt)).not.toContain("red hood");
+
+    // Mira has no connection of her own, so the chat's is used.
+    await reply(build("juno-lora"), "char-1");
+    expect(imageRequests[1]).toMatchObject({ reviewTitle: "Selfie: Mira", connectionId: "chat-image" });
+
+    // A deleted connection falls back to the chat's instead of failing.
+    await reply(build("deleted-connection"), "char-2");
+    expect(imageRequests[2]).toMatchObject({ reviewTitle: "Selfie: Juno", connectionId: "chat-image" });
+  });
+
   it("words the selfie prompt the way the image connection asks, over the app setting", async () => {
     const chat = {
       id: "chat-1",
