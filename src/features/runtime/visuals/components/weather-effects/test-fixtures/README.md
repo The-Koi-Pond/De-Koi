@@ -4,10 +4,16 @@ Black-box recordings of the old weather effects (see `docs/provenance/weather-ef
 old file was deleted. One-line JSON, listed in `.prettierignore`, so the provenance report doesn't count them as
 code. Don't edit them by hand.
 
+The scenarios that spec decisions 1, 3 and 4 change on purpose (night and dusk scenes, now with fireflies and
+stars; sand words that used to hit the rain row) were re-recorded from the follow-up build; every other scenario is
+still the old effects' recording.
+
 Committed here: a subset of a larger local recording (every scenario at fixed random 0, 0.25, 0.5 and 0.999,
 plus a second seed), which was replayed against the rebuild in full before merging. The subset keeps each
 file under about 1 MB: weather rows at 0 and 0.999, time rules at 0.5, combined scenes at 0.5 and 0.999, long
-runs at 0.5 (sand at 0, 0.5 and 0.999), seed 1 only.
+runs at 0.5 (sand at 0, 0.5 and 0.999), seed 1 only. Files: `recorded-scenes.json` (`w:`, `t:`),
+`recorded-combined.json` (`wt:`, `nocel:`), `recorded-timelines.json` (`size:`, `tl:`), `recorded-long.json`
+(`long:`), `recorded-seeded.json` (`seed:`).
 
 Each file is `{ format: 1, scenarios: [...] }`. A scenario has:
 

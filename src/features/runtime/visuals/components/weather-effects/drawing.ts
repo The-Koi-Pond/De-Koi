@@ -4,6 +4,9 @@
 import type { Particle } from "./particles";
 
 const TAU = Math.PI * 2;
+/** A color alpha rounded to 3 decimals, so it prints the same in every browser. */
+const alpha3 = (value: number) => Math.round(value * 1000) / 1000;
+
 /** Fade in over this many frames of life. */
 const FADE_IN_FRAMES = 60;
 
@@ -134,10 +137,23 @@ function drawParticleShape(ctx: Ctx, p: Particle): void {
     case "aurora":
       drawAurora(ctx, p);
       return;
-    // Fireflies and stars always have opacity 0, so they never reach here (spec decision 1).
-    case "firefly":
-    case "star":
+    case "firefly": {
+      // A warm glow that slowly brightens and dims.
+      const glow = alpha3(Math.sin(p.life * 0.05 + p.wobble) * 0.35 + 0.65);
+      fillGlowDot(ctx, p, p.size * 2.5, [
+        [0, `rgba(240,255,150,${glow})`],
+        [0.35, `rgba(200,240,90,${alpha3(glow * 0.5)})`],
+        [1, "rgba(180,230,60,0)"],
+      ]);
       return;
+    }
+    case "star": {
+      // A small point that twinkles.
+      const twinkle = alpha3(Math.sin(p.life * 0.06 + p.wobble) * 0.3 + 0.7);
+      ctx.fillStyle = `rgba(235,240,255,${twinkle})`;
+      fillCircle(ctx, p.x, p.y, p.size * 0.6);
+      return;
+    }
   }
 }
 

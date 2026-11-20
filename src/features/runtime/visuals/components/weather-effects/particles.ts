@@ -62,14 +62,14 @@ const SHAPES: Record<ParticleType, Shape> = {
     p.vy = -0.2 + 0.4 * rand();
     p.vx = -0.3 + 0.6 * rand();
     p.size = 2 + 2 * rand();
-    p.opacity = 0;
+    p.opacity = 0.35 + 0.3 * rand();
     p.maxLife = 300 + 300 * rand();
   },
   star: (p, _width, height) => {
     p.vy = 0;
     p.vx = 0;
     p.size = 1 + 1.5 * rand();
-    p.opacity = 0;
+    p.opacity = 0.3 + 0.4 * rand();
     p.maxLife = 400 + 400 * rand();
     p.y = rand() * height * 0.4;
   },

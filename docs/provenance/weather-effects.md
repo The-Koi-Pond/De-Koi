@@ -82,13 +82,13 @@ count 0, no overlay, no lightning.
 | #   | Contains any of                           | Type   | Count                   | Overlay                  | Lightning                         |
 | --- | ----------------------------------------- | ------ | ----------------------- | ------------------------ | --------------------------------- |
 | 1   | `thunder`, `lightning`                    | rain   | 200                     | `rgba(50,80,120,0.10)`   | yes                               |
-| 2   | `rain`, `storm`, `downpour`               | rain   | 200 if heavy, else 80   | `rgba(50,80,120,0.08)`   | if heavy **and** contains `storm` |
-| 3   | `hail`                                    | hail   | 60                      | `rgba(180,200,230,0.06)` | no                                |
-| 4   | `blizzard`                                | snow   | 150                     | `rgba(200,220,255,0.10)` | no                                |
-| 5   | `snow`, `sleet`                           | snow   | 120 if `heavy`, else 50 | `rgba(200,220,255,0.06)` | no                                |
-| 6   | `frost`, `cold`, `freez`                  | snow   | 15                      | `rgba(180,210,240,0.06)` | no                                |
-| 7   | `fog`, `mist`, `haze`                     | fog    | 20                      | `rgba(180,180,200,0.12)` | no                                |
-| 8   | `sand`, `dust storm`, `sirocco`           | sand   | 100                     | `rgba(180,150,100,0.12)` | no                                |
+| 2   | `sand`, `dust storm`, `sirocco`           | sand   | 100                     | `rgba(180,150,100,0.12)` | no                                |
+| 3   | `rain`, `storm`, `downpour`               | rain   | 200 if heavy, else 80   | `rgba(50,80,120,0.08)`   | if heavy **and** contains `storm` |
+| 4   | `hail`                                    | hail   | 60                      | `rgba(180,200,230,0.06)` | no                                |
+| 5   | `blizzard`                                | snow   | 150                     | `rgba(200,220,255,0.10)` | no                                |
+| 6   | `snow`, `sleet`                           | snow   | 120 if `heavy`, else 50 | `rgba(200,220,255,0.06)` | no                                |
+| 7   | `frost`, `cold`, `freez`                  | snow   | 15                      | `rgba(180,210,240,0.06)` | no                                |
+| 8   | `fog`, `mist`, `haze`                     | fog    | 20                      | `rgba(180,180,200,0.12)` | no                                |
 | 9   | `ash`, `volcanic`, `smoke`                | ash    | 40                      | `rgba(80,60,60,0.10)`    | no                                |
 | 10  | `ember`, `fire`, `inferno`                | ember  | 35                      | `rgba(120,40,10,0.08)`   | no                                |
 | 11  | `wind`, `breez`, `gust`                   | leaf   | 25                      | none                     | no                                |
@@ -98,10 +98,10 @@ count 0, no overlay, no lightning.
 | 15  | `cloud`, `overcast`, `grey`, `gray`       | dust   | 8                       | `rgba(100,100,120,0.05)` | no                                |
 | 16  | anything else                             | dust   | 10                      | none                     | no                                |
 
-Row 2 "heavy" means it contains `heavy`, `storm` or `downpour`. Row 5 "heavy"
-means it contains `heavy`. Because row 2 comes first, `sandstorm` and
-`dust storm` read as heavy rain (with lightning), so row 8's `dust storm` never
-matches (see decision 3).
+Row 3 "heavy" means it contains `heavy`, `storm` or `downpour`. Row 6 "heavy"
+means it contains `heavy`. The sand row comes before the rain row, so
+`sandstorm` and `dust storm` blow sand instead of heavy rain (decision 3); a
+text with `thunder` or `lightning` is still a thunderstorm.
 
 **Clear sky** is true when there is no weather, or the original text matches
 `/clear|sunny|bright/i`, or it does **not** match
@@ -149,6 +149,12 @@ table):
   lightning, or (it shows the sun or moon **and** clear sky **and** sun rays).
   A scene that renders but doesn't animate is **static**: drawn once, and again
   after each resize.
+- **Reduced motion** (decision 4): while the system asks for reduced motion
+  (`prefers-reduced-motion: reduce`, followed live), the scene has count 0, no
+  fireflies, no stars and no lightning, and never animates. It still renders
+  whenever the moving scene would have, so the tint, the overlay and the sun or
+  moon (with still rays and glow) are drawn once, and again after each resize.
+  When the setting changes, the scene starts over.
 
 Everything below (canvas size, particles, frames) starts over whenever the
 weather or the time of day changes, or a `showCelestial` change flips whether
@@ -188,8 +194,8 @@ then per type (a field listed here replaces the start value):
 | snow    | 0.5 + 1.2r  | −0.3 + 0.6r | 2 + 3r    | 0.4 + 0.3r   | 800         |                                                                                       |
 | leaf    | 0.8 + r     | 1.5 + 2r    | 4 + 3r    | 0.5 + 0.3r   | 500         |                                                                                       |
 | petal   | 0.4 + 0.8r  | 0.5 + r     | 3 + 3r    | 0.4 + 0.3r   | 600         |                                                                                       |
-| firefly | −0.2 + 0.4r | −0.3 + 0.6r | 2 + 2r    | 0            | 300 + 300r  |                                                                                       |
-| star    | 0           | 0           | 1 + 1.5r  | 0            | 400 + 400r  | `y = r·H·0.4`                                                                         |
+| firefly | −0.2 + 0.4r | −0.3 + 0.6r | 2 + 2r    | 0.35 + 0.3r  | 300 + 300r  |                                                                                       |
+| star    | 0           | 0           | 1 + 1.5r  | 0.3 + 0.4r   | 400 + 400r  | `y = r·H·0.4`                                                                         |
 | fog     | 0           | 0.2 + 0.4r  | 60 + 80r  | 0.03 + 0.04r | 1000        |                                                                                       |
 | dust    | −0.1 + 0.2r | −0.1 + 0.2r | 1 + 2r    | 0.15 + 0.15r | 600 + 400r  |                                                                                       |
 | ember   | −1.5 − 1.5r | −0.5 + r    | 2 + 2r    | 0.6 + 0.3r   | 300 + 200r  | `y = H + 10`                                                                          |
@@ -202,7 +208,7 @@ A **respawned** particle is created the same way with the current `W` and `H`,
 except its start `y` is −10 (before the per-type fields, so ember, star and
 aurora still set their own `y`, and sand still sets `x = −10`).
 
-Because firefly and star opacity is 0, they are never drawn (see decision 1).
+Fireflies and stars draw their own random opacity, so they show at night and dusk (decision 1).
 
 ## Frames
 
@@ -272,19 +278,21 @@ In this order, all in CSS pixels on the whole `W × H`:
 `alpha ≤ 0`, draw nothing (no canvas calls at all). Otherwise set
 `globalAlpha = alpha`, draw, and set `globalAlpha = 1` at the end.
 
-| Type   | Drawing                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| rain   | `strokeStyle = "rgba(180,210,255,0.8)"`, `lineWidth = size`, `beginPath`, `moveTo(x, y)`, `lineTo(x + 2vx, y + 2vy)`, `stroke`.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| snow   | radial gradient `(x, y, 0) → (x, y, size)`, stops 0 `rgba(255,255,255,0.9)`, 1 `rgba(255,255,255,0)`; fill it; `beginPath`, `arc(x, y, size, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                                                                                   |
-| leaf   | `fillStyle = "hsl(H, 60%, 45%)"` with H = `100 + sin(wobble)·30`; `save`, `translate(x, y)`, `rotate(wobble)`, `beginPath`, `ellipse(0, 0, size, size·0.4, 0, 0, 2π)`, `fill`, `restore`.                                                                                                                                                                                                                                                                                                                                                                       |
-| petal  | as leaf with `hsl(340 + sin(wobble)·15, 80%, 80%)` and `ellipse(0, 0, size, size·0.5, 0, 0, 2π)`.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| fog    | radial gradient `(x, y, 0) → (x, y, size)`, stops 0 `rgba(200,200,220,0.06)`, 1 `rgba(200,200,220,0)`; then as snow.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| dust   | `fillStyle = "rgba(255,240,220,0.6)"`, `beginPath`, `arc(x, y, size, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ember  | `p = sin(life·0.08)·0.3 + 0.7`; radial gradient `(x, y, 0) → (x, y, size·2.5)`, stops 0 `rgba(255,200,60,p)`, 0.4 `rgba(255,100,20,p·0.6)`, 1 `rgba(255,60,10,0)`; fill it; `beginPath`, `arc(x, y, size·2.5, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                  |
-| ash    | `fillStyle = color`; `save`, `translate(x, y)`, `rotate(wobble)`, `beginPath`, `ellipse(0, 0, size, size·0.3, 0, 0, 2π)`, `fill`, `restore`.                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| sand   | `fillStyle = color`, `beginPath`, `arc(x, y, size, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| hail   | radial gradient `(x − 0.3size, y − 0.3size, 0) → (x, y, size)`, stops 0 `rgba(255,255,255,0.95)`, 0.7 `rgba(200,220,255,0.7)`, 1 `rgba(180,200,240,0.3)`; fill it; `beginPath`, `arc(x, y, size, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                               |
-| aurora | `hue = (wobble·60 + life·0.3) mod 360`; linear gradient `(x, y − size) → (x, y + size)`, stops 0 `hsla(hue,80%,60%,0)`, 0.3 `hsla(hue,80%,60%,0.08)`, 0.5 `hsla((hue+40) mod 360,70%,55%,0.12)`, 0.7 `hsla((hue+80) mod 360,80%,60%,0.08)`, 1 `hsla((hue+80) mod 360,80%,60%,0)`; fill it; with `w = size·0.6` and `s = sin(life·0.008 + wobble)·30`: `beginPath`, `moveTo(x + s − w, y − size)`, `quadraticCurveTo(x + s/2, y, x + s + w, y + size)`, `lineTo(x + s − w, y + size)`, `quadraticCurveTo(x + s/2, y, x + s + w, y − size)`, `closePath`, `fill`. |
+| Type    | Drawing                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| rain    | `strokeStyle = "rgba(180,210,255,0.8)"`, `lineWidth = size`, `beginPath`, `moveTo(x, y)`, `lineTo(x + 2vx, y + 2vy)`, `stroke`.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| snow    | radial gradient `(x, y, 0) → (x, y, size)`, stops 0 `rgba(255,255,255,0.9)`, 1 `rgba(255,255,255,0)`; fill it; `beginPath`, `arc(x, y, size, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                                                                                   |
+| leaf    | `fillStyle = "hsl(H, 60%, 45%)"` with H = `100 + sin(wobble)·30`; `save`, `translate(x, y)`, `rotate(wobble)`, `beginPath`, `ellipse(0, 0, size, size·0.4, 0, 0, 2π)`, `fill`, `restore`.                                                                                                                                                                                                                                                                                                                                                                       |
+| petal   | as leaf with `hsl(340 + sin(wobble)·15, 80%, 80%)` and `ellipse(0, 0, size, size·0.5, 0, 0, 2π)`.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| fog     | radial gradient `(x, y, 0) → (x, y, size)`, stops 0 `rgba(200,200,220,0.06)`, 1 `rgba(200,200,220,0)`; then as snow.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| dust    | `fillStyle = "rgba(255,240,220,0.6)"`, `beginPath`, `arc(x, y, size, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ember   | `p = sin(life·0.08)·0.3 + 0.7`; radial gradient `(x, y, 0) → (x, y, size·2.5)`, stops 0 `rgba(255,200,60,p)`, 0.4 `rgba(255,100,20,p·0.6)`, 1 `rgba(255,60,10,0)`; fill it; `beginPath`, `arc(x, y, size·2.5, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                  |
+| ash     | `fillStyle = color`; `save`, `translate(x, y)`, `rotate(wobble)`, `beginPath`, `ellipse(0, 0, size, size·0.3, 0, 0, 2π)`, `fill`, `restore`.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| sand    | `fillStyle = color`, `beginPath`, `arc(x, y, size, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| hail    | radial gradient `(x − 0.3size, y − 0.3size, 0) → (x, y, size)`, stops 0 `rgba(255,255,255,0.95)`, 0.7 `rgba(200,220,255,0.7)`, 1 `rgba(180,200,240,0.3)`; fill it; `beginPath`, `arc(x, y, size, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                               |
+| aurora  | `hue = (wobble·60 + life·0.3) mod 360`; linear gradient `(x, y − size) → (x, y + size)`, stops 0 `hsla(hue,80%,60%,0)`, 0.3 `hsla(hue,80%,60%,0.08)`, 0.5 `hsla((hue+40) mod 360,70%,55%,0.12)`, 0.7 `hsla((hue+80) mod 360,80%,60%,0.08)`, 1 `hsla((hue+80) mod 360,80%,60%,0)`; fill it; with `w = size·0.6` and `s = sin(life·0.008 + wobble)·30`: `beginPath`, `moveTo(x + s − w, y − size)`, `quadraticCurveTo(x + s/2, y, x + s + w, y + size)`, `lineTo(x + s − w, y + size)`, `quadraticCurveTo(x + s/2, y, x + s + w, y − size)`, `closePath`, `fill`. |
+| firefly | `g = sin(life·0.05 + wobble)·0.35 + 0.65`, rounded to 3 decimals; radial gradient `(x, y, 0) → (x, y, size·2.5)`, stops 0 `rgba(240,255,150,g)`, 0.35 `rgba(200,240,90,g·0.5)` (rounded to 3 decimals), 1 `rgba(180,230,60,0)`; fill it; `beginPath`, `arc(x, y, size·2.5, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                     |
+| star    | `t = sin(life·0.06 + wobble)·0.3 + 0.7`, rounded to 3 decimals; `fillStyle = "rgba(235,240,255,t)"`, `beginPath`, `arc(x, y, size·0.6, 0, 2π)`, `fill`.                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Colors with a computed number print the number as JavaScript prints it in a
 template string (no rounding).
@@ -346,30 +354,41 @@ page.
 
 ## Removed
 
-- The type-specific drawing for fireflies and stars (never reached; see
-  decision 1).
+- The old type-specific drawing for fireflies and stars (never reached). The
+  follow-up gives them new drawing (see the drawing table and decision 1).
 
 ## Decisions
 
-The rebuild keeps every canvas call and every rendered element exactly as
-above.
+The rebuild kept every canvas call and every rendered element of the old
+effects. A follow-up then changed decisions 1, 3 and 4 on purpose and re-recorded
+only the scenarios they change (night and dusk scenes with fireflies or stars,
+and sand words that used to hit the rain row); every other recording still
+matches exactly.
 
-1. **Fireflies and stars never show.** Night and dusk scenes create 15 fireflies
-   and 30 stars, but both start with opacity 0, so they are never drawn; the
-   old code still had drawing for them. Recommended: keep them invisible in the
-   rebuild (the recordings pin it), drop the dead drawing, and offer a small
-   follow-up PR that gives them a real opacity, judged by eye. They still use up
-   random numbers and move, which no one can see.
+1. **Fireflies and stars never show.** Night and dusk scenes created 15
+   fireflies and 30 stars, but both started with opacity 0, so they were never
+   drawn. The rebuild kept them invisible (the recordings pinned it) and dropped
+   the dead drawing. **Shipped in the follow-up:** they get a random opacity
+   (fireflies 0.35 + 0.3r, stars 0.3 + 0.4r) and new, subtle drawing: fireflies
+   are small warm glows that slowly brighten and dim, stars small points that
+   twinkle (see the particle and drawing tables). Judged by eye in real Chrome
+   at 1366 and 660 wide, light and dark theme.
 2. **Lightning decays with the uncapped frame count.** After a long pause (the
    tab was busy), the flash fades by `0.88^frames` with no cap while particles
    move at most 4 frames. Recommended: keep as is (it only makes a flash end
    sooner).
-3. **Sandstorms read as heavy rain.** Found during the rebuild: the `storm`
-   in `sandstorm` and `dust storm` hits row 2 first. Kept (the recordings pin
-   it); possible follow-up: test the sand words before row 2.
-4. **No `prefers-reduced-motion`.** Particles, rays and lightning animate even
-   when the system asks for reduced motion; the only off switch is the setting.
-   Recommended: not in this rebuild; possible follow-up.
+3. **Sandstorms read as heavy rain.** Found during the rebuild: the `storm` in
+   `sandstorm` and `dust storm` hit the rain row first, so they drew heavy rain
+   with lightning. **Shipped in the follow-up:** the sand row is checked right
+   after the thunder row, before the rain row. Side effect: a text naming both
+   sand and rain (`rain on the sand`) is now sand; `thunder` or `lightning`
+   still wins.
+4. **No `prefers-reduced-motion`.** Particles, rays and lightning animated even
+   when the system asked for reduced motion; the only off switch was the
+   setting. **Shipped in the follow-up:** reduced motion draws a still scene
+   (tint, overlay, sun or moon; no particles, no turning rays, no lightning
+   flashes) and follows the system setting live (see "When it renders and
+   animates").
 
 ## Tests
 
@@ -388,6 +407,11 @@ The new module's tests use the recordings:
   field draws its own random number).
 - The existing `WeatherEffects.spec.tsx` tests pass unchanged except for the
   import path.
+- Follow-up (decisions 1, 3 and 4): the scenarios those decisions change were
+  re-recorded from the new build in the same way (jsdom and real Chrome); every
+  other recording, including the full local recording, still matches exactly.
+  `WeatherEffects.spec.tsx` also checks the sand words, that fireflies and
+  stars are drawn at night, and the still scene under reduced motion.
 
 ## Acceptance checks
 
