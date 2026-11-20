@@ -74,7 +74,8 @@ export function ColorPicker({
     if (disabled || next === mode) return;
     setMode(next);
     if (next === "gradient") hand(buildGradient(stops, angle));
-    else if (stops.length > 0) hand(stops[0]!);
+    // An emptied first stop switches to solid without handing over "" (which would clear the color).
+    else if (stops[0]) hand(stops[0]);
   };
 
   const editStops = (next: string[]) => {

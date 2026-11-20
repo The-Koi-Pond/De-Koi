@@ -86,8 +86,8 @@ function isSelectedModeClick(scenario: Scenario, index: number): boolean {
 
 describe("ColorPicker replays the recorded old picker", () => {
   it("covers every recorded scenario and step", () => {
-    expect(scenarios).toHaveLength(549);
-    expect(scenarios.reduce((sum, { scenario }) => sum + scenario.steps.length, 0)).toBe(1131);
+    expect(scenarios).toHaveLength(568);
+    expect(scenarios.reduce((sum, { scenario }) => sum + scenario.steps.length, 0)).toBe(1186);
   });
 
   it("lists only intended differences for steps that exist and really differ", () => {
@@ -157,7 +157,10 @@ describe("ColorPicker names its presets as recorded", () => {
 });
 
 describe("ColorPicker hands nothing over while disabled", () => {
-  const disabledScenarios = scenarios.filter(({ recording, scenario }) => recording.props[scenario.props]!.disabled);
+  const disabledScenarios = scenarios.filter(
+    ({ recording, scenario }) =>
+      recording.props[scenario.props]!.disabled || scenario.id.startsWith("disable-while-open"),
+  );
 
   it("has disabled scenarios to check", () => {
     expect(disabledScenarios.length).toBeGreaterThan(30);

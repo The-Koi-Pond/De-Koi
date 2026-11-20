@@ -354,8 +354,8 @@ export function replayScenario(recording: Recording, scenario: Scenario): Replay
     scenario.handsBack,
   );
   try {
-    // The disable-while-open scenario opens the panel before its only step, without recording it.
-    if (scenario.id === "disable-while-open") harness.run({ do: "toggle" });
+    // The disable-while-open scenarios open the panel before their first step, without recording it.
+    if (scenario.id.startsWith("disable-while-open")) harness.run({ do: "toggle" });
     const start = harness.snapshot();
     const steps = scenario.steps.map((step) => {
       const calls = [...harness.run(step.action)];
