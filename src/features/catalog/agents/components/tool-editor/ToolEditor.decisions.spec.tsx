@@ -2,6 +2,7 @@ import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { fakeToolStorage } from "./fake-tool-storage";
+import { DUPLICATE_PARAMETER_NOTE, UNNAMED_PARAMETER_NOTE } from "./tool-form";
 import { EditorHarness, settle, type Recording } from "./tool-editor-replay-harness";
 import showJson from "./test-fixtures/recorded-show.json";
 
@@ -520,5 +521,110 @@ describe("Typing while a save runs", () => {
 
     expect(editor.field(DESCRIPTION).value).toBe("Changed elsewhere");
     expect(editor.field(NAME).value).toBe("check_weather");
+  });
+});
+
+describe("Follow-up: parameter rows say when Save will lose them", () => {
+  const notesShown = (editor: EditorHarness) =>
+    [...editor.element.querySelectorAll("[aria-label='Parameter name']")].map((input) => {
+      const id = input.getAttribute("aria-describedby");
+      return id ? (editor.element.querySelector(`[id="${id}"]`)?.textContent ?? "(missing)") : null;
+    });
+
+  it("says a row with no name won't be saved, until it has one", async () => {
+    const editor = await open("tool-1");
+    await editor.click(editor.button("Add Parameter"));
+    expect(notesShown(editor)).toEqual([null, null, UNNAMED_PARAMETER_NOTE]);
+
+    await editor.type(editor.field("param_name", 2), "   ");
+    expect(notesShown(editor)).toEqual([null, null, UNNAMED_PARAMETER_NOTE]);
+    await editor.type(editor.field("param_name", 2), "units");
+    expect(notesShown(editor)).toEqual([null, null, null]);
+  });
+
+  it("warns every row sharing a name, and Save still keeps the last one", async () => {
+    const editor = await open("tool-1");
+    await editor.click(editor.button("Add Parameter"));
+    await editor.type(editor.field("param_name", 2), "city");
+    expect(notesShown(editor)).toEqual([DUPLICATE_PARAMETER_NOTE, null, DUPLICATE_PARAMETER_NOTE]);
+    const note = editor.element.querySelector(`[id="${editor.field("param_name").getAttribute("aria-describedby")}"]`)!;
+    expect(note.className).toContain("text-amber-800");
+    expect(note.className).toContain("dark:text-amber-200");
+
+    // Names are compared exactly, as Save does.
+    await editor.type(editor.field("param_name", 2), "City");
+    expect(notesShown(editor)).toEqual([null, null, null]);
+    await editor.type(editor.field("param_name", 2), "city");
+    await editor.type(editor.field("Description of this parameter…", 2), "Last city");
+    await editor.click(editor.button("Save"));
+
+    const schema = lastPayload().parametersSchema as { properties: Record<string, { description: string }> };
+    expect(Object.keys(schema.properties)).toEqual(["city", "days"]);
+    expect(schema.properties.city!.description).toBe("Last city");
+  });
+
+  it("drops the notes once the rows are gone", async () => {
+    const editor = await open("tool-1");
+    await editor.click(editor.button("Add Parameter"));
+    await editor.click(editor.buttonWith("aria-label", "Remove parameter", 2));
+    expect(notesShown(editor)).toEqual([null, null]);
+    expect(text(editor)).not.toContain(UNNAMED_PARAMETER_NOTE);
+  });
+});
+
+describe("Follow-up: a create that answers without an id", () => {
+  async function fillNew(name = "new_tool") {
+    const editor = await open("__new__");
+    await editor.type(editor.field(NAME), name);
+    await editor.type(editor.field(DESCRIPTION), "Does a thing");
+    await editor.type(editor.field(STATIC), "done");
+    return editor;
+  }
+
+  it("opens the new row, so a second Save updates it", async () => {
+    const editor = await fillNew();
+    fakeToolStorage.createNoId();
+    await editor.click(editor.button("Save"));
+    expect(useUIStore.getState().toolDetailId).toBe("created-1");
+
+    await editor.type(editor.field(STATIC), "done again");
+    await editor.click(editor.button("Save"));
+    expect(writes().map((call) => [call[0], call[2]])).toEqual([
+      ["create", expect.any(Object)],
+      ["update", "created-1"],
+    ]);
+    expect(fakeToolStorage.rows.filter((row) => row.name === "new_tool")).toHaveLength(1);
+  });
+
+  it("finds it even when another tool already has that name", async () => {
+    const editor = await fillNew("check_weather");
+    fakeToolStorage.createNoId();
+    await editor.click(editor.button("Save"));
+    expect(useUIStore.getState().toolDetailId).toBe("created-1");
+  });
+
+  it("goes back to the list when the new row can't be told apart, instead of creating it twice", async () => {
+    const editor = await fillNew();
+    fakeToolStorage.createNoId();
+    fakeToolStorage.hold();
+    await editor.click(editor.button("Save"));
+    // Another tab saves a tool with the same name while this create runs.
+    fakeToolStorage.insertRow({ ...recording.rows[0]!, id: "elsewhere", name: "new_tool" });
+    await act(async () => fakeToolStorage.release());
+    await settle();
+
+    expect(useUIStore.getState().toolDetailId).toBeNull();
+    expect(writes().filter((call) => call[0] === "create")).toHaveLength(1);
+  });
+});
+
+describe("Follow-up: the script warning reads in both themes", () => {
+  it("uses dark amber text in light theme and pale amber in dark theme", async () => {
+    const editor = await open("tool-8");
+    const warning = [...editor.element.querySelectorAll("div")].find((div) =>
+      div.textContent?.startsWith("Script custom tools are disabled"),
+    )!;
+    expect(warning.className.split(" ")).toEqual(expect.arrayContaining(["text-amber-800", "dark:text-amber-200"]));
+    expect(warning.className.split(" ")).not.toContain("text-amber-200");
   });
 });

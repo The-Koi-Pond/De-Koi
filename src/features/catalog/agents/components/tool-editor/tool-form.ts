@@ -158,6 +158,22 @@ export function toolSavePayload(form: ToolForm) {
   };
 }
 
+export const UNNAMED_PARAMETER_NOTE = "No name yet, so this parameter won't be saved.";
+export const DUPLICATE_PARAMETER_NOTE = "Another parameter has this name. Only the last one is saved.";
+
+/**
+ * What each parameter row warns about, in row order: a row Save leaves out (blank name), a row sharing its
+ * exact name with another row (Save keeps only the later row's value), or nothing.
+ */
+export function parameterRowNotes(parameters: readonly ToolParameter[]): Array<string | null> {
+  const counts = new Map<string, number>();
+  for (const { name } of parameters) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return parameters.map(({ name }) => {
+    if (name.trim() === "") return UNNAMED_PARAMETER_NOTE;
+    return (counts.get(name) ?? 0) > 1 ? DUPLICATE_PARAMETER_NOTE : null;
+  });
+}
+
 const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
 // The storage schema's own field rules, so the editor and the schema can't disagree.
 const schemaFields = createCustomToolSchema.shape;

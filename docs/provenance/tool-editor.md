@@ -354,9 +354,9 @@ follow the app; the script warning is amber.
 Details checked against the old screen in real Chrome (side by side):
 
 - The Parameters group icon is `Code2` (`</>`), not `Code` (`<>`).
-- The script warning: `amber-200` text (pale; it is hard to read in light
-  theme, a possible follow-up, not changed here), padding 0.75rem across and
-  0.5rem down.
+- The script warning: `amber-200` text (pale; it was hard to read in light
+  theme, so the follow-up below makes it `amber-800` in light theme), padding
+  0.75rem across and 0.5rem down.
 - The static result text area has relaxed line height (so five rows are
   taller), and its placeholder is muted at half opacity.
 - The Required checkbox keeps the browser's default color (no accent color).
@@ -444,6 +444,27 @@ except:
    toggle made while a save is running), a create that returns no id letting a
    second Save create a second tool, and Save & close still closing the editor
    when it finishes after the user opened another tool.
+
+## Follow-ups after the rebuild
+
+Four of the decision 7 items were fixed in a later PR. The saved payloads don't
+change.
+
+- **Duplicate names.** Every row whose name (compared exactly, as Save does)
+  matches another row's shows `Another parameter has this name. Only the last
+one is saved.` under its description, in amber (`amber-800`, `amber-200` in
+  dark theme). Save still sends what it sent before.
+- **Rows with no name.** A row whose name is empty or blank shows `No name yet,
+so this parameter won't be saved.` under its description, in the muted note
+  style, until it has a name. Each note is the name input's
+  `aria-describedby`.
+- **A create that answers without an id.** The editor looks for the row the
+  refreshed list gained with the saved name and opens it, as if the create had
+  returned it, so a second Save updates it. When it can't tell which row is new
+  (none, or more than one), it closes the editor (the tool shows in the list)
+  instead of staying on a new-tool form whose next Save would create it again.
+- **The script warning** uses `amber-800` text in light theme and keeps
+  `amber-200` in dark theme.
 
 ## Tests
 
