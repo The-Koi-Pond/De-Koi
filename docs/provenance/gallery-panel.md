@@ -360,13 +360,23 @@ except:
    the strip only shows on hover, so tabbing to them focuses invisible buttons.
    Recommended: the strip also shows while anything in the card has keyboard
    focus. No change with a mouse or on phones.
-3. **Not in this rebuild** (unchanged, possible follow-ups): the counts and
+3. **A gallery that fails to load looks empty.** When the first page of
+   images can't be loaded (server down, offline), the panel shows `0 images`
+   and `No images yet`, as if the library were gone. Recommended: in place of
+   the loading tiles, grid and empty box, a small error box in the destructive
+   color (the same look as the Presets panel's "Could not load preset
+   folders."): `Couldn't load the gallery.` and a **Retry** button that loads
+   it again. The count, chips and upload stay as they are. Nothing is written.
+4. **Not in this rebuild** (unchanged, possible follow-ups): the counts and
    sorting only cover the loaded pages (a library over 48 images says
    `48 images` until **Load older images** is used, and Oldest first only sorts
    what is loaded); a card's Download uses the stored `url` while the lightbox
    uses the resolved full-size URL; folder names aren't checked for length or
    duplicates; a second click on Delete while its confirm dialog is open opens
-   another dialog.
+   another dialog; an upload where every file fails says only "Couldn't upload
+   gallery images. Try again." without naming the files; a folder with an empty
+   name hides its folder bar and the upload label says `Upload Images` while
+   uploads still go into it.
 
 More decisions may be added in the build PR if the recordings show a problem;
 each gets the spec writer's sign-off first.
@@ -383,7 +393,7 @@ The new module's tests use the recordings:
   match the recording.
 - For every recorded action sequence: the visible state after each step, every
   storage call (with its exact arguments), every dialog's options and every
-  toast match the recording, except where decisions 1 and 2 change them on
+  toast match the recording, except where decisions 1 to 3 change them on
   purpose.
 - The lightbox's focus, Escape, Tab cycle and the move rollback (including a
   newer choice that must not be undone) have tests.
@@ -432,4 +442,4 @@ count recordings as code), each file under about 1 MB.
    which image files exist on disk; plus the builder's screenshots.
 
 The builder gets the recordings, the screenshots and this spec. The recordings
-show the old behavior that decisions 1 and 2 change on purpose.
+show the old behavior that decisions 1 to 3 change on purpose.
