@@ -94,7 +94,15 @@ with no row, or to `"__new__"`) or the list gives a changed copy of that row
 (for example after a save refreshes the list), the form is filled and reset. A
 refresh that returns the row unchanged keeps the same row object (the query's
 structural sharing), so it resets nothing and keeps unsaved edits (recordings
-`refetch:keeps-edits` and `refetch:changed-row`):
+`refetch:keeps-edits` and `refetch:changed-row`). A successful save of a stored
+tool always reloads the form from the saved row, even when nothing in it
+changed, so parameter rows with no name disappear right after the save
+(recordings `param:empty-name-save` and `param:blank-name-save`). Two
+exceptions: when another tool (or **New**, or a missing id) was opened while
+the save was running, the save leaves the form, unsaved state, error and
+`Saved` flash of the tool now open alone; and when the user edited the form
+while the save was running, the reload is skipped and those edits stay
+(unsaved):
 
 | Field          | From a stored row                                                       | New tool |
 | -------------- | ----------------------------------------------------------------------- | -------- |
@@ -112,9 +120,13 @@ loads as empty.
 `properties` object, gives no rows. Each property gives a row with:
 
 - **name**: the property key, as stored;
-- **type**: the property's `type` when it is a string, else `string`;
-- **description**: the property's `description` when it is a string, else
-  empty;
+- **type**: the property's `type` when it is a string; missing or `null` gives
+  `string`; any other value (an array like `["string", "null"]`, a number) is
+  kept as stored (see decision 5);
+- **description**: the property's `description` when it is a string; missing
+  or `null` gives empty; any other value is kept as stored and shows as its
+  text (numbers and booleans as written, anything else as JSON) until the user
+  types in the box (see decision 5);
 - **required**: true when `parametersSchema.required` is an array that contains
   the key (non-string entries are ignored; a `required` that isn't an array
   means none are required).
@@ -280,13 +292,17 @@ key = the name as typed (not trimmed), value = `{ type, description }` (but see
 decision 5). Rows with an empty or blank name are left out silently. When two
 rows have the same name, the later row's value wins, at the first row's
 position. **`required`**: the names (as typed) of the included rows marked
-Required, in row order (a duplicated name can appear twice).
+Required, in row order (a duplicated name can appear twice). A row named
+`__proto__` is saved as a real property (the old editor dropped it from
+`properties` but still listed it in `required`).
 
 - Stored tool: `useUpdateCustomTool().mutateAsync({ id, ...payload })`.
 - New tool: `useCreateCustomTool().mutateAsync(payload)`; if the result has an
   id, `openToolDetail(thatId)` (the editor now shows the stored tool). If it
-  has none, the editor stays on the new tool, saved and not unsaved.
-- On success: not unsaved any more, and `Saved` shows for 1.5 s.
+  has none, the editor stays on the new tool, saved and not unsaved, and keeps
+  what was typed.
+- On success: not unsaved any more, and `Saved` shows for 1.5 s (also across
+  the reload when a new tool opens as the stored one).
 - On failure: the save error is the error's message (or `Failed to save tool`
   when it isn't an `Error`); the form keeps its edits. The schemas reject a
   name over 100 characters, a description over 500 and a webhook URL that
@@ -335,6 +351,26 @@ one row (the name input shrinks). Everything uses the theme tokens (primary,
 secondary, card, border, muted, destructive), so light and dark themes both
 follow the app; the script warning is amber.
 
+Details checked against the old screen in real Chrome (side by side):
+
+- The Parameters group icon is `Code2` (`</>`), not `Code` (`<>`).
+- The script warning: `amber-200` text (pale; it is hard to read in light
+  theme, a possible follow-up, not changed here), padding 0.75rem across and
+  0.5rem down.
+- The static result text area has relaxed line height (so five rows are
+  taller), and its placeholder is muted at half opacity.
+- The Required checkbox keeps the browser's default color (no accent color).
+- Save's label is medium weight, like Delete. The save status sits inside the
+  right-hand group with Delete and Save, 0.375rem apart.
+- A parameter row's first line doesn't wrap.
+- Spacing: 0.75rem under the parameters intro; 0.5rem between the two
+  execution type buttons; the description and URL inputs have 0.75rem side
+  padding, the parameter controls 0.5rem; the note under the execution type
+  buttons has 0.375rem above it, the static result and webhook notes 0.25rem.
+- Hover: the remove button gets a destructive tint and destructive icon; Add
+  Parameter a primary border at 40% and primary text; an unselected execution
+  type button the accent background.
+
 The builder gets screenshots of the old editor at 1366x900 and 660x900, in
 dark and light theme, for a new tool, a filled new tool (static and webhook), a
 saved tool, the unsaved bar, a save error, a stored webhook tool (top and
@@ -359,7 +395,8 @@ except:
 3. **A failed delete says nothing.** The error is unhandled and the editor
    stays open. Recommended: show the error in the save error banner
    (`Couldn't delete: <message>`), stay open. The header's save status doesn't
-   change (it says nothing about the delete).
+   change (it says nothing about the delete). A save or dismissing the banner
+   clears it.
 4. **Some validation errors are raw.** A name over 100 characters, a
    description over 500 or a webhook URL the schema rejects shows the schema's
    raw JSON message. Recommended: check these too, before sending, with the
@@ -382,7 +419,11 @@ except:
      (other = not `type`, `properties` or `required`);
    - a row whose stored type isn't one of the five shows that type as a sixth
      option in its own dropdown, selected; picking another type drops it from
-     that row.
+     that row. A non-string stored type (an array like `["string", "null"]`,
+     a number) works the same way: the sixth option shows it as JSON and the
+     save sends it as stored until another type is picked;
+   - a non-string stored description (a number, say) is sent as stored until
+     the user types in its box.
 
    Tools made in the editor have none of these, so their payloads don't change.
    Changes behavior on purpose for imported tools only.
@@ -399,7 +440,10 @@ except:
    rows with no name dropped without a word, the schema accepting non-https
    URLs that the server refuses when the tool is called, parameters reordering
    by name after a save (the server sorts keys), and an edit in another tab
-   being overwritten when this editor saves.
+   being overwritten when this editor saves (also a Functions-list on/off
+   toggle made while a save is running), a create that returns no id letting a
+   second Save create a second tool, and Save & close still closing the editor
+   when it finishes after the user opened another tool.
 
 ## Tests
 
@@ -411,9 +455,11 @@ The new module's tests use the recordings:
   header buttons' presence and disabled state and the visible text match the
   recording.
 - For every recorded action sequence: the visible state after each step, every
-  storage call (create, update, delete, with the exact payload) and every store
-  call (`openToolDetail`, `closeToolDetail`, `setEditorDirty`) match the
-  recording, except where decisions 1 to 6 change them on purpose.
+  storage call (create, update, delete, with the exact payload) and the store
+  state after each step (`toolDetailId`, `editorDirty`) match the recording,
+  except where decisions 1 to 6 change them on purpose.
+- Switching tools or opening **New** while a save is running, and typing while
+  a save is running, have tests (see "Loading the form").
 - Each decision has a test.
 
 ## Acceptance checks
