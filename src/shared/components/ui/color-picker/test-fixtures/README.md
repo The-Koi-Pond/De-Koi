@@ -30,9 +30,11 @@ it.
 **A scenario.** Mount the caller, take a snapshot (`start`), then run each
 step's `action` and take a snapshot (`shown`); `calls` are the values handed
 over during that step, in order. Every scenario except the `outside:*-closed`
-ones starts with a `toggle` step (opening the panel). `disable-while-open`: mount
-`name`/`preset`, open the panel (not a step), then re-render the caller with the
-same props plus `disabled: true`; its only step is that re-render.
+ones starts with a `toggle` step (opening the panel). `disable-while-open` and `disable-while-open-gradient`: mount `name`/`preset` (or
+`name`/`grad3`), open the panel (not a step), then re-render the caller with the
+same props plus `disabled: true` (the first step, `do: "rerender"`), then poke
+the disabled controls (jsdom still delivers events to disabled inputs); they
+have no `start`.
 
 **Actions.**
 
