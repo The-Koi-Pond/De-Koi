@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Loader2, Palette, User } from "lucide-react";
 import type { CharacterData } from "../../../../engine/contracts/types/character";
 import { readString } from "../../../../engine/shared/value-readers";
-import { ColorPicker } from "../../../../shared/components/ui/ColorPicker";
+import { ColorPicker } from "../../../../shared/components/ui/color-picker";
 import { TrackerCardColorControls } from "../../../../shared/components/ui/tracker-card-color-controls";
 import { extractColorsFromImage } from "../../../../shared/lib/avatar-color-extraction";
 import { parseTrackerCardColorConfig } from "../../../../shared/lib/tracker-card-colors";

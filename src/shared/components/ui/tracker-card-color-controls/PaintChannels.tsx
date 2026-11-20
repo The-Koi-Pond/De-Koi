@@ -1,5 +1,5 @@
 import { cn } from "../../../lib/utils";
-import { ColorPicker } from "../ColorPicker";
+import { ColorPicker } from "../color-picker";
 import { ChannelToggle, GroupHeading, Panel, RangeSlider } from "./control-parts";
 import type { ChannelView } from "./controls-state";
 import type { PaintChannel } from "./options";
