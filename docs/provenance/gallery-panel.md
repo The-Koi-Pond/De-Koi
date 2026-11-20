@@ -367,7 +367,18 @@ except:
    color (the same look as the Presets panel's "Could not load preset
    folders."): `Couldn't load the gallery.` and a **Retry** button that loads
    it again. The count, chips and upload stay as they are. Nothing is written.
-4. **Not in this rebuild** (unchanged, possible follow-ups): the counts and
+4. **Escape in the lightbox closes the whole panel.** In the real app, Escape
+   closes the lightbox and the Gallery panel behind it (found in the Chrome
+   recording). Recommended: Escape closes only the lightbox; the panel stays
+   open as it was. Escape with no lightbox open is unchanged.
+5. **A new folder isn't selected.** In the real app the new folder's chip
+   appears but **All** stays selected: the panel selects the new folder before
+   the folder list has it, so the "selected folder disappeared" rule puts it
+   back to **All** (the component recordings, with an instant list, don't show
+   this; the Chrome recording does). Recommended: after a successful create,
+   select the new folder once the folder list includes it, as "New folder"
+   above describes. Nothing else changes.
+6. **Not in this rebuild** (unchanged, possible follow-ups): the counts and
    sorting only cover the loaded pages (a library over 48 images says
    `48 images` until **Load older images** is used, and Oldest first only sorts
    what is loaded); a card's Download uses the stored `url` while the lightbox
@@ -393,7 +404,7 @@ The new module's tests use the recordings:
   match the recording.
 - For every recorded action sequence: the visible state after each step, every
   storage call (with its exact arguments), every dialog's options and every
-  toast match the recording, except where decisions 1 to 3 change them on
+  toast match the recording, except where decisions 1 to 5 change them on
   purpose.
 - The lightbox's focus, Escape, Tab cycle and the move rollback (including a
   newer choice that must not be undone) have tests.
@@ -442,4 +453,4 @@ count recordings as code), each file under about 1 MB.
    which image files exist on disk; plus the builder's screenshots.
 
 The builder gets the recordings, the screenshots and this spec. The recordings
-show the old behavior that decisions 1 to 3 change on purpose.
+show the old behavior that decisions 1 to 5 change on purpose.
