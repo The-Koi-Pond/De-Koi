@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { capWeatherParticleMotionFrames, WeatherEffects } from "./index";
+import { describeWeatherScene } from "./weather-scene";
 
 type RafCallback = FrameRequestCallback;
 
@@ -108,6 +109,7 @@ describe("WeatherEffects", () => {
     container?.remove();
     container = null;
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("draws a static clear scene once without queuing a successor frame", async () => {
@@ -210,5 +212,74 @@ describe("WeatherEffects", () => {
     expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
     expect(rafCallbacks.has(2)).toBe(true);
     expect(rafCallbacks.size).toBe(1);
+  });
+  function stubReducedMotion(matches: boolean) {
+    const listeners = new Set<() => void>();
+    const query = {
+      matches,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+    };
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => query),
+    );
+    return {
+      listeners,
+      set(next: boolean) {
+        query.matches = next;
+        act(() => listeners.forEach((listener) => listener()));
+      },
+    };
+  }
+
+  it("blows sand for sandstorms and dust storms instead of heavy rain (spec decision 3)", () => {
+    for (const weather of ["sandstorm", "Dust storm", "a sand storm", "sirocco"]) {
+      const scene = describeWeatherScene(weather, null, true);
+      expect([weather, scene.type, scene.count, scene.lightning]).toEqual([weather, "sand", 100, false]);
+    }
+    expect(describeWeatherScene("thunderstorm", null, true)).toMatchObject({ type: "rain", lightning: true });
+    expect(describeWeatherScene("storm", null, true)).toMatchObject({ type: "rain", count: 200, lightning: true });
+  });
+
+  it("draws fireflies and stars at night (spec decision 1)", async () => {
+    setupAnimationEnvironment();
+    await renderWeatherEffects({ weather: "clear", timeOfDay: "night" });
+    runNextFrame(0);
+
+    const gradient = canvasContextStub as unknown as CanvasGradient;
+    const stops = vi.mocked(gradient.addColorStop).mock.calls.map((call) => String(call[1]));
+    expect(stops.filter((color) => color.startsWith("rgba(240,255,150,"))).toHaveLength(15);
+    // 12 dust motes + 15 fireflies + 30 stars + the moon's 6 circles.
+    expect(canvasContextStub.arc).toHaveBeenCalledTimes(12 + 15 + 30 + 6);
+  });
+
+  it("draws a still scene once with reduced motion: tint and moon, no particles or lightning (spec decision 4)", async () => {
+    stubReducedMotion(true);
+    const { requestAnimationFrame } = setupAnimationEnvironment();
+    await renderWeatherEffects({ weather: "thunderstorm", timeOfDay: "night" });
+
+    expect(container?.querySelector("canvas")).not.toBeNull();
+    runNextFrame(0);
+    expect(rafCallbacks.size).toBe(0);
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(canvasContextStub.stroke).not.toHaveBeenCalled();
+    // Night tint and storm overlay; no lightning flash.
+    expect(canvasContextStub.fillRect).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the sun still with reduced motion, then animates again when the setting turns off", async () => {
+    const motion = stubReducedMotion(true);
+    setupAnimationEnvironment();
+    await renderWeatherEffects({ weather: null, timeOfDay: "noon" });
+    runNextFrame(0);
+    expect(rafCallbacks.size).toBe(0);
+    expect(canvasContextStub.arc).toHaveBeenCalledTimes(2);
+
+    motion.set(false);
+    runNextFrame(100);
+    expect(rafCallbacks.size).toBe(1);
+    expect(motion.listeners.size).toBe(1);
   });
 });

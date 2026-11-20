@@ -48,12 +48,14 @@ const fixed =
   (type: WeatherParticleType, count: number, overlay: string | null): WeatherRule["read"] =>
   () => ({ type, count, overlay, lightning: false });
 
-// First matching row wins, so order matters (for example "sandstorm" is caught by the rain row).
+// First matching row wins, so order matters: the sand row comes before the rain row, so "sandstorm" and
+// "dust storm" blow sand instead of heavy rain (spec decision 3).
 const WEATHER_RULES: readonly WeatherRule[] = [
   {
     words: ["thunder", "lightning"],
     read: () => ({ type: "rain", count: 200, overlay: "rgba(50,80,120,0.10)", lightning: true }),
   },
+  { words: ["sand", "dust storm", "sirocco"], read: fixed("sand", 100, "rgba(180,150,100,0.12)") },
   {
     words: ["rain", "storm", "downpour"],
     read: (text) => {
@@ -74,7 +76,6 @@ const WEATHER_RULES: readonly WeatherRule[] = [
   },
   { words: ["frost", "cold", "freez"], read: fixed("snow", 15, "rgba(180,210,240,0.06)") },
   { words: ["fog", "mist", "haze"], read: fixed("fog", 20, "rgba(180,180,200,0.12)") },
-  { words: ["sand", "dust storm", "sirocco"], read: fixed("sand", 100, "rgba(180,150,100,0.12)") },
   { words: ["ash", "volcanic", "smoke"], read: fixed("ash", 40, "rgba(80,60,60,0.10)") },
   { words: ["ember", "fire", "inferno"], read: fixed("ember", 35, "rgba(120,40,10,0.08)") },
   { words: ["wind", "breez", "gust"], read: fixed("leaf", 25, null) },
@@ -192,23 +193,39 @@ function readTimeOfDay(timeOfDay: string | null | undefined, type: WeatherPartic
   return none;
 }
 
+/** A still scene for `prefers-reduced-motion`: no particles and no lightning, so nothing moves (spec decision 4). */
+function stillWeather(reading: WeatherReading): WeatherReading {
+  return { ...reading, count: 0, lightning: false };
+}
+
+function stillTime(time: TimeReading): TimeReading {
+  return { ...time, fireflies: false, stars: false };
+}
+
 export function describeWeatherScene(
   weather: string | null | undefined,
   timeOfDay: string | null | undefined,
   showCelestial: boolean,
+  reducedMotion = false,
 ): WeatherScene {
-  const weatherReading = readWeather(weather);
-  const time = readTimeOfDay(timeOfDay, weatherReading.type);
+  const moving = readWeather(weather);
+  const weatherReading = reducedMotion ? stillWeather(moving) : moving;
+  const movingTime = readTimeOfDay(timeOfDay, moving.type);
+  const time = reducedMotion ? stillTime(movingTime) : movingTime;
   const clearSky = isClearSky(weather);
   const showsBody = showCelestial && time.body !== "none";
   const hasParticles = weatherReading.count > 0 || time.fireflies || time.stars;
+  // A still scene keeps the canvas whenever the moving one would have had it (for its tint and overlay).
+  const hadParticles = moving.count > 0 || movingTime.fireflies || movingTime.stars;
 
   return {
     ...weatherReading,
     ...time,
     clearSky,
     showsBody,
-    renders: hasParticles || showsBody || time.sunsetGlow || clearSky,
-    animates: hasParticles || weatherReading.lightning || (showsBody && clearSky && time.sunRays),
+    renders: hadParticles || showsBody || time.sunsetGlow || clearSky,
+    animates: reducedMotion
+      ? false
+      : hasParticles || weatherReading.lightning || (showsBody && clearSky && time.sunRays),
   };
 }

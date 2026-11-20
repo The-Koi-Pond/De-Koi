@@ -3,7 +3,13 @@ import { diffStep, loadScenarios, replayScenario, type Scenario } from "./weathe
 
 // Fixed-random recordings of the old effects (test-fixtures/README.md). With Math.random returning one
 // constant, the order of random draws doesn't matter, so every step must match exactly.
-const FILES = ["recorded-scenes.json", "recorded-timelines.json", "recorded-seeded.json"];
+const FILES = [
+  "recorded-scenes.json",
+  "recorded-combined.json",
+  "recorded-timelines.json",
+  "recorded-long.json",
+  "recorded-seeded.json",
+];
 
 const fixedRandomScenarios = FILES.flatMap((file) =>
   loadScenarios(file)
