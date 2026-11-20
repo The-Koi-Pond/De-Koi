@@ -94,7 +94,10 @@ with no row, or to `"__new__"`) or the list gives a changed copy of that row
 (for example after a save refreshes the list), the form is filled and reset. A
 refresh that returns the row unchanged keeps the same row object (the query's
 structural sharing), so it resets nothing and keeps unsaved edits (recordings
-`refetch:keeps-edits` and `refetch:changed-row`):
+`refetch:keeps-edits` and `refetch:changed-row`). A successful save of a stored
+tool always reloads the form from the saved row, even when nothing in it
+changed, so parameter rows with no name disappear right after the save
+(recordings `param:empty-name-save` and `param:blank-name-save`):
 
 | Field          | From a stored row                                                       | New tool |
 | -------------- | ----------------------------------------------------------------------- | -------- |
@@ -285,8 +288,10 @@ Required, in row order (a duplicated name can appear twice).
 - Stored tool: `useUpdateCustomTool().mutateAsync({ id, ...payload })`.
 - New tool: `useCreateCustomTool().mutateAsync(payload)`; if the result has an
   id, `openToolDetail(thatId)` (the editor now shows the stored tool). If it
-  has none, the editor stays on the new tool, saved and not unsaved.
-- On success: not unsaved any more, and `Saved` shows for 1.5 s.
+  has none, the editor stays on the new tool, saved and not unsaved, and keeps
+  what was typed.
+- On success: not unsaved any more, and `Saved` shows for 1.5 s (also across
+  the reload when a new tool opens as the stored one).
 - On failure: the save error is the error's message (or `Failed to save tool`
   when it isn't an `Error`); the form keeps its edits. The schemas reject a
   name over 100 characters, a description over 500 and a webhook URL that
@@ -359,7 +364,8 @@ except:
 3. **A failed delete says nothing.** The error is unhandled and the editor
    stays open. Recommended: show the error in the save error banner
    (`Couldn't delete: <message>`), stay open. The header's save status doesn't
-   change (it says nothing about the delete).
+   change (it says nothing about the delete). A save or dismissing the banner
+   clears it.
 4. **Some validation errors are raw.** A name over 100 characters, a
    description over 500 or a webhook URL the schema rejects shows the schema's
    raw JSON message. Recommended: check these too, before sending, with the
