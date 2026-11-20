@@ -45,6 +45,11 @@ function isPlacement(value: unknown): value is RegexPlacement {
   return value === "ai_output" || value === "user_input";
 }
 
+/** A damaged row may lack its name or pattern; the form shows those as empty. */
+function storedText(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 /** Legacy rows may store `enabled` as a string. */
 function storedEnabled(value: unknown): boolean {
   return value === true || value === "true" || value === "1";
@@ -52,9 +57,9 @@ function storedEnabled(value: unknown): boolean {
 
 export function regexScriptFormFromRow(row: RegexScriptRow): RegexScriptForm {
   return {
-    name: row.name,
+    name: storedText(row.name),
     enabled: storedEnabled(row.enabled),
-    findRegex: row.findRegex,
+    findRegex: storedText(row.findRegex),
     replaceString: row.replaceString,
     trimStrings: Array.isArray(row.trimStrings) ? [...row.trimStrings] : [],
     placement: Array.isArray(row.placement) ? row.placement.filter(isPlacement) : [],
@@ -112,9 +117,11 @@ const MAX_NAME_LENGTH = 200;
 
 /** The first thing the storage schema would reject, in plain words, or null when the form can be sent. */
 export function regexScriptFormProblem(form: RegexScriptForm): string | null {
-  if (form.name.length === 0) return "Give the script a name.";
-  if (form.name.length > MAX_NAME_LENGTH) return `Keep the name to ${MAX_NAME_LENGTH} characters or fewer.`;
-  if (form.findRegex.length === 0) return "Add a find pattern.";
+  const name = storedText(form.name);
+  if (name.length === 0) return "Give the script a name.";
+  // Counted in code points, as the storage schema counts them.
+  if ([...name].length > MAX_NAME_LENGTH) return `Keep the name to ${MAX_NAME_LENGTH} characters or fewer.`;
+  if (storedText(form.findRegex).length === 0) return "Add a find pattern.";
   if (form.placement.length === 0) return "Pick where it applies: AI Output, User Input or both.";
   return null;
 }

@@ -26,9 +26,9 @@ export interface ScopeCharacter {
   name: string;
 }
 
-/** What the form was last filled from: a new script or one copy of a stored row. */
+/** What the form was last reset for: the open id and the copy of its row (none for a new or missing script). */
 interface LoadedSource {
-  id: string;
+  id: string | null;
   row: RegexScriptRow | undefined;
 }
 
@@ -69,9 +69,10 @@ export function useRegexScriptEditor() {
   const [liveTest, setLiveTest] = useState<LiveTestState>({ scriptId: null, text: "" });
   const savedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Refill the form whenever another script opens or the list hands over a new copy of this row
-  // (a save refreshes the list). Done while rendering so no frame shows the previous script.
-  if (regexDetailId && found && (loaded?.id !== regexDetailId || loaded.row !== row)) {
+  // Reset the form whenever the open id changes (also to a missing one, so abandoned edits never come
+  // back) or the list hands over a new copy of this row (a save refreshes the list). Done while
+  // rendering so no frame shows the previous script.
+  if (loaded === null || loaded.id !== regexDetailId || loaded.row !== row) {
     setLoaded({ id: regexDetailId, row });
     setForm(row ? regexScriptFormFromRow(row) : newRegexScriptForm());
     setDirty(false);

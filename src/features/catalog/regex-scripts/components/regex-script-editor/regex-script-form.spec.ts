@@ -91,6 +91,22 @@ describe("regex script form", () => {
     expect([depthFromInput(""), depthFromInput("3.9"), depthFromInput("0")]).toEqual([null, 3, 0]);
   });
 
+  it("counts the name in code points and treats a damaged name or pattern as empty", () => {
+    const valid = { ...newRegexScriptForm(), findRegex: "a" };
+    const emoji200 = "a".repeat(195) + "😀".repeat(5);
+    expect(emoji200.length).toBe(205);
+    expect(regexScriptFormProblem({ ...valid, name: emoji200 })).toBeNull();
+    expect(regexScriptFormProblem({ ...valid, name: `a${emoji200}` })).toBe(
+      "Keep the name to 200 characters or fewer.",
+    );
+    expect(regexScriptFormProblem({ ...valid, name: null as never })).toBe("Give the script a name.");
+    expect(regexScriptFormProblem({ ...valid, findRegex: undefined as never })).toBe("Add a find pattern.");
+    expect(regexScriptFormFromRow({ ...ROW, name: null as never, findRegex: 3 as never })).toMatchObject({
+      name: "",
+      findRegex: "",
+    });
+  });
+
   it("names the first problem the storage schema would reject", () => {
     const valid = { ...newRegexScriptForm(), findRegex: "a" };
     expect(regexScriptFormProblem(valid)).toBeNull();

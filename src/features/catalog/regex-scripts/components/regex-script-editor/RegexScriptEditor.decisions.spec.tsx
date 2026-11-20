@@ -23,8 +23,8 @@ const NAME = "Script name…";
 
 let harness: EditorHarness | null = null;
 
-async function open(detailId: string | null) {
-  harness = new EditorHarness(recording, { detailId, characters });
+async function open(detailId: string | null, rows: Recording["rows"] = recording.rows) {
+  harness = new EditorHarness({ rows }, { detailId, characters });
   await harness.mount();
   return harness;
 }
@@ -194,6 +194,79 @@ describe("Decision 4: plain validation messages before sending", () => {
     await editor.click(editor.button("User InputApplied to your messages before they are sent."));
     expect(await save()).toBeNull();
     expect(savesAndDeletes()).toHaveLength(1);
+  });
+});
+
+describe("Adversary fixes", () => {
+  it("counts the name in code points like the storage schema, so 200 with emoji saves", async () => {
+    const editor = await open("rx-1");
+    await editor.type(editor.field(NAME), "a".repeat(195) + "😀".repeat(5));
+    await editor.click(editor.button("Save"));
+    expect(bannerText(editor)).toBeNull();
+    expect(savesAndDeletes()).toHaveLength(1);
+
+    await editor.type(editor.field(NAME), "a".repeat(196) + "😀".repeat(5));
+    await editor.click(editor.button("Save"));
+    expect(bannerText(editor)).toBe("Keep the name to 200 characters or fewer.");
+    expect(savesAndDeletes()).toHaveLength(1);
+  });
+
+  it.each([
+    ["name", { name: null }, "Give the script a name."],
+    ["name", { name: undefined }, "Give the script a name."],
+    ["findRegex", { findRegex: null }, "Add a find pattern."],
+    ["findRegex", { findRegex: 7 }, "Add a find pattern."],
+  ])("loads a row with a damaged %s as empty and explains instead of crashing", async (_field, damage, message) => {
+    const damaged = { ...recording.rows[0]!, ...damage, id: "rx-damaged" };
+    const editor = await open("rx-damaged", [...recording.rows, damaged]);
+    const field = "name" in damage ? editor.field(NAME) : editor.field(FIND);
+    expect(field.value).toBe("");
+    await editor.click(editor.button("Save"));
+
+    expect(bannerText(editor)).toBe(message);
+    expect(savesAndDeletes()).toEqual([]);
+    await editor.unmount();
+    expect(editor.unhandled).toEqual([]);
+    harness = null;
+  });
+
+  it("resets when another id opens that has no row, so the abandoned edits don't come back", async () => {
+    const editor = await open("rx-1");
+    await editor.type(editor.field(NAME), "Abandoned");
+    await editor.type(editor.field(LIVE), "*hi*");
+    await editor.run(["clickLabel", "Back to regex scripts"]);
+    fakeRegexStorage.failNext("update", "nope");
+    await editor.click(editor.button("Save"));
+    expect(bannerText(editor)).toBe("nope");
+    expect(useUIStore.getState().editorDirty).toBe(true);
+
+    act(() => useUIStore.getState().openRegexDetail("gone"));
+    await settle();
+    expect(editor.element.textContent).toBe("Regex script not found.");
+    expect(useUIStore.getState().editorDirty).toBe(false);
+
+    act(() => useUIStore.getState().openRegexDetail("rx-1"));
+    await settle();
+    expect(editor.field(NAME).value).toBe("Strip asterisks");
+    expect(editor.field(LIVE).value).toBe("");
+    expect(bannerText(editor)).toBeNull();
+    expect(editor.element.textContent).not.toContain("You have unsaved changes.");
+    expect(useUIStore.getState().editorDirty).toBe(false);
+  });
+
+  it("doesn't bring a new script's draft back after a missing id", async () => {
+    const editor = await open("__new__");
+    await editor.type(editor.field(NAME), "Draft");
+    await editor.type(editor.field(FIND), "x+");
+    act(() => useUIStore.getState().openRegexDetail("gone"));
+    await settle();
+    expect(useUIStore.getState().editorDirty).toBe(false);
+
+    act(() => useUIStore.getState().openRegexDetail("__new__"));
+    await settle();
+    expect(editor.field(NAME).value).toBe("New Regex Script");
+    expect(editor.field(FIND).value).toBe("");
+    expect(useUIStore.getState().editorDirty).toBe(false);
   });
 });
 
