@@ -16,3 +16,5 @@ src/shared/components/ui/tracker-card-color-controls/test-fixtures/
 
 # Weather effects recordings, one line each for the same reason.
 src/features/runtime/visuals/components/weather-effects/test-fixtures/*.json
+# Regex script editor recordings, one line each for the same reason.
+src/features/catalog/regex-scripts/components/regex-script-editor/test-fixtures/*.json

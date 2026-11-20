@@ -89,9 +89,12 @@ nothing else changes for the callers.
 
 ## Loading the form
 
-When the editor opens a script, and again whenever the id changes or the list
-gives a new copy of that row (for example after a save refreshes the list), the
-form is filled and reset:
+When the editor opens a script, and again whenever the id changes (also to an
+id with no row, which still clears unsaved state) or the list
+gives a changed copy of that row (for example after a save refreshes the list),
+the form is filled and reset. A refresh that returns the row unchanged keeps the
+same row object (the query's structural sharing), so it resets nothing and keeps
+unsaved edits (recording `refetch:resets-edits`):
 
 | Field           | From a stored row                                                                                            | New script         |
 | --------------- | ------------------------------------------------------------------------------------------------------------ | ------------------ |
@@ -139,7 +142,9 @@ order:
 - **Unsaved bar** (`UnsavedChangesBar`, right under the header): shown after
   Back with unsaved edits. **Keep editing** hides it. **Discard** closes the
   editor without saving. **Save & close** saves, then closes (but see decision
-  1). Its `saving` is the save-in-progress state.
+  1). Its `saving` is the save-in-progress state. The bar hides once nothing is
+  unsaved: after a successful Save from the header, and whenever the form resets
+  (another script or **New** opens, or the id has no row).
 - **Save error banner** (`SaveErrorBanner`, under that): shows the save error;
   dismissing it clears the error.
 
@@ -355,11 +360,13 @@ except:
 2. **A save clears the Live Test text.** The list refresh after a save gives a
    new copy of the row, which resets the form, Live Test included.
    Recommended: keep the Live Test text when the same script reloads; still
-   clear it when another script (or a new one) opens. Changes behavior on
-   purpose.
+   clear it when another script, or **New**, opens. The first save of a new
+   script, after which the editor shows the created script, counts as the same
+   script, so the text stays. Changes behavior on purpose.
 3. **A failed delete says nothing.** The error is unhandled and the editor
    stays open. Recommended: show the error in the save error banner (`Couldn't
-delete: <message>`), stay open.
+delete: <message>`), stay open. The header's save status doesn't change (it
+   says nothing about the delete).
 4. **Validation errors are raw.** Saving with an empty name, a name over 200
    characters, an empty find pattern or no place to apply shows the schema's
    raw JSON message. Recommended: check these before sending and show one plain
