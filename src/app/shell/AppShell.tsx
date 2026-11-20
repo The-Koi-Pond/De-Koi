@@ -30,6 +30,7 @@ import type { DekiSession, DekiSessionsState } from "../../engine/deki/deki-hist
 import { useIsCoreModuleEnabled } from "../../features/shell/plugins/shell";
 import { MUSIC_DJ_MINI_PLAYER_MODULE_ID } from "../../engine/contracts/constants/core-modules";
 import { useIdleDetection } from "../../shared/hooks/use-idle-detection";
+import { useEscapeOverlay } from "../../shared/hooks/use-escape-overlay";
 import { ImagePromptReviewHost } from "../../shared/components/ui/ImagePromptReviewHost";
 import { cn } from "../../shared/lib/utils";
 import { parseChatMetadata } from "../../shared/lib/chat-display";
@@ -1381,6 +1382,17 @@ export function AppShell() {
     };
   }, [hasCompletedOnboarding, syncMobilePanelInert]);
 
+  // Escape closes the open phone panel through the overlay stack, so a lightbox, confirm dialog or menu opened inside
+  // the panel later gets the key first, as on desktop. The right panel registers its own Escape (RightPanel).
+  const escapeMobilePanel = useCallback(() => {
+    closeActiveMobilePanel();
+    return true;
+  }, [closeActiveMobilePanel]);
+  useEscapeOverlay(
+    escapeMobilePanel,
+    hasCompletedOnboarding && isMobile && activeMobileOverlayPanel !== null && activeMobileOverlayPanel !== "right",
+  );
+
   useEffect(() => {
     if (!hasCompletedOnboarding || !isMobile || !activeMobileOverlayPanel) return;
 
@@ -1408,12 +1420,6 @@ export function AppShell() {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       const panel = getPanel();
       if (!panel) return;
-
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeActiveMobilePanel();
-        return;
-      }
 
       if (event.key !== "Tab") return;
 
@@ -1452,7 +1458,7 @@ export function AppShell() {
         previous.focus();
       }
     };
-  }, [activeMobileOverlayPanel, closeActiveMobilePanel, hasCompletedOnboarding, isMobile]);
+  }, [activeMobileOverlayPanel, hasCompletedOnboarding, isMobile]);
 
   const trackerPanelLeftOffset = leftColumnOpen ? liveSidebarWidth + RESIZER_HITBOX : 0;
   const trackerPanelLeftEdge = showNavRail

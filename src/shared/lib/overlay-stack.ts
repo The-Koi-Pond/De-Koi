@@ -33,10 +33,18 @@ export function createOverlayStack(): OverlayStack {
     },
     update(id, entry) {
       const index = findIndex(id);
-      if (index >= 0) {
+      if (index < 0) {
+        entries.push(entry);
+        return;
+      }
+      // An overlay that opens (inactive -> active) goes on top: overlays opened later win, even when the component
+      // that owns them mounted before the one underneath.
+      const opened = entries[index]!.active === false && entry.active !== false;
+      if (!opened) {
         entries[index] = entry;
         return;
       }
+      entries.splice(index, 1);
       entries.push(entry);
     },
     handleEscape() {
