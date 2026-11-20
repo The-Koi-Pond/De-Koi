@@ -33,14 +33,8 @@ export function ApplyToGroup({ editor }: { editor: RegexScriptEditorModel }) {
                 optionTone(selected),
               )}
             >
-              <span className={cn("text-xs font-semibold", !selected && "text-[var(--foreground)]")}>
-                {place.label}
-              </span>
-              <span
-                className={cn("text-[0.5625rem]", selected ? "text-orange-400/70" : "text-[var(--muted-foreground)]")}
-              >
-                {place.description}
-              </span>
+              <span className={cn("text-xs", selected ? "font-semibold" : "font-medium")}>{place.label}</span>
+              <span className="text-[0.5625rem] opacity-70">{place.description}</span>
             </button>
           );
         })}
