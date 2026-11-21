@@ -1432,6 +1432,11 @@ export function ChatRoleplaySurface({
                   </div>
                 )}
 
+                {/* A character without a first message used to open on a blank page under "Respond here" (#1779). */}
+                {!isLoading && !isStreaming && totalMessageCount === 0 && (
+                  <RoleplayStartHint names={activeCharacterNames} />
+                )}
+
                 {transcriptWindow.messages?.map((msg, i) => {
                   if (isHiddenFromUser(msg)) return null;
                   const isRegenerating = isStreaming && regenerateMessageId === msg.id;
@@ -1993,6 +1998,23 @@ export function ChatRoleplaySurface({
           />
         </Suspense>
       )}
+    </div>
+  );
+}
+
+function RoleplayStartHint({ names }: { names: string[] }) {
+  const who =
+    names.length === 0
+      ? "your characters"
+      : names.length === 1
+        ? names[0]
+        : `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`;
+  return (
+    <div className="mx-auto mt-10 max-w-md rounded-xl bg-[var(--card)]/85 px-4 py-3 text-center text-xs leading-5 text-[var(--muted-foreground)] ring-1 ring-[var(--border)] backdrop-blur-sm">
+      <p>
+        This is the start of your roleplay with <span className="font-medium text-[var(--foreground)]">{who}</span>.
+      </p>
+      <p>Say hi, or set the scene with an action in asterisks, like *I walk into the café*.</p>
     </div>
   );
 }

@@ -543,6 +543,9 @@ export function RoleplayWorkflowProfileChooser({
 
   // Setup shows the short version; the full change ledger is one tap away.
   const compact = entryPoint === "wizard";
+  // When the setup wizard applies the pick with its own Done / Apply & finish button, a second "Review and apply"
+  // here was a competing primary button (#1784).
+  const hostApplies = entryPoint === "wizard" && !!onPendingApplyChange;
 
   return (
     <section
@@ -793,7 +796,7 @@ export function RoleplayWorkflowProfileChooser({
                   Confirm and apply
                 </button>
               </>
-            ) : (
+            ) : hostApplies ? null : (
               <button
                 type="button"
                 onClick={() => setConfirming(true)}

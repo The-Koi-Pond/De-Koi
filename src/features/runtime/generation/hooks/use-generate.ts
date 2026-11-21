@@ -610,7 +610,8 @@ export function showAgentWarningToast(
     const sessionKey = [context.chatId ?? "", connectionId, readString(data.reason).trim()].join("\0");
     if (shownMemoryEmbeddingWarningKeys.has(sessionKey)) return;
     shownMemoryEmbeddingWarningKeys.add(sessionKey);
-    toast.warning(MEMORY_EMBEDDING_UNAVAILABLE_TITLE, {
+    // Nothing is wrong, so an info notice, not a warning triangle (#1783).
+    toast.info(MEMORY_EMBEDDING_UNAVAILABLE_TITLE, {
       description: MEMORY_EMBEDDING_UNAVAILABLE_DESCRIPTION,
       duration: 12_000,
       action: {

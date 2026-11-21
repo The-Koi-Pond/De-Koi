@@ -491,8 +491,9 @@ describe("showAgentWarningToast", () => {
     showAgentWarningToast(warning, new Set(), { chatId: "chat-memory" });
     showAgentWarningToast(warning, new Set(), { chatId: "chat-memory" });
 
-    expect(vi.mocked(toast.warning)).toHaveBeenCalledTimes(1);
-    const options = vi.mocked(toast.warning).mock.calls[0]?.[1] as
+    expect(vi.mocked(toast.info)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toast.warning)).not.toHaveBeenCalled();
+    const options = vi.mocked(toast.info).mock.calls[0]?.[1] as
       { action?: { label?: string; onClick?: () => void } } | undefined;
     expect(options?.action?.label).toBe("Open Connections");
     options?.action?.onClick?.();

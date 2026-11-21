@@ -335,6 +335,7 @@ export function SetupReadinessJourney() {
             onRepairRuntime={openSettings}
             onCreateConnection={openConnections}
             onContinueChat={continueChat}
+            mode={intent.mode}
           />
         )}
       </div>

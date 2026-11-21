@@ -210,6 +210,17 @@ export const ChatInput = memo(function ChatInput({
   const enterToSend = useUIStore((s) => (mode === "conversation" ? s.enterToSendConvo : s.enterToSendRP));
   // Roleplay defaults to Enter = new line; say how to send so a first message isn't stuck in the box.
   const sendShortcut = useMemo(() => sendShortcutHint(enterToSend), [enterToSend]);
+  // The hint alone didn't land: first-timers pressed Enter on a one-line message and got a new line (#1780). The first
+  // time that happens, say so once and offer to switch Enter to send.
+  const [showEnterTip, setShowEnterTip] = useState(false);
+  const dismissEnterTip = useCallback(() => {
+    setShowEnterTip(false);
+    try {
+      window.localStorage.setItem(RP_ENTER_TIP_SEEN_KEY, "1");
+    } catch {
+      /* localStorage unavailable: the tip may show again next session, nothing else changes. */
+    }
+  }, []);
   const guideGenerations = useUIStore((s) => s.guideGenerations);
   const showQuickRepliesMenu = useUIStore((s) => s.showQuickRepliesMenu);
   const showQuickReplyPostOnly = useUIStore((s) => s.showQuickReplyPostOnly);
@@ -1190,6 +1201,21 @@ export const ChatInput = memo(function ChatInput({
     if (isSendShortcut(e, enterToSend)) {
       e.preventDefault();
       handleSend();
+      return;
+    }
+    if (
+      mode === "roleplay" &&
+      sendShortcut &&
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.altKey &&
+      !showEnterTip &&
+      textareaRef.current &&
+      textareaRef.current.value.trim() &&
+      !textareaRef.current.value.includes("\n") &&
+      !rpEnterTipSeen()
+    ) {
+      setShowEnterTip(true);
     }
   };
 
@@ -1436,6 +1462,33 @@ export const ChatInput = memo(function ChatInput({
       )}
 
       <GenerationFailureNotice chatId={activeChatId} onRetry={() => void handleSend()} />
+
+      {showEnterTip && sendShortcut && (
+        <div
+          role="status"
+          className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-foreground/10 bg-[var(--card)] px-3 py-2 text-xs text-[var(--muted-foreground)] shadow-sm"
+        >
+          <span className="min-w-0 flex-1">Enter adds a new line here. {sendShortcut} sends (or tap the arrow).</span>
+          <button
+            type="button"
+            onClick={() => {
+              useUIStore.getState().setEnterToSendRP(true);
+              dismissEnterTip();
+              textareaRef.current?.focus();
+            }}
+            className="rounded-lg bg-[var(--primary)] px-2.5 py-1 font-medium text-[var(--primary-foreground)] hover:opacity-90"
+          >
+            Send with Enter
+          </button>
+          <button
+            type="button"
+            onClick={dismissEnterTip}
+            className="rounded-lg px-2.5 py-1 font-medium text-[var(--foreground)] hover:bg-[var(--accent)]"
+          >
+            Keep it
+          </button>
+        </div>
+      )}
 
       {/* Feedback toast */}
       {feedback && <SlashCommandFeedback feedback={feedback} onDismiss={() => setFeedback(null)} className="mb-2" />}
@@ -1699,3 +1752,13 @@ export const ChatInput = memo(function ChatInput({
     </div>
   );
 });
+
+const RP_ENTER_TIP_SEEN_KEY = "de-koi:rp-enter-tip-seen";
+
+function rpEnterTipSeen(): boolean {
+  try {
+    return window.localStorage.getItem(RP_ENTER_TIP_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}

@@ -253,15 +253,15 @@ async function createConversation(page: import("@playwright/test").Page) {
 test("conversation can be created, streamed, retried, and restored after reload", async ({ page }) => {
   await createConversation(page);
 
-  // The fixture connection has no embedding model. The "Memory is matching by
-  // keywords" notice used to land over the first reply. On the opening
+  // The fixture connection has no embedding model. The "Memory is on"
+  // (keyword matching) notice used to land over the first reply. On the opening
   // turn there is nothing to recall yet, so it must not show. Hold the reply
   // while the request is in flight, when the notice used to be up already.
   holdNextStream = true;
   await page.getByPlaceholder(/Message/).fill("Hello deterministic koi");
   await page.getByRole("button", { name: "Send" }).click();
   await expect.poll(() => releaseHeldStream !== null).toBe(true);
-  const recallWarning = page.locator("[data-sonner-toast]").filter({ hasText: "Memory is matching by keywords" });
+  const recallWarning = page.locator("[data-sonner-toast]").filter({ hasText: "Memory is on" });
   await page.waitForTimeout(500);
   await expect(recallWarning).toHaveCount(0);
   releaseHeldStream?.();

@@ -141,6 +141,8 @@ export function AppExperience() {
         position="top-center"
         theme={theme}
         closeButton
+        // On phones a toast at the very top sat over the header, so its close X landed on the chat-list button (#1783).
+        mobileOffset={{ top: "calc(env(safe-area-inset-top, 0px) + 3.75rem)" }}
         toastOptions={{
           style: {
             background: "var(--card)",

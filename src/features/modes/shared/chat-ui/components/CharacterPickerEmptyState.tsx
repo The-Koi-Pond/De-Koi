@@ -33,7 +33,7 @@ export function CharacterPickerEmptyState({
   onCharacterCreated?: (characterId: string, name: string) => void;
   /** When set, an empty library offers importing a card without leaving setup. */
   onImportCharacters?: () => void;
-  /** Ready-made characters an empty library can start with (needs `onCharacterCreated`). */
+  /** Ready-made characters to add while nothing else is left to pick (needs `onCharacterCreated`). */
   starters?: readonly StarterCharacter[];
 }) {
   const { hasError, isPending, hasSearch, hasCharacters, hasUnselectedCharacters } = status;
@@ -47,14 +47,17 @@ export function CharacterPickerEmptyState({
           ? allAddedText
           : "No matches.";
   const libraryEmpty = !hasError && !isPending && !hasSearch && !hasCharacters;
+  // Once everyone in the library is picked, starters and quick create stay on offer: after making their own
+  // character, first-timers saw the starters vanish under "All characters already added" (#1785).
+  const canAddMore = !hasError && !isPending && !hasSearch && !hasUnselectedCharacters;
 
   return (
     <div className="flex flex-col items-center gap-2 px-3 py-3 text-center text-[0.6875rem] text-[var(--muted-foreground)]">
       <p>{message}</p>
-      {libraryEmpty && onCharacterCreated && starters && starters.length > 0 && (
+      {canAddMore && onCharacterCreated && starters && starters.length > 0 && (
         <StarterCharacterChoices starters={starters} onCreated={onCharacterCreated} />
       )}
-      {libraryEmpty && onCharacterCreated && <QuickCreateCharacter onCreated={onCharacterCreated} />}
+      {canAddMore && onCharacterCreated && <QuickCreateCharacter onCreated={onCharacterCreated} />}
       {libraryEmpty && onImportCharacters && (
         <button
           type="button"
