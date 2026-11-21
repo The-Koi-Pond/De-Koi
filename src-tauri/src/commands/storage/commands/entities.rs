@@ -931,6 +931,7 @@ fn validate_conditional_chat_update_scope(label: &str, value: &Value) -> Result<
                             | "fanficEditor"
                             | "fanficLedger"
                             | "fanficQuality"
+                            | "roleplayCampaign"
                             | "roleplayContinuityDirector"
                             | "roleplayWorkflowApplication"
                             | "roleplayWorldTick"
@@ -1736,6 +1737,21 @@ mod tests {
             std::fs::remove_dir_all(&path).expect("stale temp dir should be removable");
         }
         AppState::from_data_dir(path, Vec::new()).expect("test app state should initialize")
+    }
+
+    #[test]
+    fn conditional_chat_update_accepts_campaign_metadata() {
+        let campaign =
+            json!({ "metadata": { "roleplayCampaign": { "version": 1, "status": "playing" } } });
+        validate_conditional_chat_update_scope("expected values", &campaign)
+            .expect("a campaign's read saves with a conditional update");
+        validate_conditional_chat_update_scope("patch", &campaign)
+            .expect("a campaign's read saves with a conditional update");
+        assert!(validate_conditional_chat_update_scope(
+            "patch",
+            &json!({ "metadata": { "somethingElse": 1 } })
+        )
+        .is_err());
     }
 
     #[test]

@@ -14,6 +14,7 @@ import {
   type RefObject,
 } from "react";
 import type { SpritePlacement, SpriteSide } from "../../../../engine/contracts/types/chat";
+import type { JsonRecord } from "../../../../engine/generation/runtime-records";
 import { countProposedContinuityDirectorBeats } from "../../../../engine/modes/roleplay/continuity-director/continuity-director-state";
 import { readWorldTickOffer } from "../../../../engine/modes/roleplay/world-tick/world-tick-state";
 import {
@@ -137,6 +138,33 @@ const RoleplayContinuityDirectorModal = lazy(async () => {
   const module = await import("./RoleplayContinuityDirectorModal");
   return { default: module.RoleplayContinuityDirectorModal };
 });
+
+const RoleplayCampaignPanel = lazy(async () => {
+  const module = await import("./RoleplayCampaignPanel");
+  return { default: module.RoleplayCampaignPanel };
+});
+
+/** The campaign's name when this chat is a campaign, read without loading the campaign engine. */
+function campaignTitle(chatMeta: Record<string, unknown>): string | null {
+  const campaign = chatMeta.roleplayCampaign;
+  if (!campaign || typeof campaign !== "object") return null;
+  const plan = (campaign as { plan?: { title?: unknown } }).plan;
+  return typeof plan?.title === "string" && plan.title.trim() ? plan.title.trim() : "Campaign";
+}
+
+function CampaignChip({ title, onClick }: { title: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="This roleplay is a campaign: open its teaser, status and Behind the screen"
+      className="flex max-w-[12rem] shrink-0 items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)]/70 px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] backdrop-blur-md transition-colors hover:bg-[var(--accent)]"
+    >
+      <ScrollText size="0.875rem" className="shrink-0 text-[var(--primary)]" aria-hidden="true" />
+      <span className="truncate">{title}</span>
+    </button>
+  );
+}
 
 const RoleplayWorldTickModal = lazy(async () => {
   const module = await import("./RoleplayWorldTickModal");
@@ -1002,6 +1030,8 @@ export function ChatRoleplaySurface({
   const [toolsSheetOpen, setToolsSheetOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [makeFromOpen, setMakeFromOpen] = useState(false);
+  const [campaignOpen, setCampaignOpen] = useState(false);
+  const campaignName = campaignTitle(chatMeta);
   const moreMenuBtnRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const branchSelectorRef = useRef<ChatBranchSelectorHandle | null>(null);
@@ -1270,6 +1300,7 @@ export function ChatRoleplaySurface({
                   </div>
                 )}
                 <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-1.5">
+                  {chat && campaignName && <CampaignChip title={campaignName} onClick={() => setCampaignOpen(true)} />}
                   {chat && <MakeFromThisButton onClick={() => setMakeFromOpen(true)} />}
                   <ChatBranchSelector
                     activeChatId={activeChatId}
@@ -1662,6 +1693,23 @@ export function ChatRoleplaySurface({
                 </p>
 
                 <div className="flex flex-col pb-3">
+                  {campaignName && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreMenuOpen(false);
+                        setCampaignOpen(true);
+                      }}
+                      className="flex w-full items-center gap-3 px-5 py-3 text-left transition-all active:bg-[var(--accent)]/30 hover:bg-[var(--accent)]/20"
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-rose-600 text-white shadow-sm">
+                        <ScrollText size="0.9rem" />
+                      </div>
+                      <span className="min-w-0 truncate text-sm font-medium text-[var(--foreground)]">
+                        Campaign: {campaignName}
+                      </span>
+                    </button>
+                  )}
                   {/* Make a fic, trance and more from this */}
                   <button
                     type="button"
@@ -1920,6 +1968,17 @@ export function ChatRoleplaySurface({
             chatId={chat.id}
             open={continuityDirectorOpen}
             onClose={() => setContinuityDirectorOpen(false)}
+          />
+        </Suspense>
+      )}
+      {chat && campaignOpen && (
+        <Suspense fallback={null}>
+          <RoleplayCampaignPanel
+            chatId={chat.id}
+            metadata={chatMeta}
+            messages={messages as unknown as JsonRecord[]}
+            open={campaignOpen}
+            onClose={() => setCampaignOpen(false)}
           />
         </Suspense>
       )}

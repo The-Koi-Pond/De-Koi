@@ -249,7 +249,12 @@ export function createDekiActionDiffRows(
   currentRecord?: Record<string, unknown> | null,
 ): DekiActionDiffRow[] {
   if (action.type === "apply_lorebook_redraft") return createLorebookRedraftDiffRows(action);
-  if (action.type === "none" || action.type === "request_chat_access" || action.type === "request_web_research")
+  if (
+    action.type === "none" ||
+    action.type === "request_chat_access" ||
+    action.type === "request_web_research" ||
+    action.type === "start_campaign"
+  )
     return [];
   const payload = action.type === "create_record" ? action.draft : action.patch;
   return flattenProposedValue(payload).map((entry) => {

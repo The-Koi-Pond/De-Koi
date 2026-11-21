@@ -30,7 +30,10 @@ export const DEFAULT_BUNDLE_BUDGETS = Object.freeze({
   // the homeJs cut above measured 1540.4 KiB. Features brought main to
   // 1738.5 KiB by 2026-11-19; merging chunks under 4 KB into the chunks they
   // load with (experimentalMinChunkSize in vite.config.ts) took it to 1725.1 KiB.
-  totalJs: 1750 * 1024,
+  // Main measured 1737.7 KiB on 2026-11-20; Roleplay campaigns add 21.4 KiB (the builder and its prompts are about
+  // 9 KiB, the runner, plan checks and prompt block about 8 KiB, the setup card, Deki card and campaign panel about
+  // 4 KiB, all lazy), so it moved to 1775 KiB.
+  totalJs: 1775 * 1024,
   largestLazyJs: 300 * 1024,
   css: 120 * 1024,
 });

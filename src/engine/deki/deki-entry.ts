@@ -259,6 +259,46 @@ const DEKI_ACTION_ENTITIES = [
 
 export type DekiActionEntity = (typeof DEKI_ACTION_ENTITIES)[number];
 
+interface DekiCampaignRequest {
+  ask: string;
+  heat: "none" | "fade" | "explicit";
+  length: "short" | "medium" | "long";
+  blind: boolean;
+  limits: string[];
+  focus?: "story" | "character" | "challenge";
+}
+
+const CAMPAIGN_HEATS = ["none", "fade", "explicit"] as const;
+const CAMPAIGN_LENGTHS = ["short", "medium", "long"] as const;
+const CAMPAIGN_FOCUSES = ["story", "character", "challenge"] as const;
+
+function pick<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  return typeof value === "string" && (allowed as readonly string[]).includes(value.trim())
+    ? (value.trim() as T)
+    : undefined;
+}
+
+/** The campaign request the backend already checked, or null when it isn't one. */
+function normalizeDekiCampaignRequest(value: unknown): DekiCampaignRequest | null {
+  if (!isRecord(value)) return null;
+  const ask = typeof value.ask === "string" ? value.ask.trim().slice(0, 2000) : "";
+  if (!ask) return null;
+  const focus = pick(value.focus, CAMPAIGN_FOCUSES);
+  return {
+    ask,
+    heat: pick(value.heat, CAMPAIGN_HEATS) ?? "fade",
+    length: pick(value.length, CAMPAIGN_LENGTHS) ?? "medium",
+    blind: value.blind === true,
+    limits: Array.isArray(value.limits)
+      ? value.limits
+          .filter((limit): limit is string => typeof limit === "string" && limit.trim().length > 0)
+          .map((limit) => limit.trim())
+          .slice(0, 8)
+      : [],
+    ...(focus ? { focus } : {}),
+  };
+}
+
 type DekiLorebookRedraftEntry = Record<string, unknown> & {
   id?: string;
 };
@@ -274,6 +314,12 @@ export type DekiEntryAction =
       scope: DekiWebResearchScope;
       reason: string;
       sources?: string[];
+      label?: string;
+    }
+  | {
+      /** A roleplay campaign to build; the app builds it when the user presses Build. Nothing is written before. */
+      type: "start_campaign";
+      campaign: DekiCampaignRequest;
       label?: string;
     }
   | {
@@ -595,6 +641,14 @@ export function normalizeDekiEntryAction(value: unknown): DekiEntryAction {
         ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
       };
     }
+  }
+  const campaign = value.type === "start_campaign" ? normalizeDekiCampaignRequest(value.campaign) : null;
+  if (campaign) {
+    return {
+      type: "start_campaign",
+      campaign,
+      ...(typeof value.label === "string" && value.label.trim() ? { label: value.label.trim() } : {}),
+    };
   }
   const webResearchScope = normalizeDekiWebResearchScope(value.scope);
   if (

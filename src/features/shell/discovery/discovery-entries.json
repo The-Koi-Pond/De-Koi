@@ -1738,6 +1738,36 @@
     "coverage": "core"
   },
   {
+    "id": "roleplay-campaigns",
+    "title": "Roleplay campaigns",
+    "category": "Chat modes",
+    "summary": "Say what you're in the mood for and play a pre-planned campaign without directing it. De-Koi asks at most three spoiler-free questions (how spicy, anything off the table, how long, teaser or blind), then plans it like a published adventure: a hidden truth, a cast that wants things, situations with real choices, clues, consequences that come back and several endings. It writes a narrator card, a lorebook of world facts and the opening, and opens a Roleplay chat. Each reply sees only the current situation and the campaign's table rules; after each reply a short extra call keeps the game master's notes (what changed, what's owed, how the next reply should pace), and when you go somewhere unplanned the unplayed part of the plan is rewritten around you. Behind the screen shows the whole plan behind a spoiler warning. Building takes a few minutes on the chat's model; the notes can use their own model in Connections > Helper Models.",
+    "keywords": [
+      "campaign",
+      "adventure",
+      "pre-planned",
+      "game master",
+      "gm",
+      "story",
+      "scenario",
+      "module",
+      "one-shot",
+      "plot",
+      "quest",
+      "choices",
+      "endings"
+    ],
+    "audience": "Roleplay users who want a well-planned story to play without directing it themselves.",
+    "where": "Start a new Roleplay and press Play a campaign in its setup, or ask Deki-senpai to make you a campaign.",
+    "actions": [
+      {
+        "type": "show-active-chat",
+        "label": "Go to your chat"
+      }
+    ],
+    "coverage": "advanced"
+  },
+  {
     "id": "roleplay-combat-encounters",
     "title": "Combat encounters",
     "category": "Chat modes",

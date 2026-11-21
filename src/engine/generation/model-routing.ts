@@ -27,6 +27,7 @@ export const MODEL_ROUTE_TASKS = [
   "fanficPlanning",
   "fanficChecks",
   "encounters",
+  "campaign",
 ] as const;
 export type ModelRouteTask = (typeof MODEL_ROUTE_TASKS)[number];
 
@@ -42,6 +43,7 @@ export const MODEL_ROUTE_TASK_LABELS: Record<ModelRouteTask, string> = {
   fanficPlanning: "Fanfic planning",
   fanficChecks: "Fanfic checks",
   encounters: "Encounters",
+  campaign: "Campaign notes",
 };
 
 export interface ModelRoutingSettings {

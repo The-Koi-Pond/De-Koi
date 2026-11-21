@@ -36,6 +36,7 @@ import {
   voiceNoteText,
 } from "../modes/chat/voice-notes/voice-notes";
 import { stripDeliveryTags } from "../modes/chat/voice-call/delivery-tags";
+import { chatHasPlayingCampaign, scheduleCampaignTick } from "../modes/roleplay/campaign/campaign-runner";
 import {
   assistantRepliesRefreshContinuityDirector,
   queueContinuityDirectorRefresh,
@@ -5078,6 +5079,7 @@ async function holdPostReplyJobs(
       holdContinuityDirectorRefresh(deps, chat),
       holdPostReplyAgents(deps, input, chat, connection, postReplyAgentsTurnId),
       holdHabitScan(deps, input, chat, connection),
+      holdCampaignTick(deps, chat),
     ])
   ).filter((hold): hold is TurnJobHold => hold !== null);
   return {
@@ -5108,6 +5110,18 @@ function holdHabitScan(
         mode,
         connectionId: readString(connection.id) || input.connectionId || null,
       });
+    },
+  };
+}
+
+// A campaign's read of the reply only steers later turns, so like the habit scan it is not stored as a job: a read
+// that never runs is covered by the next reply's read, which reads everything since the last one.
+function holdCampaignTick(deps: GenerationEngineDeps, chat: JsonRecord): TurnJobHold | null {
+  const chatId = readString(chat.id).trim();
+  if (!chatId || !chatHasPlayingCampaign(chat)) return null;
+  return {
+    async release(replySaved) {
+      if (replySaved) scheduleCampaignTick({ storage: deps.storage, llm: deps.llm }, chatId);
     },
   };
 }
