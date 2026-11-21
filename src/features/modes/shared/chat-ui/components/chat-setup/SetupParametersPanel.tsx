@@ -7,7 +7,7 @@ import {
   ROLEPLAY_PARAMETER_DEFAULTS,
   serviceTierOptionsForProvider,
   type EditableGenerationParameters,
-} from "../../../../../../shared/components/ui/GenerationParametersEditor";
+} from "../../../../../../shared/components/ui/generation-parameters";
 import type { ConnectionSummary } from "../../../../../catalog/connections/index";
 import { SetupSwitch } from "./SetupSwitch";
 

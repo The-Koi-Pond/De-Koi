@@ -11,7 +11,7 @@ import {
   ROLEPLAY_PARAMETER_DEFAULTS,
   serviceTierOptionsForProvider,
   type EditableGenerationParameters,
-} from "../../../../../../shared/components/ui/GenerationParametersEditor";
+} from "../../../../../../shared/components/ui/generation-parameters";
 import type { Chat } from "../../../../../../engine/contracts/types/chat";
 import {
   isSyntheticConnection,
