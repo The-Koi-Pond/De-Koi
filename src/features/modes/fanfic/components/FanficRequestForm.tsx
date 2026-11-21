@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { BookOpen, BookUser, Feather, Loader2, X } from "lucide-react";
 import { useCharacterSummaries } from "../../../catalog/characters/index";
 import { useConnections } from "../../../catalog/connections/index";
@@ -158,6 +158,10 @@ export function FanficRequestForm({
   const [characterDraft, setCharacterDraft] = useState("");
   const [tagDraft, setTagDraft] = useState("");
   const [showProblems, setShowProblems] = useState(false);
+  // The problem list renders at the bottom of a long form, under the floating Plan my fic button, so a click with a
+  // problem looked like nothing happened (#1788). Bring the problem into view instead.
+  const adultsCheckRef = useRef<HTMLInputElement | null>(null);
+  const problemsRef = useRef<HTMLDivElement | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const { data: connections } = useConnections();
   const { data: characterRows } = useCharacterSummaries(true);
@@ -272,6 +276,12 @@ export function FanficRequestForm({
     event.preventDefault();
     if (problems.length > 0) {
       setShowProblems(true);
+      const adultsMissing = sexualRating && !normalized.adultsConfirmed;
+      requestAnimationFrame(() => {
+        const target = adultsMissing ? adultsCheckRef.current : problemsRef.current;
+        target?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+        if (adultsMissing) adultsCheckRef.current?.focus();
+      });
       return;
     }
     // A saved connection that was deleted or is no longer a text model falls back to one that exists.
@@ -300,7 +310,7 @@ export function FanficRequestForm({
         <div className="min-w-0">
           <h2 className="text-xl font-bold leading-tight text-[var(--foreground)]">Request a fic</h2>
           <p className="mt-0.5 text-sm text-[var(--muted-foreground)]">
-            Fill this in like an AO3 prompt. You'll get an outline first, then the chapters.
+            Describe the story you want, like a fic request. You&apos;ll get an outline first, then the chapters.
           </p>
         </div>
       </header>
@@ -471,8 +481,14 @@ export function FanficRequestForm({
           }))}
         />
         {sexualRating && (
-          <label className="flex items-start gap-2 rounded-lg border border-[var(--primary)]/35 bg-[var(--primary)]/8 p-2.5 text-sm">
+          <label
+            className={cn(
+              "flex items-start gap-2 rounded-lg border border-[var(--primary)]/35 bg-[var(--primary)]/8 p-2.5 text-sm",
+              showProblems && !request.adultsConfirmed && "ring-2 ring-red-400/70",
+            )}
+          >
             <input
+              ref={adultsCheckRef}
               type="checkbox"
               className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
               checked={request.adultsConfirmed}
@@ -708,6 +724,7 @@ export function FanficRequestForm({
 
       {showProblems && problems.length > 0 && (
         <div
+          ref={problemsRef}
           role="alert"
           className="rounded-xl border border-red-400/35 bg-red-500/10 p-3 text-sm text-[var(--foreground)]"
         >

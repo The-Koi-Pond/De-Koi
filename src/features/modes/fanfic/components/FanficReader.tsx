@@ -1445,11 +1445,12 @@ function NextChapterPanel({
         value={notes}
         onChange={(event) => setNotes(event.target.value)}
         placeholder={
+          // Good Omens names showed up in people's own fics after creation (#1789); keep examples story-neutral.
           extraLabel
-            ? "A flashback from Crowley's point of view."
+            ? "A flashback from another character's point of view."
             : complete
               ? "An epilogue five years later…"
-              : "Give Aziraphale a bigger moment here."
+              : "Anything you want in this chapter? e.g. more time with your favorite character."
         }
       />
       {newExtra && (

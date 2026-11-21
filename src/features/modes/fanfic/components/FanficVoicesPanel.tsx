@@ -200,8 +200,9 @@ export function FanficVoicesPanel({
           Voice sheets
         </h3>
         <p className="mt-0.5 text-xs leading-snug text-[var(--muted-foreground)]">
-          How each character talks. Chapters are written to these, and Check voice measures lines against them. Canon
-          lines come from pages research read, never from character cards.
+          How each character talks, so they sound like themselves. You can leave these as they are. Chapters are written
+          to these, and Check voice measures lines against them. Canon lines come from pages research read, never from
+          character cards.
         </p>
         {helperNote}
       </div>

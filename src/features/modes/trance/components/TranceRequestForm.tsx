@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Eye, Loader2, Orbit, Sparkles, Wand2 } from "lucide-react";
-import { useCharacterSummaries } from "../../../catalog/characters/index";
+import {
+  blankCharacterCreateInput,
+  useCharacterSummaries,
+  useCreateCharacter,
+} from "../../../catalog/characters/index";
 import { useConnections } from "../../../catalog/connections/index";
 import {
   TRANCE_CATEGORIES,
@@ -207,6 +211,11 @@ export function TranceRequestForm({
   const [preview, setPreview] = useState<TrancePitch | null>(null);
   const suggest = useTrancePitches();
   const pathSection = useRef<HTMLDivElement | null>(null);
+  const characterSelect = useRef<HTMLSelectElement | null>(null);
+  const showCharacterPicker = () => {
+    characterSelect.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    characterSelect.current?.focus();
+  };
   // Opening ideas or the builder brings it into view; on a phone it would otherwise start below the fold. A session
   // that opens on drafted ideas starts at the top instead, so how they feel comes first.
   const openedOn = useRef(initialIdeas.length > 0 ? path : null);
@@ -344,6 +353,7 @@ export function TranceRequestForm({
             />
           )}
           <select
+            ref={characterSelect}
             id="trance-character"
             className={inputClass}
             value={characterId}
@@ -356,6 +366,10 @@ export function TranceRequestForm({
               </option>
             ))}
           </select>
+          {/* With no characters the session couldn't start and nothing said how to get one (#1786). */}
+          {characterRows !== undefined && characters.length === 0 && (
+            <TranceQuickGuide onCreated={(id) => setCharacterId(id)} />
+          )}
         </div>
         {connections.length > 1 && (
           <div className="flex flex-col gap-1.5">
@@ -431,7 +445,7 @@ export function TranceRequestForm({
             onClick={() => setPath("build")}
           />
         </div>
-        {!characterId && <p className="text-xs text-[var(--muted-foreground)]">Pick a character first.</p>}
+        {!characterId && <NeedsGuideHint onShow={showCharacterPicker} />}
         {characterId && !effectiveConnectionId && (
           <p className="text-xs text-[var(--muted-foreground)]">Pick a model connection first.</p>
         )}
@@ -607,6 +621,8 @@ export function TranceRequestForm({
               Write my session
             </button>
           </div>
+          {/* The first hint sits far above this button once the builder is open, so say it here too (#1786). */}
+          {!characterId && <NeedsGuideHint onShow={showCharacterPicker} />}
         </Section>
       )}
 
@@ -629,5 +645,82 @@ export function TranceRequestForm({
         </p>
       )}
     </div>
+  );
+}
+
+function NeedsGuideHint({ onShow }: { onShow: () => void }) {
+  return (
+    <p className="text-xs text-[var(--muted-foreground)]">
+      Pick a character to guide you first.{" "}
+      <button
+        type="button"
+        onClick={onShow}
+        className="font-medium text-[var(--primary)] underline-offset-2 hover:underline"
+      >
+        Show me
+      </button>
+    </p>
+  );
+}
+
+/** Makes a guide right here when there are no characters yet: a name is enough. */
+function TranceQuickGuide({ onCreated }: { onCreated: (characterId: string) => void }) {
+  const createCharacter = useCreateCharacter();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [failed, setFailed] = useState<string | null>(null);
+  const trimmedName = name.trim();
+
+  const submit = async () => {
+    if (!trimmedName || createCharacter.isPending) return;
+    setFailed(null);
+    try {
+      const result = await createCharacter.mutateAsync(blankCharacterCreateInput(trimmedName, description.trim()));
+      const id = (result as { id?: string } | undefined)?.id;
+      if (!id) throw new Error("The new character came back without an id.");
+      onCreated(id);
+    } catch (error) {
+      setFailed(toUserMessage(error, { fallback: "Couldn't make the guide. Try again." }));
+    }
+  };
+
+  return (
+    <form
+      aria-label="Make a guide"
+      className="flex flex-col gap-2 rounded-lg border border-dashed border-[var(--border)] p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <p className="text-sm text-[var(--foreground)]">No characters yet. Make your guide now: a name is enough.</p>
+      <input
+        className={inputClass}
+        aria-label="Guide's name"
+        placeholder="e.g. Luna"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+      />
+      <textarea
+        className={cn(inputClass, "min-h-[3.5rem] resize-y")}
+        aria-label="Who are they? (optional)"
+        placeholder="Who are they? (optional) e.g. A soft-spoken voice who helps you unwind."
+        value={description}
+        onChange={(event) => setDescription(event.target.value)}
+      />
+      <button
+        type="submit"
+        disabled={!trimmedName || createCharacter.isPending}
+        className="inline-flex items-center justify-center gap-2 self-start rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-50"
+      >
+        {createCharacter.isPending && <Loader2 size="1rem" className="animate-spin" aria-hidden="true" />}
+        Make my guide
+      </button>
+      {failed && (
+        <p role="alert" className="text-xs text-[var(--destructive)]">
+          {failed}
+        </p>
+      )}
+    </form>
   );
 }
