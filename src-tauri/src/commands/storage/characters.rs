@@ -1141,6 +1141,53 @@ mod tests {
     }
 
     #[test]
+    fn update_character_tracker_card_colors_string_replaces_stored_object() {
+        let state = test_state("tracker-card-colors-clear");
+        let seeded_colors =
+            json!({ "mode": "custom", "nameColor": "#00ff00", "boxColor": "#ff0000" });
+        state
+            .storage
+            .create(
+                "characters",
+                json!({
+                    "id": "char-1",
+                    "data": { "name": "Rina", "extensions": { "trackerCardColors": seeded_colors } }
+                }),
+            )
+            .expect("character should seed");
+
+        // An object is deep-merged, so a color the editor cleared (and dropped) would survive.
+        let merged = update_character(
+            &state,
+            "char-1",
+            json!({
+                "data": { "extensions": { "trackerCardColors": { "mode": "custom", "nameColor": "#00ff00" } } },
+                "skipVersionSnapshot": true
+            }),
+        )
+        .expect("object patch should update");
+        assert_eq!(
+            merged["data"]["extensions"]["trackerCardColors"]["boxColor"],
+            "#ff0000"
+        );
+
+        // The serialized string the editor saves replaces the stored config whole.
+        let replaced = update_character(
+            &state,
+            "char-1",
+            json!({
+                "data": { "extensions": { "trackerCardColors": "{\"mode\":\"custom\",\"nameColor\":\"#00ff00\"}" } },
+                "skipVersionSnapshot": true
+            }),
+        )
+        .expect("string patch should update");
+        assert_eq!(
+            replaced["data"]["extensions"]["trackerCardColors"],
+            "{\"mode\":\"custom\",\"nameColor\":\"#00ff00\"}"
+        );
+    }
+
+    #[test]
     fn update_character_deep_merges_nested_data_objects() {
         let state = test_state("nested-data-merge");
         state
