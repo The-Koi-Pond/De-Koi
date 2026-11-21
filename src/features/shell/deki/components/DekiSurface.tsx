@@ -41,6 +41,7 @@ import { useConnections } from "../../../catalog/connections/index";
 import { PersonaAvatarImage, usePersonaSummaries } from "../../../catalog/personas/index";
 import { ConversationMessage } from "../../../modes/conversation/message-shell";
 import type { CharacterMap, PersonaInfo } from "../../../modes/shared/chat-ui/types";
+import { CampaignBuildButton } from "../../../modes/shared/chat-ui/index";
 import type { Message } from "../../../../engine/contracts/types/chat";
 import { filterLanguageGenerationConnections } from "../../../../shared/lib/connection-filters";
 import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
@@ -228,6 +229,7 @@ function actionTitle(action: DekiEntryAction) {
   if (action.type === "none") return "Deki-senpai action";
   if (action.type === "request_chat_access") return action.label?.trim() || "Grant Deki chat access";
   if (action.type === "request_web_research") return action.label?.trim() || "Search the web";
+  if (action.type === "start_campaign") return action.label?.trim() || "Build a campaign";
   if (action.label?.trim()) return action.label.trim();
   if (action.type === "apply_lorebook_redraft") return "Apply lorebook redraft";
   const verb = action.type === "create_record" ? "Create" : "Update";
@@ -443,7 +445,7 @@ function previewValue(value: unknown): string | null {
 }
 
 function actionPreviewRows(action: DekiEntryAction): Array<{ label: string; value: string }> {
-  if (action.type === "none" || action.type === "request_chat_access") return [];
+  if (action.type === "none" || action.type === "request_chat_access" || action.type === "start_campaign") return [];
   if (action.type === "request_web_research") {
     const fields: Array<[string, unknown]> = [
       ["Query", action.scope.query],
@@ -560,7 +562,13 @@ async function invalidateDekiDataQueries(queryClient: QueryClient, collection: s
 }
 
 async function invalidateDekiActionQueries(queryClient: QueryClient, action: DekiEntryAction) {
-  if (action.type === "none" || action.type === "request_chat_access" || action.type === "request_web_research") return;
+  if (
+    action.type === "none" ||
+    action.type === "request_chat_access" ||
+    action.type === "request_web_research" ||
+    action.type === "start_campaign"
+  )
+    return;
   const actionQueryKeys =
     action.type === "apply_lorebook_redraft" ? DEKI_ACTION_QUERY_KEYS.lorebooks : DEKI_ACTION_QUERY_KEYS[action.entity];
   await Promise.all(
@@ -1895,6 +1903,7 @@ function DekiActionCard({
 
   if (!message || !action || action.type === "none") return null;
   const rows = actionPreviewRows(action);
+  if (action.type === "start_campaign") return <DekiCampaignCard action={action} />;
   if (action.type === "request_web_research") {
     return (
       <DekiWebResearchCard
@@ -2055,6 +2064,29 @@ function DekiActionDiffView({
       ) : (
         <div className="px-2.5 py-3 text-[0.6875rem] text-[var(--muted-foreground)]">No payload fields.</div>
       )}
+    </div>
+  );
+}
+
+/** A campaign request: the player's own ask and answers, and Build. The plan stays hidden until they play. */
+function DekiCampaignCard({ action }: { action: Extract<DekiEntryAction, { type: "start_campaign" }> }) {
+  return (
+    <div className="mb-3 ml-[4.5rem] mr-4 mt-2 rounded-xl border border-amber-400/30 bg-[var(--card)] px-3 py-3 text-xs text-[var(--foreground)] shadow-lg shadow-amber-500/10">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500">
+          <Sparkles size="0.875rem" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold">{actionTitle(action)}</div>
+          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">
+            De-Koi plans it and runs it as a Roleplay; you just play
+          </div>
+        </div>
+      </div>
+      <p className="mt-2 whitespace-pre-wrap leading-relaxed text-[var(--foreground)]/80">{action.campaign.ask}</p>
+      <div className="mt-2">
+        <CampaignBuildButton request={action.campaign} />
+      </div>
     </div>
   );
 }

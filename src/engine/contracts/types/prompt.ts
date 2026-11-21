@@ -245,6 +245,7 @@ export interface ChatMLMessage {
     | "canonical_memory"
     | "story_projection"
     | "continuity_director"
+    | "campaign"
     | "memory"
     | "memory_recall"
     | "lorebook"

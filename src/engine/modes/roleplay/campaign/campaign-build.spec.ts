@@ -1,0 +1,247 @@
+// Durable test rationale: the build writes four kinds of rows and must remove every one of them when a later write
+// fails (a half-built campaign would leave a narrator card and lorebook nobody asked for); the runner must keep its
+// compare-and-set save and move the story only by the rules. Both are easy to break silently.
+import { describe, expect, it } from "vitest";
+
+import type { LlmGateway } from "../../../capabilities/llm";
+import type { StorageGateway } from "../../../capabilities/storage";
+import { buildCampaign } from "./campaign-build";
+import { readCampaign } from "./campaign-state";
+import { runCampaignReplan, runCampaignTick } from "./campaign-runner";
+
+const BIBLE = {
+  focus: "story",
+  secondaryFocus: null,
+  title: "The Last Lamp",
+  pitch: "A keeper is missing.",
+  truth: "The keeper staged it.",
+  keyTruths: [{ id: "staged", text: "The keeper staged it." }],
+  tableRules: "Consequences stick.",
+  cast: [
+    {
+      id: "ivo",
+      name: "Ivo",
+      role: "son",
+      want: "his father",
+      fear: "sea",
+      secret: "helped",
+      towardPlayer: "wary",
+      ladder: [],
+    },
+  ],
+  endings: [
+    { id: "found", condition: "found", tone: "warm" },
+    { id: "gone", condition: "gone", tone: "grim" },
+  ],
+};
+
+function situation(id: string, clueIds: string[]) {
+  return {
+    id,
+    act: 1,
+    title: id,
+    happening: `${id} happens`,
+    question: `${id}?`,
+    present: ["ivo"],
+    pressure: ["worse", "worst"],
+    clueIds,
+    holds: [],
+    exits: [
+      { id: `${id}-a`, text: "a", consequence: "x", leadsTo: null },
+      { id: `${id}-b`, text: "b", consequence: "y", leadsTo: null },
+    ],
+  };
+}
+
+const SITUATIONS = {
+  clues: [
+    { id: "c1", text: "boots", truthId: "staged" },
+    { id: "c2", text: "letter", truthId: "staged" },
+    { id: "c3", text: "boat", truthId: "staged" },
+  ],
+  situations: [situation("arrival", ["c1"]), situation("cellar", ["c2"]), situation("tower", ["c3"])],
+};
+
+const CONTENT = {
+  narrator: { name: "The Last Lamp", description: "Salt and brass.\n\nWind.", personality: "Ivo: short." },
+  lorebook: [{ name: "Lighthouse", keys: ["lighthouse"], content: "Old." }],
+  opening: "The lamp is dark.\n\nWind at the door.",
+};
+
+/** Answers each campaign call by what its system prompt asks for. */
+function fakeLlm(extra: Record<string, unknown> = {}): LlmGateway & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    async complete(request) {
+      const system = String(request.messages[0]?.content ?? "");
+      const kind = /Step 1 of 3/.test(system)
+        ? "bible"
+        : /Step 3 of 3/.test(system)
+          ? "content"
+          : /keep the game master's notes/.test(system)
+            ? "tick"
+            : /gone somewhere the plan did not expect/.test(system)
+              ? "replan"
+              : "situations";
+      calls.push(kind);
+      const answers: Record<string, unknown> = { bible: BIBLE, situations: SITUATIONS, content: CONTENT, ...extra };
+      return JSON.stringify(answers[kind]);
+    },
+  } as LlmGateway & { calls: string[] };
+}
+
+function memoryStorage(options: { failMessages?: boolean } = {}) {
+  const rows: Record<string, Array<Record<string, any>>> = {
+    connections: [{ id: "conn", provider: "openai", model: "m", enabled: true, isDefault: true }],
+    personas: [],
+    characters: [],
+    lorebooks: [],
+    chats: [],
+    prompts: [],
+  };
+  const entries: Array<Record<string, any>> = [];
+  const messages: Array<Record<string, any>> = [];
+  let next = 0;
+  const storage = {
+    async get(entity: string, id: string) {
+      return rows[entity]?.find((row) => row.id === id) ?? null;
+    },
+    async list(entity: string) {
+      return rows[entity] ?? [];
+    },
+    async create(entity: string, value: Record<string, unknown>) {
+      const row = { id: `${entity}-${(next += 1)}`, ...value };
+      (rows[entity] ??= []).push(row);
+      return row;
+    },
+    async delete(entity: string, id: string) {
+      rows[entity] = (rows[entity] ?? []).filter((row) => row.id !== id);
+      return { deleted: true };
+    },
+    async createLorebookEntries(lorebookId: string, values: Array<Record<string, unknown>>) {
+      entries.push(...values.map((value) => ({ ...value, lorebookId })));
+      return values;
+    },
+    async createChatMessage(chatId: string, value: Record<string, unknown>) {
+      if (options.failMessages) throw new Error("disk full");
+      const row = { id: `m${(next += 1)}`, chatId, ...value };
+      messages.push(row);
+      return row;
+    },
+    async listChatMessages(chatId: string, query: { descending?: boolean } = {}) {
+      const list = messages.filter((message) => message.chatId === chatId);
+      return query.descending ? [...list].reverse() : list;
+    },
+    async bulkDeleteChatMessages() {
+      return {};
+    },
+    async patchChatMetadata(chatId: string, patch: Record<string, unknown>) {
+      const chat = rows.chats!.find((row) => row.id === chatId)!;
+      chat.metadata = { ...chat.metadata, ...patch };
+      return chat;
+    },
+    async updateChatIfUnchanged(chatId: string, expected: any, patch: any) {
+      const chat = rows.chats!.find((row) => row.id === chatId)!;
+      const key = Object.keys(expected.metadata)[0]!;
+      const same = JSON.stringify(chat.metadata[key]) === JSON.stringify(expected.metadata[key]);
+      if (same) chat.metadata = { ...chat.metadata, ...patch.metadata };
+      return { updated: same, chat };
+    },
+    async promptFull() {
+      return null;
+    },
+  } as unknown as StorageGateway;
+  return { storage, rows, entries, messages };
+}
+
+const INPUT = {
+  ask: "a lighthouse mystery",
+  focus: null,
+  heat: "none" as const,
+  limits: [],
+  length: "short" as const,
+  blind: false,
+  connectionId: null,
+  personaId: null,
+};
+
+describe("building a campaign", () => {
+  it("writes the narrator card, lorebook, chat with its hidden plan and the opening", async () => {
+    const { storage, rows, entries, messages } = memoryStorage();
+    const llm = fakeLlm();
+    const built = await buildCampaign({ storage, llm }, INPUT, { now: () => "2026-11-20T00:00:00.000Z" });
+
+    expect(llm.calls).toEqual(["bible", "situations", "situations", "content"]);
+    expect(built).toMatchObject({ title: "The Last Lamp", pitch: "A keeper is missing." });
+    const chat = rows.chats![0]!;
+    expect(chat).toMatchObject({ mode: "roleplay", activeLorebookIds: [rows.lorebooks![0]!.id] });
+    const state = readCampaign(chat.metadata);
+    expect(state?.status).toBe("playing");
+    expect(state?.plan.situations.map((s) => s.id)).toEqual(["arrival", "cellar", "tower"]);
+    expect(state?.narratorCharacterId).toBe(rows.characters![0]!.id);
+    expect(rows.characters![0]!.data.first_mes).toBe("");
+    expect(entries).toHaveLength(1);
+    // Paragraph breaks survive.
+    expect(messages[0]?.content).toBe("The lamp is dark.\n\nWind at the door.");
+  });
+
+  it("removes everything it wrote when a later write fails", async () => {
+    const { storage, rows } = memoryStorage({ failMessages: true });
+    await expect(buildCampaign({ storage, llm: fakeLlm() }, INPUT)).rejects.toThrow("disk full");
+    expect(rows.characters).toEqual([]);
+    expect(rows.lorebooks).toEqual([]);
+    expect(rows.chats).toEqual([]);
+  });
+
+  it("goes in blind without a teaser", async () => {
+    const { storage } = memoryStorage();
+    const built = await buildCampaign({ storage, llm: fakeLlm() }, { ...INPUT, blind: true });
+    expect(built.pitch).toBe("");
+  });
+});
+
+describe("running a campaign", () => {
+  async function playedCampaign(tick: Record<string, unknown>, replan?: Record<string, unknown>) {
+    const store = memoryStorage();
+    const llm = fakeLlm({ tick, ...(replan ? { replan } : {}) });
+    const built = await buildCampaign({ storage: store.storage, llm }, INPUT);
+    await store.storage.createChatMessage(built.chatId, { role: "user", content: "I climb the stairs to the lamp." });
+    await store.storage.createChatMessage(built.chatId, { role: "assistant", content: "Ivo follows you up." });
+    return { ...store, llm, chatId: built.chatId };
+  }
+
+  it("reads the new exchange once and moves the story by its exits", async () => {
+    const { storage, llm, chatId, rows } = await playedCampaign({
+      situation: "resolved",
+      exitId: "arrival-a",
+      pacing: "hold",
+      newFacts: ["Ivo trusts the player a little."],
+    });
+    const result = await runCampaignTick({ storage, llm }, chatId);
+    expect(result.status).toBe("ticked");
+    const state = readCampaign(rows.chats![0]!.metadata)!;
+    expect(state.progress.at(-1)).toMatchObject({
+      situationId: "cellar",
+      pacing: "turn",
+      facts: ["Ivo trusts the player a little."],
+    });
+    expect(await runCampaignTick({ storage, llm }, chatId)).toEqual({ status: "skipped", reason: "nothing_new" });
+  });
+
+  it("rewrites only unplayed situations in a replan", async () => {
+    const { storage, llm, chatId, rows } = await playedCampaign(
+      { situation: "ongoing", pacing: "hold" },
+      {
+        situations: [situation("arrival", []), situation("harbor", ["c2", "c3"])],
+        clues: [],
+        endings: BIBLE.endings,
+      },
+    );
+    const next = await runCampaignReplan({ storage, llm }, chatId, "the player wants the harbor");
+    expect(next?.plan.situations.map((s) => s.id)).toEqual(["arrival", "harbor"]);
+    // The situation in play is kept exactly as it was.
+    expect(next?.plan.situations[0]?.clueIds).toEqual(["c1"]);
+    expect(readCampaign(rows.chats![0]!.metadata)?.plan.revision).toBe(1);
+  });
+});

@@ -48,3 +48,4 @@ export * from "./lib/transcript-scroll-geometry";
 export * from "./lib/custom-quick-replies";
 export * from "./hooks/use-fanfic-links";
 export * from "./components/MakeFromThisButton";
+export * from "./components/CampaignBuildButton";

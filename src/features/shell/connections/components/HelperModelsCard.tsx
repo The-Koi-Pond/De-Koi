@@ -42,6 +42,8 @@ const TASK_SCOPE: Record<ModelRouteTask, string> = {
     "A fic's story ledger, continuity and voice checks, and the editor pass. Chapters stay on the fic's connection.",
   encounters:
     "Setting up Roleplay combat encounters, each turn, and the fight summary. The Combat agent's own connection isn't used.",
+  campaign:
+    "A campaign's notes after each reply: what changed, what's owed, and how the next reply should pace. Building a campaign and rewriting its plan stay on the chat's model.",
 };
 
 function connectionLabel(connection: JsonRecord): string {

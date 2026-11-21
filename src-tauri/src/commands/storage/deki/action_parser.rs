@@ -606,6 +606,91 @@ fn normalize_deki_record_action_payload(
     validate_deki_record_action_payload(entity, &normalized, require_complete)?;
     Ok(normalized)
 }
+const DEKI_CAMPAIGN_ASK_MAX_CHARS: usize = 2_000;
+const DEKI_CAMPAIGN_LIMITS_MAX: usize = 8;
+
+/// A roleplay campaign request: the player's ask plus their spoiler-free answers. The app builds the campaign
+/// only when the user presses Build on the card, so nothing is written here.
+fn normalize_deki_campaign_action(
+    object: &serde_json::Map<String, Value>,
+    label: Option<&str>,
+) -> AppResult<Value> {
+    let campaign = object
+        .get("campaign")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            AppError::new(
+                "deki_action_invalid",
+                "Deki-senpai campaign action requires a campaign object.",
+            )
+        })?;
+    let ask = campaign
+        .get("ask")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AppError::new(
+                "deki_action_invalid",
+                "Deki-senpai campaign action requires the player's ask.",
+            )
+        })?;
+    let ask: String = ask.chars().take(DEKI_CAMPAIGN_ASK_MAX_CHARS).collect();
+    let one_of = |key: &str, allowed: &[&str]| -> AppResult<Option<String>> {
+        match campaign.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(value)) if allowed.contains(&value.trim()) => {
+                Ok(Some(value.trim().to_string()))
+            }
+            Some(_) => Err(AppError::new(
+                "deki_action_invalid",
+                format!(
+                    "Deki-senpai campaign {key} must be one of {}.",
+                    allowed.join(", ")
+                ),
+            )),
+        }
+    };
+    let heat = one_of("heat", &["none", "fade", "explicit"])?.unwrap_or_else(|| "fade".to_string());
+    let length =
+        one_of("length", &["short", "medium", "long"])?.unwrap_or_else(|| "medium".to_string());
+    let focus = one_of("focus", &["story", "character", "challenge"])?;
+    let blind = campaign
+        .get("blind")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let limits = campaign
+        .get("limits")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .take(DEKI_CAMPAIGN_LIMITS_MAX)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut normalized = json!({
+        "type": "start_campaign",
+        "campaign": {
+            "ask": ask,
+            "heat": heat,
+            "length": length,
+            "blind": blind,
+            "limits": limits,
+        },
+    });
+    if let Some(focus) = focus {
+        normalized["campaign"]["focus"] = json!(focus);
+    }
+    if let Some(label) = label {
+        normalized["label"] = json!(label);
+    }
+    Ok(normalized)
+}
+
 fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
     let object = action.as_object().ok_or_else(|| {
         AppError::new(
@@ -715,6 +800,9 @@ fn normalize_deki_response_action(action: Value) -> AppResult<Value> {
             normalized["label"] = json!(label);
         }
         return Ok(normalized);
+    }
+    if action_type == "start_campaign" {
+        return normalize_deki_campaign_action(object, label);
     }
     match action_type {
         "apply_lorebook_redraft" => {
@@ -998,6 +1086,39 @@ mod tests {
             let error = normalize_deki_chat_access_window(Some(&window))
                 .expect_err("malformed explicit counts must not receive a default");
 
+            assert_eq!(error.code, "deki_action_invalid");
+        }
+    }
+
+    #[test]
+    fn campaign_action_keeps_the_answers_and_fills_defaults() {
+        let action = normalize_deki_response_action(json!({
+            "type": "start_campaign",
+            "campaign": { "ask": "  a haunted lighthouse  ", "heat": "explicit", "blind": true, "limits": ["", "gore"] },
+            "label": "Build it",
+        }))
+        .expect("a campaign with an ask is valid");
+        assert_eq!(
+            action,
+            json!({
+                "type": "start_campaign",
+                "campaign": { "ask": "a haunted lighthouse", "heat": "explicit", "length": "medium", "blind": true, "limits": ["gore"] },
+                "label": "Build it",
+            })
+        );
+    }
+
+    #[test]
+    fn campaign_action_rejects_a_missing_ask_or_unknown_choice() {
+        for campaign in [
+            json!({ "ask": "   " }),
+            json!({ "ask": "x", "heat": "spicy" }),
+            json!("x"),
+        ] {
+            let error = normalize_deki_response_action(
+                json!({ "type": "start_campaign", "campaign": campaign }),
+            )
+            .expect_err("invalid campaign actions are rejected");
             assert_eq!(error.code, "deki_action_invalid");
         }
     }

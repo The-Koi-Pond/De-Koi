@@ -31,6 +31,7 @@ const GROUP_LABELS: Record<GenerationContextAttributionKind, string> = {
   memory_recall: "Memory",
   story_projection: "Story Continuity",
   continuity_director: "Continuity Director",
+  campaign: "Campaign",
   behavioral_example: "Behavioral Examples",
   lorebook: "Lorebook",
   knowledge_retrieval: "Knowledge Retrieval",

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, ScrollText } from "lucide-react";
 import { toast } from "sonner";
 import type { Chat } from "../../../../../../engine/contracts/types/chat";
 import { ROLEPLAY_STARTER_CHARACTERS } from "../../../../../../engine/modes/roleplay/starter-characters";
@@ -21,6 +21,7 @@ import {
   usePresetSummaries,
 } from "../../../../../catalog/presets/index";
 import { metadataChoiceSelections } from "../../lib/chat-settings-metadata";
+import { CampaignSetupCard } from "./CampaignSetupCard";
 import { QuickSetupCard } from "./QuickSetupCard";
 import { SetupCharacterList, SetupCharacterRows } from "./SetupCharacterList";
 import { SetupConnectionPicker } from "./SetupConnectionPicker";
@@ -97,7 +98,7 @@ export function RoleplaySetup({
   const updateMetadata = useUpdateChatMetadata();
   const applyChatPreset = useApplyChatPreset();
 
-  const [view, setView] = useState<"steps" | "quick">(startInQuickSetup ? "quick" : "steps");
+  const [view, setView] = useState<"steps" | "quick" | "campaign">(startInQuickSetup ? "quick" : "steps");
   const [stepIndex, setStepIndex] = useState(0);
   const step = STEPS[stepIndex]!;
   const isLastStep = stepIndex === STEPS.length - 1;
@@ -233,8 +234,8 @@ export function RoleplaySetup({
     onCancel();
   };
 
-  // Escape: back out of Quick setup, leave the choice modal to handle its own, otherwise close setup.
-  const onEscape = choicesOpen ? undefined : view === "quick" ? backToSteps : onCancel;
+  // Escape: back out of Quick setup or the campaign card, leave the choice modal to handle its own, otherwise close.
+  const onEscape = choicesOpen ? undefined : view === "steps" ? onCancel : backToSteps;
 
   return (
     <>
@@ -245,7 +246,22 @@ export function RoleplaySetup({
         onDismiss={view === "quick" ? closeQuickSetup : onCancel}
         onEscape={onEscape}
       >
-        {view === "quick" ? (
+        {view === "campaign" ? (
+          <CampaignSetupCard
+            titleId={titleId}
+            connectionId={connectionId}
+            connections={connections}
+            allConnections={allConnections}
+            connectionsLoading={connectionsQuery.isLoading}
+            personaId={personaId}
+            folderId={chat.folderId ?? null}
+            onPickConnection={pickConnection}
+            onPickPersona={pickPersona}
+            onSetUpConnection={() => leaveTo("connections")}
+            onBack={backToSteps}
+            onClose={onCancel}
+          />
+        ) : view === "quick" ? (
           <QuickSetupCard
             titleId={titleId}
             fields={fields}
@@ -311,6 +327,16 @@ export function RoleplaySetup({
                 )}
                 <button type="button" onClick={onFinish} className={SETUP_QUIET_BUTTON_CLASS}>
                   Skip
+                </button>
+                <button
+                  type="button"
+                  aria-label="Play a campaign"
+                  onClick={() => setView("campaign")}
+                  className={SETUP_QUIET_BUTTON_CLASS}
+                >
+                  <ScrollText size="0.85rem" aria-hidden="true" />
+                  <span className="hidden sm:inline">Play a campaign</span>
+                  <span className="sm:hidden">Campaign</span>
                 </button>
                 <button
                   type="button"

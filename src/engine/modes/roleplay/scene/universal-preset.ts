@@ -58,6 +58,17 @@ export async function resolveSceneUniversalPreset(
   return { presetId, presetChoices, choiceHints };
 }
 
+/** The Universal Preset with the default choices plus `hints`; null preset when it isn't installed. */
+export async function resolveUniversalPresetWithHints(
+  storage: StorageGateway,
+  hints: UniversalChoiceHints,
+): Promise<{ presetId: string | null; presetChoices: JsonRecord }> {
+  const presetId = (await promptPresetExists(storage, DE_KOI_UNIVERSAL_PRESET_ID)) ? DE_KOI_UNIVERSAL_PRESET_ID : null;
+  if (!presetId) return { presetId: null, presetChoices: {} };
+  const blocks = await storage.list<PromptChoiceBlock>("prompt-variables", { filters: { presetId } }).catch(() => []);
+  return { presetId, presetChoices: resolveChoiceValues(blocks, { ...DEFAULT_UNIVERSAL_CHOICE_HINTS, ...hints }) };
+}
+
 function inferSceneUniversalChoiceHints(plan: SceneFullPlan, sceneConversationContext: string): UniversalChoiceHints {
   const planHints = parseStringRecord((plan as SceneFullPlan & { presetChoices?: unknown }).presetChoices);
   const text = [

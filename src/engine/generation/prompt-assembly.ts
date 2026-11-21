@@ -51,6 +51,7 @@ import {
 } from "./context-attribution";
 import { formatZonedDate, formatZonedTime, getZonedWeekdayName, normalizeUserTimeZone } from "../shared/time/timezone";
 import { compactQuestProgressForContext } from "../shared/tracker-state/player-stats";
+import { buildCampaignContext } from "../modes/roleplay/campaign/campaign-context";
 import { buildContinuityDirectorContext } from "../modes/roleplay/continuity-director/continuity-director-context";
 import { fanficChapterLayout } from "../modes/fanfic/chapter-refs";
 import {
@@ -4681,11 +4682,20 @@ export async function assembleGenerationPrompt(
           epistemicSubjects: canonicalEpistemicSubjects,
         });
   const storyContinuityBlock = storyContinuityContext?.block ?? null;
-  const continuityDirectorContext = buildContinuityDirectorContext({
+  const campaignContext = buildCampaignContext({
     chatId: readString(input.chat.id).trim(),
     chatMode,
-    state: chatMeta.roleplayContinuityDirector,
+    metadata: chatMeta,
+    messages: input.storedMessages,
   });
+  // A campaign plans the story itself; a Director's beats beside it would pull the other way.
+  const continuityDirectorContext = campaignContext
+    ? null
+    : buildContinuityDirectorContext({
+        chatId: readString(input.chat.id).trim(),
+        chatMode,
+        state: chatMeta.roleplayContinuityDirector,
+      });
   const historyAttributionKinds = new Set<GenerationContextAttributionItem["kind"]>(["chat_history", "chat_summary"]);
   const historyAndSummaryAttributionItems = reusableContext
     ? reusableContext.contextAttributionItems.filter((item) => historyAttributionKinds.has(item.kind))
@@ -4926,6 +4936,17 @@ export async function assembleGenerationPrompt(
           },
         ]
       : []),
+    ...(campaignContext
+      ? [
+          {
+            role: "system" as const,
+            content: campaignContext.block,
+            contextKind: "campaign" as const,
+            contextPriority: 520,
+            displayName: "Campaign (hidden notes)",
+          },
+        ]
+      : []),
     ...conversationContextBlocks,
     ...buildConnectedConversationBlocks(input.chat),
     ...buildRoleplayDirectMessageCommandReminder(input.chat),
@@ -5008,6 +5029,7 @@ export async function assembleGenerationPrompt(
     ...(canonicalMemoryContext?.attributionItems ?? []),
     ...(storyContinuityContext?.attributionItems ?? []),
     ...(continuityDirectorContext?.attributionItems ?? []),
+    ...(campaignContext?.attributionItems ?? []),
     ...behavioralExampleAttributionItems,
     ...attributionForLorebookEntries(processedLore.includedEntries.map(lorebookActivatedEntryForEvent)),
     ...(roleplayQualityContext ? [roleplayQualityContext.attribution] : []),

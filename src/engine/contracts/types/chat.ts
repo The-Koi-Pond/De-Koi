@@ -6,6 +6,7 @@ import type { GenerationGuideSource } from "../../shared/text/generation-guide.j
 import type { GenerationEvent, LegacyStreamProtocolEvent } from "./generation.js";
 import type { LorebookActivationTrace } from "./lorebook.js";
 import type { MemoryKind, MemoryStatus } from "./memory.js";
+import type { RoleplayCampaignState } from "./roleplay-campaign.js";
 import type { RoleplayContinuityDirectorState } from "./roleplay-continuity-director.js";
 import type { RoleplayWorldTickState } from "./roleplay-world-tick.js";
 
@@ -353,6 +354,8 @@ export interface ChatMetadata {
   automaticRoleplayQualityCorrection?: boolean;
   /** Visible, user-controlled Roleplay story plan. Missing means disabled. */
   roleplayContinuityDirector?: RoleplayContinuityDirectorState;
+  /** A pre-planned Roleplay campaign: hidden plan, table rules and progress. Missing means this is not a campaign. */
+  roleplayCampaign?: RoleplayCampaignState;
   /** Roleplay "Let time pass" review and applied time skips. Missing means none yet. */
   roleplayWorldTick?: RoleplayWorldTickState;
   /** Optional token budget for canonical memory prompt context. Missing uses a bounded context-share default. */
@@ -777,6 +780,7 @@ export type GenerationContextAttributionKind =
   | "memory_recall"
   | "story_projection"
   | "continuity_director"
+  | "campaign"
   | "behavioral_example"
   | "lorebook"
   | "knowledge_retrieval"
