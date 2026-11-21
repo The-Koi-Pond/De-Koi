@@ -120,7 +120,7 @@ mount, on a `value` change, on expand or collapse, or while `disabled`.
 | Action                                            | Hands over                                                                                                       |
 | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Clear                                             | `""` (and the panel collapses)                                                                                   |
-| Solid button, while in gradient mode              | the first gradient stop, if there is one                                                                         |
+| Solid button, while in gradient mode              | the first gradient stop, unless it is empty (an emptied first stop switches to solid and hands over nothing)     |
 | Gradient button, while in solid mode              | the built gradient from the current stops and angle                                                              |
 | Solid or Gradient button that is already selected | nothing (decision 3)                                                                                             |
 | Native color input (solid)                        | the input's value as the browser gives it (lower-case `#rrggbb`)                                                 |
@@ -316,7 +316,8 @@ deleted, with no real data and no model calls (these screens make none).
 Saved under `src/shared/components/ui/color-picker/test-fixtures/`, one-line
 JSON files listed in `.prettierignore`, each under ~1 MB.
 
-1. **Component recordings** (`recorded-picker.json`): the old picker rendered in
+1. **Component recordings** (`recorded-show.json`, `recorded-solid.json`,
+   `recorded-gradient.json`): the old picker rendered in
    the test environment as a black box (props in, rendered page and `onChange`
    calls out). Starting values: `""`, a preset, upper-case hex, 3-digit hex,
    `red`, `rgba(...)`, spaces only, two- and three-stop gradients, a 135deg

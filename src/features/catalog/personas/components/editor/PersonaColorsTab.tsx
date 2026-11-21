@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Loader2, Palette, User } from "lucide-react";
 import { toast } from "sonner";
 import { extractColorsFromImage } from "../../../../../shared/lib/avatar-color-extraction";
-import { ColorPicker } from "../../../../../shared/components/ui/ColorPicker";
+import { ColorPicker } from "../../../../../shared/components/ui/color-picker";
 import { cn } from "../../../../../shared/lib/utils";
 import type { PersonaFormData } from "../../lib/persona-editor-model";
 import { PersonaEditorSectionHeader } from "./PersonaEditorSectionHeader";

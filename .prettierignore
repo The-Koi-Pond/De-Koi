@@ -22,3 +22,5 @@ src/features/catalog/regex-scripts/components/regex-script-editor/test-fixtures/
 src/features/catalog/agents/components/tool-editor/test-fixtures/*.json
 # Global gallery panel recordings, one line each for the same reason.
 src/features/catalog/gallery/components/global-gallery/test-fixtures/*.json
+# Color picker recordings, one line each for the same reason.
+src/shared/components/ui/color-picker/test-fixtures/*.json

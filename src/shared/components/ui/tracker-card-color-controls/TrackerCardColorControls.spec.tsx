@@ -21,7 +21,7 @@ interface PickerProps {
 
 // The recordings replaced the ColorPicker with a stub that keeps its props and shows only its header action.
 const pickers = vi.hoisted(() => new Map<string, PickerProps>());
-vi.mock("../ColorPicker", () => ({
+vi.mock("../color-picker", () => ({
   ColorPicker: (props: PickerProps) => {
     pickers.set(props.label, props);
     return <div data-color-picker={props.label}>{props.headerAction}</div>;
