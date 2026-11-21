@@ -101,7 +101,7 @@ import {
   type FanficWriteArgs,
 } from "../hooks/use-fanfic";
 import { useFanficNarration, type FanficNarrationStatus } from "../hooks/use-fanfic-narration";
-import type { FanficFinishedChapter } from "../lib/write-outcome";
+import type { FanficFinishedChapter } from "../../../../engine/modes/fanfic/batch";
 import {
   buildFanficNarration,
   FANFIC_SCENE_BREAK,

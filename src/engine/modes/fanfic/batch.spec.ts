@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import type { FanficState } from "../../contracts/types/fanfic";
 import type { StorageGateway } from "../../capabilities/storage";
 import {
+  fanficAfterChapterSteps,
   fanficBatchContinues,
   fanficDurationLabel,
   fanficFollowUpInput,
   fanficFollowUpWrite,
   fanficWriteAllEstimateMinutes,
   fanficWriteSavedFinished,
+  fanficWriteSavedFinishedChapter,
   fanficWriteSavedFinishedId,
 } from "./batch";
 import { defaultFanficRequest, normalizeFanficRequest } from "./request";
@@ -194,5 +196,48 @@ describe("what follows a write by itself", () => {
   it("reads which chapter a write finished from its events", () => {
     expect(fanficWriteSavedFinishedId(saved(chapter("m2")))).toBe("m2");
     expect(fanficWriteSavedFinishedId(saved(chapter("m2", true)))).toBeNull();
+  });
+});
+
+describe("what runs once a chapter is finished", () => {
+  const plain = { polish: false, polishNext: false, batch: false };
+  const settled = (proposePlan: boolean) => ({ phraseBansFor: "m3", updateLedger: true, proposePlan });
+
+  it("cleans banned phrases, updates the ledger and re-plans after a chapter written as a new chapter", () => {
+    expect(fanficAfterChapterSteps({ messageId: "m3", origin: "chapter" }, plain)).toEqual(settled(true));
+  });
+
+  it.each(["regenerate", "revise", "extra"] as const)("does everything but the re-plan after a %s", (origin) => {
+    expect(fanficAfterChapterSteps({ messageId: "m3", origin }, plain)).toEqual(settled(false));
+  });
+
+  it("skips the re-plan when the version record can't be read", () => {
+    expect(fanficAfterChapterSteps({ messageId: "m3", origin: null }, plain)).toEqual(settled(false));
+  });
+
+  it("re-plans right away but leaves bans and the ledger for the polished text while a polish comes next", () => {
+    expect(fanficAfterChapterSteps({ messageId: "m3", origin: "chapter" }, { ...plain, polishNext: true })).toEqual({
+      phraseBansFor: null,
+      updateLedger: false,
+      proposePlan: true,
+    });
+  });
+
+  it("after the polish, cleans bans and updates the ledger without a second re-plan", () => {
+    // A polish that changed nothing still shows the version written as a new chapter.
+    expect(fanficAfterChapterSteps({ messageId: "m3", origin: "chapter" }, { ...plain, polish: true })).toEqual(
+      settled(false),
+    );
+  });
+
+  it("skips the re-plan in a write-all run, which follows the outline as it is", () => {
+    expect(fanficAfterChapterSteps({ messageId: "m3", origin: "chapter" }, { ...plain, batch: true })).toEqual(
+      settled(false),
+    );
+  });
+
+  it("reads the finished chapter and the kind of write that made it from a write's events", () => {
+    expect(fanficWriteSavedFinishedChapter(saved(chapter("m2")))).toEqual({ messageId: "m2", origin: "chapter" });
+    expect(fanficWriteSavedFinishedChapter(saved(chapter("m2", true)))).toBeNull();
   });
 });

@@ -13,7 +13,7 @@ import { defaultFanficRequest, fanficStage } from "../../../../engine/modes/fanf
 import { useChatStore } from "../../../../shared/stores/chat.store";
 import { HelperRunNote } from "../../../catalog/connections/index";
 import { isReportedGenerationFailure } from "../../../runtime/generation/index";
-import { fanficFollowUps, type FanficFinishedChapter } from "../lib/write-outcome";
+import { fanficAfterChapterSteps, type FanficFinishedChapter } from "../../../../engine/modes/fanfic/batch";
 import {
   useFanficChat,
   useFanficGenerationState,
@@ -96,21 +96,26 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
     chaptersRef.current = chapters;
   }, [chapters]);
   // Once a chapter is finished (written, continued, reset, kept as is or polished), the same follow-ups run for its kind.
+  // A write the hosted runner finished with no screen following it got its ledger update and re-plan there instead.
   const afterChapterFinished = useCallback(
-    (chapter: FanficFinishedChapter, options: { batch?: boolean; polish?: boolean; polishNext?: boolean } = {}) => {
-      const followUps = fanficFollowUps(chapter, {
+    (
+      chapter: FanficFinishedChapter,
+      options: { batch?: boolean; polish?: boolean; polishNext?: boolean; stepsOnServer?: boolean } = {},
+    ) => {
+      const followUps = fanficAfterChapterSteps(chapter, {
         polish: options.polish === true,
         polishNext: options.polishNext === true,
+        batch: options.batch === true,
       });
       // Local models: keep the fic's banned phrases out of what was just written (backtrack and resample).
       if (bansSupported && followUps.phraseBansFor) {
         removeBannedPhrases({ messageId: followUps.phraseBansFor, quiet: true });
       }
+      if (options.stepsOnServer) return;
       // Keep the story ledger current behind the scenes; it skips itself while the fic doesn't need one.
       if (followUps.updateLedger) updateLedger({ quiet: true });
-      // Living outline: after each new chapter, check the rest of the plan against what was written. A "write all"
-      // run follows the outline as it is, so it skips the proposals nobody is there to use.
-      if (followUps.proposePlan && !options.batch) proposePlan({ quiet: true });
+      // Living outline: after each new chapter, check the rest of the plan against what was written.
+      if (followUps.proposePlan) proposePlan({ quiet: true });
     },
     [bansSupported, proposePlan, removeBannedPhrases, updateLedger],
   );
@@ -159,6 +164,7 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
             batch,
             polish: args.kind === "polish",
             polishNext: next?.kind === "polish",
+            stepsOnServer: finished.stepsOnServer,
           });
           return next;
         })

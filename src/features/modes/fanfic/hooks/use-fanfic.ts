@@ -14,7 +14,7 @@ import {
   generationRunnerAvailable,
   type RunnerJobSummary,
 } from "../../../../shared/api/generation-runner-api";
-import { fanficFollowUpWrite } from "../../../../engine/modes/fanfic/batch";
+import { fanficFollowUpWrite, type FanficFinishedChapter } from "../../../../engine/modes/fanfic/batch";
 import type { Message, StreamEvent } from "../../../../engine/contracts/types/chat";
 import type { FanficModelRecord, FanficState } from "../../../../engine/contracts/types/fanfic";
 import {
@@ -38,7 +38,7 @@ import { removeFanficBannedPhrasesFrom } from "../../../../engine/modes/fanfic/p
 import { fanficConnectionSupportsPhraseBans } from "../../../../engine/modes/fanfic/phrase-bans";
 import { LOCAL_SIDECAR_CONNECTION_ID } from "../../../../engine/contracts/types/sidecar";
 import { useConnection } from "../../../catalog/connections/index";
-import { trackFanficWriteFinished, type FanficFinishedChapter } from "../lib/write-outcome";
+import { trackFanficWriteFinished, type FanficWrittenChapter } from "../lib/write-outcome";
 import {
   rewriteFanficFlaggedScenes,
   runFanficEditorPass,
@@ -278,7 +278,7 @@ export function useFanficWriter(chatId: string, connectionId: string | null) {
       parentChapter,
       batch = false,
       runnerJobId,
-    }: FanficWriteArgs): Promise<FanficFinishedChapter | null> => {
+    }: FanficWriteArgs): Promise<FanficWrittenChapter | null> => {
       // A Reset of a new chapter or extra rewrites that chapter's message, so it runs (and streams) like a redo.
       const rewrites = kind === "regenerate" || kind === "revise" || kind === "polish" || replacesVersion !== undefined;
       const args: GenerateArgs & StartFanficGenerationInput = {
@@ -292,7 +292,7 @@ export function useFanficWriter(chatId: string, connectionId: string | null) {
         ...(kind === "extra" && !rewrites && parentChapter !== undefined ? { parentChapter } : {}),
         userTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
-      let finished = (): FanficFinishedChapter | null => null;
+      let finished = (): FanficWrittenChapter | null => null;
       const written = await runGenerationWithUi(queryClient, args, (streamArgs, signal) => {
         const tracked = trackFanficWriteFinished(
           fanficWriteEvents(

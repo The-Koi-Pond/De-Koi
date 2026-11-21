@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { StreamEvent } from "../../../../engine/contracts/types/chat";
 import type { FanficVersionOriginKind } from "../../../../engine/contracts/types/fanfic";
-import { fanficFollowUps, trackFanficWriteFinished, type FanficFinishedChapter } from "./write-outcome";
+import { FANFIC_STEPS_ON_SERVER_EVENT } from "../../../../engine/modes/fanfic/batch";
+import { trackFanficWriteFinished, type FanficWrittenChapter } from "./write-outcome";
 
 async function* events(...items: StreamEvent[]): AsyncGenerator<StreamEvent> {
   yield* items;
@@ -15,9 +16,11 @@ const saved = (unfinished: unknown, kind: FanficVersionOriginKind = "chapter"): 
   },
 });
 
+const stepsOnServer = { type: FANFIC_STEPS_ON_SERVER_EVENT } as unknown as StreamEvent;
+
 async function finishedAfter(
   ...items: StreamEvent[]
-): Promise<{ finished: FanficFinishedChapter | null; passed: StreamEvent[] }> {
+): Promise<{ finished: FanficWrittenChapter | null; passed: StreamEvent[] }> {
   const tracked = trackFanficWriteFinished(events(...items));
   const passed: StreamEvent[] = [];
   for await (const event of tracked.events) passed.push(event);
@@ -29,7 +32,7 @@ describe("trackFanficWriteFinished", () => {
     const token: StreamEvent = { type: "token", data: "Snow." };
     const result = await finishedAfter(token, saved(null, "revise"));
 
-    expect(result.finished).toEqual({ messageId: "message-1", origin: "revise" });
+    expect(result.finished).toEqual({ messageId: "message-1", origin: "revise", stepsOnServer: false });
     expect(result.passed).toEqual([token, saved(null, "revise")]);
   });
 
@@ -47,45 +50,22 @@ describe("trackFanficWriteFinished", () => {
       data: { id: "message-1", extra: { fanficVersion: { models: [], origin: { kind: "sequel" }, unfinished: null } } },
     };
 
-    expect((await finishedAfter(saved)).finished).toEqual({ messageId: "message-1", origin: null });
+    expect((await finishedAfter(saved)).finished).toEqual({
+      messageId: "message-1",
+      origin: null,
+      stepsOnServer: false,
+    });
   });
 
   it("reports a write that saved no chapter as not finished", async () => {
     expect((await finishedAfter({ type: "token", data: "Snow." })).finished).toBeNull();
   });
-});
 
-describe("fanficFollowUps", () => {
-  const plain = { polish: false, polishNext: false };
-  const settled = (proposePlan: boolean) => ({ phraseBansFor: "m3", updateLedger: true, proposePlan });
+  it("notes when the runner took the after-chapter steps, and keeps its event off the screen", async () => {
+    // A screen that caught up on the job after its connection came back replays the runner's event too.
+    const result = await finishedAfter(saved(null), stepsOnServer);
 
-  it("cleans banned phrases from the chapter and re-plans after a chapter written as a new chapter", () => {
-    expect(fanficFollowUps({ messageId: "m3", origin: "chapter" }, plain)).toEqual(settled(true));
-  });
-
-  it.each(["regenerate", "revise", "extra"] as const)(
-    "cleans banned phrases from the chapter without re-planning after a %s",
-    (origin) => {
-      expect(fanficFollowUps({ messageId: "m3", origin }, plain)).toEqual(settled(false));
-    },
-  );
-
-  it("cleans banned phrases without re-planning when the version record can't be read", () => {
-    expect(fanficFollowUps({ messageId: "m3", origin: null }, plain)).toEqual(settled(false));
-  });
-
-  it("re-plans right away but leaves bans and the ledger for the polished text while a polish comes next", () => {
-    expect(fanficFollowUps({ messageId: "m3", origin: "chapter" }, { polish: false, polishNext: true })).toEqual({
-      phraseBansFor: null,
-      updateLedger: false,
-      proposePlan: true,
-    });
-  });
-
-  it("after the polish, cleans bans and updates the ledger without a second re-plan", () => {
-    // A polish that changed nothing still shows the version written as a new chapter.
-    expect(fanficFollowUps({ messageId: "m3", origin: "chapter" }, { polish: true, polishNext: false })).toEqual(
-      settled(false),
-    );
+    expect(result.finished).toEqual({ messageId: "message-1", origin: "chapter", stepsOnServer: true });
+    expect(result.passed).toEqual([saved(null)]);
   });
 });
