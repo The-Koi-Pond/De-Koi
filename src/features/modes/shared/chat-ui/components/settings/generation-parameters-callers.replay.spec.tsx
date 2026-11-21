@@ -5,15 +5,15 @@ import {
   type AdvancedScenario,
   type CallerRecording,
   type SetupScenario,
-} from "./callers-replay-harness";
-import { encode } from "./recorded-encoding";
-import advanced1Json from "./test-fixtures/recorded-advanced-1.json";
-import advanced2Json from "./test-fixtures/recorded-advanced-2.json";
-import setupJson from "./test-fixtures/recorded-setup.json";
+} from "./generation-parameters-callers-replay-harness";
+import { encode } from "../../../../../../shared/components/ui/generation-parameters/recorded-encoding";
+import advanced1Json from "../../../../../../shared/components/ui/generation-parameters/test-fixtures/recorded-advanced-1.json";
+import advanced2Json from "../../../../../../shared/components/ui/generation-parameters/test-fixtures/recorded-advanced-2.json";
+import setupJson from "../../../../../../shared/components/ui/generation-parameters/test-fixtures/recorded-setup.json";
 
 const savedDefaults = vi.hoisted(() => [] as unknown[]);
 
-vi.mock("../../../../features/catalog/connections/index", async (importOriginal) => ({
+vi.mock("../../../../../catalog/connections/index", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   useSaveConnectionDefaults: () => ({
     mutate: (value: unknown) => savedDefaults.push(encode(value)),

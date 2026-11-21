@@ -3,16 +3,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { Chat } from "../../../../engine/contracts/types/chat";
-import type { ConnectionSummary } from "../../../../features/catalog/connections/index";
+import type { Chat } from "../../../../../../engine/contracts/types/chat";
+import type { ConnectionSummary } from "../../../../../catalog/connections/index";
+import { SetupParametersPanel, useSetupParameters, type SetupParameters } from "../chat-setup/SetupParametersPanel";
+import { AdvancedParametersSection } from "./AdvancedParametersSection";
 import {
-  SetupParametersPanel,
-  useSetupParameters,
-  type SetupParameters,
-} from "../../../../features/modes/shared/chat-ui/components/chat-setup/SetupParametersPanel";
-import { AdvancedParametersSection } from "../../../../features/modes/shared/chat-ui/components/settings/AdvancedParametersSection";
-import { FieldsView, runFieldAction, setNativeValue, textsOf, trimmedText, type Group } from "./fields-replay-harness";
-import { decode, encode } from "./recorded-encoding";
+  FieldsView,
+  runFieldAction,
+  setNativeValue,
+  textsOf,
+  trimmedText,
+  type Group,
+} from "../../../../../../shared/components/ui/generation-parameters/fields-replay-harness";
+import { decode, encode } from "../../../../../../shared/components/ui/generation-parameters/recorded-encoding";
 
 type CallerAction =
   | { do: "button"; pressed: number }
