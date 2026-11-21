@@ -29,7 +29,6 @@ export interface CampaignLibrary {
   lorebooks: LibraryLorebook[];
 }
 
-
 function clip(value: string, max: number): string {
   const text = value
     .replace(/\r\n?/g, "\n")
