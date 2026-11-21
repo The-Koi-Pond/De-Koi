@@ -5,7 +5,10 @@ import { readString } from "../../../../engine/shared/value-readers";
 import { ColorPicker } from "../../../../shared/components/ui/color-picker";
 import { TrackerCardColorControls } from "../../../../shared/components/ui/tracker-card-color-controls";
 import { extractColorsFromImage } from "../../../../shared/lib/avatar-color-extraction";
-import { parseTrackerCardColorConfig } from "../../../../shared/lib/tracker-card-colors";
+import {
+  parseTrackerCardColorConfig,
+  serializeTrackerCardColorConfig,
+} from "../../../../shared/lib/tracker-card-colors";
 import { cn } from "../../../../shared/lib/utils";
 import { CharacterEditorSectionHeader } from "./CharacterEditorSectionHeader";
 import { ConversationAvatarControl, parseConversationAvatarOverride } from "./ConversationAvatarControl";
@@ -134,7 +137,9 @@ export function CharacterColorsTab({
 
       <TrackerCardColorControls
         value={trackerCardColors}
-        onChange={(value) => updateExtension("trackerCardColors", value)}
+        // Saved as text like every other writer: character saves deep-merge objects, so an object would
+        // keep a color the user just cleared.
+        onChange={(value) => updateExtension("trackerCardColors", serializeTrackerCardColorConfig(value))}
         chatColors={{ nameColor, boxColor }}
         entityLabel="Character"
       />

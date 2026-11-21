@@ -93,4 +93,32 @@ describe("CharacterColorsTab", () => {
     expect(container!.textContent).toContain("Character Tracker CardChat colors");
     expect(updateExtension).not.toHaveBeenCalled();
   });
+
+  it("hands a cleared Custom paint color over as text without that color", () => {
+    // Character saves deep-merge nested objects, so only text replaces the stored config whole.
+    const updateExtension = vi.fn();
+    const card = {
+      ...importedCard,
+      extensions: {
+        ...importedCard.extensions,
+        trackerCardColors: { mode: "custom", nameColor: "#00ff00", boxColor: "#ff0000" },
+      },
+    } as CharacterData;
+    act(() => {
+      root = createRoot(container!);
+      root.render(
+        <CharacterColorsTab formData={card} updateExtension={updateExtension} avatarUrl={null} characterId="c1" />,
+      );
+    });
+
+    act(() => container!.querySelector<HTMLButtonElement>('button[aria-label="Clear Surface"]')!.click());
+
+    expect(updateExtension).toHaveBeenCalledTimes(1);
+    const [key, saved] = updateExtension.mock.calls[0]!;
+    expect(key).toBe("trackerCardColors");
+    expect(typeof saved).toBe("string");
+    const config = JSON.parse(saved as string);
+    expect(config).toMatchObject({ mode: "custom", nameColor: "#00ff00" });
+    expect(config).not.toHaveProperty("boxColor");
+  });
 });
