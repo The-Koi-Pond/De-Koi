@@ -672,6 +672,21 @@ fn normalize_deki_campaign_action(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let names = |key: &str| {
+        campaign
+            .get(key)
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .take(DEKI_CAMPAIGN_LIMITS_MAX)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
     let mut normalized = json!({
         "type": "start_campaign",
         "campaign": {
@@ -680,6 +695,8 @@ fn normalize_deki_campaign_action(
             "length": length,
             "blind": blind,
             "limits": limits,
+            "characters": names("characters"),
+            "lorebooks": names("lorebooks"),
         },
     });
     if let Some(focus) = focus {
@@ -1102,7 +1119,7 @@ mod tests {
             action,
             json!({
                 "type": "start_campaign",
-                "campaign": { "ask": "a haunted lighthouse", "heat": "explicit", "length": "medium", "blind": true, "limits": ["gore"] },
+                "campaign": { "ask": "a haunted lighthouse", "heat": "explicit", "length": "medium", "blind": true, "limits": ["gore"], "characters": [], "lorebooks": [] },
                 "label": "Build it",
             })
         );

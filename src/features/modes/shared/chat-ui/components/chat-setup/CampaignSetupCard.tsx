@@ -1,8 +1,10 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ArrowLeft, Check, Loader2, ScrollText, X } from "lucide-react";
 import type { CampaignHeat, CampaignLength } from "../../../../../../engine/contracts/types/roleplay-campaign";
 import { cn } from "../../../../../../shared/lib/utils";
 import type { ConnectionSummary } from "../../../../../catalog/connections/index";
+import { useCharacterSummariesByIds } from "../../../../../catalog/characters/index";
+import { CampaignLibraryPicker } from "./CampaignLibraryPicker";
 import { SetupConnectionPicker } from "./SetupConnectionPicker";
 import { SetupPersonaPicker } from "./SetupPersonaPicker";
 import {
@@ -13,6 +15,7 @@ import {
   SETUP_QUIET_BUTTON_CLASS,
   SETUP_SECTION_HEADING_CLASS,
 } from "./setup-styles";
+import { toSetupCharacter, type SetupCharacter } from "./setup-characters";
 import { CAMPAIGN_STEP_LABELS, CAMPAIGN_STEPS, useCampaignBuild } from "./use-campaign-build";
 
 const HEAT_OPTIONS: ReadonlyArray<{ value: CampaignHeat; label: string; help: string }> = [
@@ -86,6 +89,10 @@ export function CampaignSetupCard({
   onPickConnection,
   onPickPersona,
   onSetUpConnection,
+  initialCharacterIds,
+  initialLorebookIds,
+  onImportCharacter,
+  onOpenCharacters,
   onBack,
   onClose,
 }: {
@@ -99,18 +106,33 @@ export function CampaignSetupCard({
   onPickConnection: (connectionId: string | null) => void;
   onPickPersona: (personaId: string | null) => void;
   onSetUpConnection: () => void;
+  /** Characters and lorebooks already picked in the setup's draft; the card starts with them. */
+  initialCharacterIds: readonly string[];
+  initialLorebookIds: readonly string[];
+  onImportCharacter: () => void;
+  onOpenCharacters: () => void;
   onBack: () => void;
   onClose: () => void;
 }) {
   const askId = useId();
   const heatId = useId();
   const lengthId = useId();
-  const limitsId = useId();
+  const offTableId = useId();
   const personaHeadingId = useId();
   const [ask, setAsk] = useState("");
   const [heat, setHeat] = useState<CampaignHeat>("fade");
   const [length, setLength] = useState<CampaignLength>("medium");
-  const [limits, setLimits] = useState("");
+  const [offTable, setOffTable] = useState("");
+  const [characters, setCharacters] = useState<SetupCharacter[]>([]);
+  const [lorebookIds, setLorebookIds] = useState<string[]>(() => [...initialLorebookIds]);
+  const initialCharacters = useCharacterSummariesByIds([...initialCharacterIds]);
+  const seededRef = useRef(false);
+  useEffect(() => {
+    // Start with the draft's characters once they load, unless the player already picked some here.
+    if (seededRef.current || initialCharacters.isLoading || initialCharacters.data.length === 0) return;
+    seededRef.current = true;
+    setCharacters((current) => (current.length > 0 ? current : initialCharacters.data.map(toSetupCharacter)));
+  }, [initialCharacters.data, initialCharacters.isLoading]);
   const [blind, setBlind] = useState(false);
   const { start, stop, step } = useCampaignBuild();
   const building = step !== null;
@@ -122,10 +144,10 @@ export function CampaignSetupCard({
       ask,
       focus: null,
       heat,
-      limits: limits
-        .split(/[,;\n]/)
-        .map((limit) => limit.trim())
-        .filter(Boolean),
+      limits: [],
+      offTable,
+      characterIds: characters.map((character) => character.id),
+      lorebookIds,
       length,
       blind,
       connectionId,
@@ -210,6 +232,16 @@ export function CampaignSetupCard({
               className={cn(SETUP_INPUT_CLASS, "resize-y leading-5")}
             />
           </div>
+          <CampaignLibraryPicker
+            ask={ask}
+            characters={characters}
+            lorebookIds={lorebookIds}
+            disabled={building}
+            onCharactersChange={setCharacters}
+            onLorebooksChange={setLorebookIds}
+            onImport={onImportCharacter}
+            onOpenCharacters={onOpenCharacters}
+          />
           <section className="flex flex-col gap-1.5">
             <h3 id={heatId} className={SETUP_SECTION_HEADING_CLASS}>
               How spicy?
@@ -217,15 +249,15 @@ export function CampaignSetupCard({
             <ChoiceRow labelledBy={heatId} options={HEAT_OPTIONS} value={heat} onChange={setHeat} disabled={building} />
           </section>
           <div>
-            <label htmlFor={limitsId} className={SETUP_FIELD_LABEL_CLASS}>
+            <label htmlFor={offTableId} className={SETUP_FIELD_LABEL_CLASS}>
               Anything off the table? (optional)
             </label>
             <input
-              id={limitsId}
-              value={limits}
+              id={offTableId}
+              value={offTable}
               maxLength={400}
-              placeholder="Separate with commas"
-              onChange={(event) => setLimits(event.target.value)}
+              placeholder="Say it however you like, or leave it empty"
+              onChange={(event) => setOffTable(event.target.value)}
               className={SETUP_INPUT_CLASS}
             />
           </div>

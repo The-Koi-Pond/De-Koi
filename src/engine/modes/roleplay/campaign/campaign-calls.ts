@@ -26,7 +26,7 @@ const SETTINGS: Record<CampaignCallKind, CallSettings> = {
   bible: { temperature: 0.95, maxTokens: 6_000, reasoningEffort: "medium" },
   situations: { temperature: 0.9, maxTokens: 12_000, reasoningEffort: "medium" },
   review: { temperature: 0.7, maxTokens: 12_000, reasoningEffort: "medium" },
-  content: { temperature: 0.9, maxTokens: 9_000, reasoningEffort: "medium" },
+  content: { temperature: 0.8, maxTokens: 9_000, reasoningEffort: "medium" },
   tick: { temperature: 0.1, maxTokens: 1_500, reasoningEffort: "low" },
   replan: { temperature: 0.8, maxTokens: 10_000, reasoningEffort: "medium" },
 };
