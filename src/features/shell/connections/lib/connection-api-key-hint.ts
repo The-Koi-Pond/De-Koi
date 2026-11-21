@@ -33,8 +33,9 @@ export function connectionApiKeyHint({ localAuth, hasSavedKey }: ConnectionApiKe
   }
   if (hasSavedKey) {
     return {
-      placeholder: "••••••••  (leave empty to keep existing key)",
-      note: "Your key is encrypted at rest. Leave blank to keep the saved key.",
+      // "Leave empty to keep existing key" read like the key had been wiped after a save (#1778).
+      placeholder: "••••••••  Key saved",
+      note: "Your key is saved and encrypted. Type a new one only to replace it.",
     };
   }
   return {

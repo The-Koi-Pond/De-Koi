@@ -12,8 +12,8 @@ describe("connectionApiKeyHint", () => {
 
   it("offers to keep the saved key when one exists", () => {
     const hint = connectionApiKeyHint({ localAuth: null, hasSavedKey: true });
-    expect(hint.placeholder).toMatch(/keep existing key/);
-    expect(hint.note).toMatch(/keep the saved key/);
+    expect(hint.placeholder).toMatch(/Key saved/);
+    expect(hint.note).toMatch(/saved and encrypted/);
   });
 
   it.each([

@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
       model: string;
       hasApiKey?: boolean;
       isDefault?: boolean;
+      baseUrl?: string;
     }>,
   },
   connectionsPending: { current: false },
@@ -356,7 +357,7 @@ describe("SetupReadinessJourney", () => {
   it("uses the stored default when Local Model is listed first", async () => {
     mocks.embedded.current = true;
     mocks.connections.current = [
-      { id: "sidecar:local", provider: "custom", model: "local" },
+      { id: "sidecar:local", provider: "custom", model: "local", baseUrl: "http://127.0.0.1:5001/v1" },
       { id: "saved-default", provider: "openai", model: "gpt", hasApiKey: true, isDefault: true },
     ];
 
@@ -422,7 +423,7 @@ describe("SetupReadinessJourney", () => {
     mocks.embedded.current = true;
     mocks.intent.current = { ...mocks.intent.current!, selectedConnectionId: "sidecar:local" };
     mocks.connections.current = [
-      { id: "sidecar:local", provider: "custom", model: "local" },
+      { id: "sidecar:local", provider: "custom", model: "local", baseUrl: "http://127.0.0.1:5001/v1" },
       { id: "saved-default", provider: "openai", model: "gpt", hasApiKey: true, isDefault: true },
     ];
 

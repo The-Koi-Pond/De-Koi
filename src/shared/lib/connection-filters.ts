@@ -19,13 +19,19 @@ const KEYLESS_PROVIDERS = new Set(["claude_subscription", "openai_chatgpt", "cus
  * A language connection that can actually reply: it has a model picked and, unless the provider works without one,
  * a saved API key. The create dialog pre-fills a default model for some providers, and the server refuses to generate
  * without a model ("Connection model is required"), so neither alone proves the connection works.
+ *
+ * Custom (OAI-Compatible) has no default address, so it also needs a Base URL. Without one, a Custom connection that
+ * was just created counted as ready and setup said "Your model is connected" before anything was entered.
  */
 export function isConnectionReadyToReply(connection: {
   provider?: string | null;
   model?: string | null;
   hasApiKey?: boolean | null;
+  baseUrl?: string | null;
 }): boolean {
   const hasModel = typeof connection.model === "string" && connection.model.trim().length > 0;
   const provider = connection.provider?.trim().toLowerCase() ?? "";
-  return hasModel && (connection.hasApiKey === true || KEYLESS_PROVIDERS.has(provider));
+  if (!hasModel) return false;
+  if (provider === "custom" && !(typeof connection.baseUrl === "string" && connection.baseUrl.trim())) return false;
+  return connection.hasApiKey === true || KEYLESS_PROVIDERS.has(provider);
 }
