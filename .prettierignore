@@ -24,3 +24,5 @@ src/features/catalog/agents/components/tool-editor/test-fixtures/*.json
 src/features/catalog/gallery/components/global-gallery/test-fixtures/*.json
 # Color picker recordings, one line each for the same reason.
 src/shared/components/ui/color-picker/test-fixtures/*.json
+# Generation parameters editor recordings, one line each for the same reason.
+src/shared/components/ui/generation-parameters/test-fixtures/*.json

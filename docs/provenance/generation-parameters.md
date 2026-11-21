@@ -1,7 +1,8 @@
 # Generation Parameters Editor: Behavior Spec
 
-Status: draft 2026-11-21, decisions as recommended. Part of the code provenance
-plan (`docs/code-provenance-plan.md`, tracked in #1580).
+Status: agreed 2026-11-21 (decisions as recommended; clarified during the
+build). Part of the code provenance plan (`docs/code-provenance-plan.md`,
+tracked in #1580).
 
 This spec describes the shared generation parameters editor: the fields for
 temperature, max output tokens, sampling, penalties, assistant prefill, custom
@@ -27,9 +28,12 @@ connection defaults end up in every reply's request body. So every value the
 helpers return and every value the fields hand over is a compatibility contract
 and must stay exactly the same, key for key and number for number, including
 key order where the recordings show it, `undefined` keys, `NaN` and `-0`. The
-rebuild changes no stored or handed-over value; the decisions below touch only
-what screen readers hear and what the screen shows after bad Custom Parameters
-input.
+rebuild changes no stored or handed-over value, with one exception from
+decision 4: after a rejected Custom Parameters entry, focusing and leaving the
+field again hands nothing over (the old editor handed the saved object over
+again, which in chat settings re-saved the same overrides, normalized, and set
+the chat to Custom). Otherwise the decisions touch only what screen readers
+hear and what the screen shows after bad Custom Parameters input.
 
 Someone other than the builder recorded the old module as a black box first
 (see "Black-box recordings"), the recordings become tests, and the builder sees
@@ -191,7 +195,8 @@ nothing on mount or when `value` changes from outside. Top to bottom:
 3. **Assistant Prefill**, a 3-row text area, resizable vertically, placeholder
    the literal text `e.g. <thinking>\n` (a backslash and an `n`, not a line
    break).
-4. **Custom Parameters**, a 3-row monospace text area, spellcheck off.
+4. **Custom Parameters**, a 3-row monospace text area, resizable vertically,
+   spellcheck off.
 5. **Custom Thinking Tags**, a row per tag and an "Add tag" button.
 6. **Service Tier** (only when `serviceTierOptions` has at least one entry).
 7. **Reasoning Effort.**
@@ -231,8 +236,9 @@ as before**, and the draft becomes `String(number)` (`"1.50"` → `"1.5"`,
 `"-0"` → `"0"`). Otherwise nothing is handed over and the draft goes back to
 `String(value[key])`. There is no rounding: `100.7` max tokens and `2.5` top K
 are handed over as they are. Stored values outside the range (for example a
-stored temperature of `5`) show as they are and are handed over again by a
-blur without typing.
+stored temperature of `5`) show as they are; a blur without typing hands
+nothing over for them (the draft is out of range), while an in-range stored
+fraction such as `100.5` max tokens is handed over again.
 
 ### Assistant Prefill
 
@@ -261,8 +267,10 @@ draft is read:
 
 Accepted: the fields hand over the value with that object as
 `customParameters`, **even when nothing changed** (focus and blur with no edit
-hands over the same object again; an empty field hands over `{}`), and the
-draft becomes the object as 2-space JSON.
+hands over the same object again; an empty field hands over `{}`). The draft
+then follows `value.customParameters` as above, so with a caller that hands
+the value back it shows the object as 2-space JSON, and with one that ignores
+it, the caller's unchanged value.
 
 Rejected: nothing is handed over. In the old editor the draft then snaps back
 to the last saved value and the hint stays; the error text is never seen
@@ -298,7 +306,7 @@ selects none.
 
 ## Decisions
 
-The rebuild keeps every returned and handed-over value as above.
+The rebuild keeps every returned and handed-over value as above, except the one call decision 4 notes.
 
 1. **Selected options aren't announced.** The option buttons show the selection
    by color only. Recommended: `aria-pressed` on every option button (true for
@@ -322,7 +330,11 @@ The rebuild keeps every returned and handed-over value as above.
    edit clears the error and shows the hint again) or until
    `value.customParameters` changes from outside while the field isn't focused
    (then the field follows it and the error clears). Still nothing is handed
-   over, so nothing stored changes.
+   over, so nothing stored changes. One handed-over call disappears as a
+   consequence: focusing and leaving the field again without editing after a
+   rejection re-reads the kept bad text and hands nothing over, where the old
+   editor had already put the saved text back and handed the saved object over
+   again (in chat settings, that old call only switched the chat to Custom).
 5. **Not in this rebuild** (unchanged, follow-ups):
    - focusing and leaving a number field or Custom Parameters without changing
      anything hands the same value over again; in chat settings that switches
@@ -339,6 +351,11 @@ The rebuild keeps every returned and handed-over value as above.
      "Unset" and "None" means something else;
    - a stored service tier the provider doesn't offer selects nothing and stays
      stored.
+   - a `__proto__` key inside custom parameters is lost when they are merged
+     with defaults (it sets the merged object's prototype instead of a key), so
+     the next save drops it; confirmed identical in the old helpers;
+   - Enter in a number field and Ctrl/Cmd+Enter in Custom Parameters also act
+     during IME composition.
 
 ## Layout and text targets
 
