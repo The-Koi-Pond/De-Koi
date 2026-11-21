@@ -75,9 +75,22 @@ describe("buildSetupReadinessFacts", () => {
         connections: [
           { id: "claude", provider: "claude_subscription", model: "claude-opus-5-5", hasApiKey: false },
           { id: "chatgpt", provider: "openai_chatgpt", model: "gpt-5", hasApiKey: false },
-          { id: "local", provider: "custom", model: "llama", hasApiKey: false },
+          { id: "local", provider: "custom", model: "llama", hasApiKey: false, baseUrl: "http://localhost:11434/v1" },
         ],
       }).usableConnectionCount,
     ).toBe(3);
+  });
+
+  // #1778: picking Custom saved a connection with a model but no address, and setup said "Your model is connected".
+  it("does not count a custom connection that has no server address yet", () => {
+    expect(
+      buildSetupReadinessFacts({
+        embedded: true,
+        connections: [
+          { id: "fresh", provider: "custom", model: "gpt-5.5", hasApiKey: false, baseUrl: "" },
+          { id: "unset", provider: "custom", model: "llama", hasApiKey: true },
+        ],
+      }).usableConnectionCount,
+    ).toBe(0);
   });
 });

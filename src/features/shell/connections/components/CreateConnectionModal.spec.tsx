@@ -51,4 +51,19 @@ describe("CreateConnectionModal", () => {
       expect.objectContaining({ name: "OpenRouter", provider: "openrouter" }),
     );
   });
+
+  // #1781 / #1782: OpenAI was preselected, and Custom got OpenAI's gpt-5.5 as its model.
+  it("starts with nothing picked and creates Custom without a borrowed model", async () => {
+    act(() => root.render(<CreateConnectionModal open onClose={() => {}} />));
+    expect(button("Create").disabled).toBe(true);
+    expect(document.body.textContent).toContain("Got a link and a key from someone? Pick Custom.");
+    const custom = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((b) =>
+      b.textContent?.startsWith("Custom (OAI-Compatible)"),
+    )!;
+    expect(custom.textContent).toContain("A server address someone gave you");
+    act(() => custom.click());
+    expect(button("Create").disabled).toBe(false);
+    await act(async () => button("Create").click());
+    expect(mocks.mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ provider: "custom", model: "" }));
+  });
 });

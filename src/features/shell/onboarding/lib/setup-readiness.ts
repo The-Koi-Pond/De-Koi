@@ -12,6 +12,7 @@ export interface SetupConnectionFact {
   provider?: string | null;
   model?: string | null;
   hasApiKey?: boolean | null;
+  baseUrl?: string | null;
 }
 
 export interface BuildSetupReadinessInput {

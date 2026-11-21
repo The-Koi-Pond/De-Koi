@@ -78,6 +78,10 @@ describe("ConnectionEditor header", () => {
   // pins the two things that fixed it: columns from the grid's own width, and names that wrap instead of truncating.
   it("sizes provider columns from the editor's width and wraps long names instead of cutting them off", () => {
     const container = renderEditor();
+    // The editor shows the picked provider as one line until "Change" (#1781).
+    const change = container.querySelector<HTMLButtonElement>('button[aria-label="Change provider"]');
+    expect(change, "change provider button").not.toBeNull();
+    act(() => change!.click());
     const providerButton = [...container.querySelectorAll("button")].find(
       (button) => button.textContent?.trim() === "Custom (OAI-Compatible)",
     );

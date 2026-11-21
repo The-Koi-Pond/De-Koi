@@ -26,17 +26,20 @@ export function CreateConnectionModal({ open, onClose }: Props) {
   const createConnection = useCreateConnection();
   const openConnectionDetail = useUIStore((s) => s.openConnectionDetail);
   const [name, setName] = useState("");
-  const [provider, setProvider] = useState<APIProvider>("openai");
+  // Nothing is picked up front: a preselected OpenAI let first-timers create a connection they never chose (#1781).
+  const [provider, setProvider] = useState<APIProvider | null>(null);
 
   const reset = () => {
     setName("");
-    setProvider("openai");
+    setProvider(null);
   };
 
   const handleCreate = async () => {
+    if (!provider) return;
     const providerDef = PROVIDERS[provider];
     const connectionName = defaultConnectionName(providerDef?.name ?? provider, name);
-    const defaultModel = MODEL_LISTS[provider]?.[0];
+    // A Custom server has its own model names; a pre-filled OpenAI model hid the server's real ones (#1782).
+    const defaultModel = provider === "custom" ? undefined : MODEL_LISTS[provider]?.[0];
     try {
       const result = await createConnection.mutateAsync({
         name: connectionName,
@@ -75,16 +78,16 @@ export function CreateConnectionModal({ open, onClose }: Props) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
-            placeholder={PROVIDERS[provider]?.name ?? "My connection"}
+            placeholder={(provider && PROVIDERS[provider]?.name) || "My connection"}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreate();
+              if (e.key === "Enter" && provider) handleCreate();
             }}
             className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-sm outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]"
           />
         </label>
 
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-[var(--muted-foreground)]">Provider</span>
+          <span className="text-xs font-medium text-[var(--muted-foreground)]">Where does your AI come from?</span>
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-4">
             {(Object.entries(PROVIDERS) as [APIProvider, (typeof PROVIDERS)[APIProvider]][])
               .filter(([key]) => isTauriRuntimeProvider(key))
@@ -93,6 +96,7 @@ export function CreateConnectionModal({ open, onClose }: Props) {
                   key={key}
                   type="button"
                   onClick={() => setProvider(key)}
+                  aria-pressed={provider === key}
                   className={cn(
                     "rounded-lg px-2.5 py-2 text-left text-[0.6875rem] font-medium transition-all",
                     provider === key
@@ -101,14 +105,22 @@ export function CreateConnectionModal({ open, onClose }: Props) {
                   )}
                 >
                   {info.name}
+                  {key === "custom" && (
+                    <span className="mt-0.5 block text-[0.625rem] font-normal opacity-80">
+                      A server address someone gave you
+                    </span>
+                  )}
                 </button>
               ))}
           </div>
-          <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-            {PROVIDER_HINTS[provider] ? `${PROVIDER_HINTS[provider]} ` : ""}
-            {provider === "xai"
-              ? "Creates an xAI connection prefilled with Grok 4.3 and https://api.x.ai/v1."
-              : nextScreenNote(provider)}
+          <p className="text-xs text-[var(--muted-foreground)]">
+            {!provider
+              ? "Pick one. Got a link and a key from someone? Pick Custom."
+              : `${PROVIDER_HINTS[provider] ? `${PROVIDER_HINTS[provider]} ` : ""}${
+                  provider === "xai"
+                    ? "Creates an xAI connection prefilled with Grok 4.3 and https://api.x.ai/v1."
+                    : nextScreenNote(provider)
+                }`}
           </p>
         </div>
 
@@ -124,7 +136,7 @@ export function CreateConnectionModal({ open, onClose }: Props) {
           </button>
           <button
             onClick={handleCreate}
-            disabled={createConnection.isPending}
+            disabled={createConnection.isPending || !provider}
             className="flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-medium text-[var(--primary-foreground)] transition-all hover:opacity-90 disabled:opacity-50"
           >
             {createConnection.isPending ? <Loader2 size="0.75rem" className="animate-spin" /> : <Link size="0.75rem" />}

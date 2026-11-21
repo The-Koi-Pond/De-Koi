@@ -93,6 +93,7 @@ import type {
 } from "../../../../engine/contracts/types/image-generation-defaults";
 import { mergeConnectionModels, selectConnectionModel } from "../lib/connection-model-selection";
 import { toUserMessage } from "../../../../shared/lib/error-message";
+import { hasEmbeddedTauriRuntime } from "../../../../shared/api/remote-runtime";
 
 /** Links where users can obtain API keys for each provider */
 const API_KEY_LINKS: Partial<Record<APIProvider, { label: string; url: string }>> = {
@@ -190,6 +191,15 @@ export function ConnectionEditor() {
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  // After a save, offer the connection test right under the header: it used to sit at the very bottom, so people saved,
+  // saw a tiny "Saved", and had no proof the server answered (#1778).
+  const [offerTestAfterSave, setOfferTestAfterSave] = useState(false);
+  // The provider was already picked in Create Connection, so the editor shows it as one line until "Change" (#1781).
+  const [showProviderPicker, setShowProviderPicker] = useState(false);
+  useEffect(() => {
+    setOfferTestAfterSave(false);
+    setShowProviderPicker(false);
+  }, [connectionDetailId]);
 
   // Local editable state
   const [localName, setLocalName] = useState("");
@@ -276,6 +286,12 @@ export function ConnectionEditor() {
       });
     };
 
+    // On a phone the field often sits near the bottom, so the list flipped up over Base URL (#1782). Scroll the field
+    // up first when there isn't room for a usable list below it.
+    const triggerRect = modelTriggerRef.current.getBoundingClientRect();
+    if (window.innerHeight - triggerRect.bottom < 240) {
+      modelTriggerRef.current.scrollIntoView?.({ block: "start" });
+    }
     update();
 
     // Recalculate on scroll/resize so the dropdown tracks the trigger
@@ -551,6 +567,8 @@ export function ConnectionEditor() {
       setDirty(false);
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
+      setOfferTestAfterSave(true);
+      setTestResult(null);
       const setup = useSetupJourneyStore.getState();
       if (setup.intent && !setup.intent.completed && !showsConnectionTest) {
         setup.markConnectionSavedWithoutTest(connectionDetailId);
@@ -840,6 +858,8 @@ export function ConnectionEditor() {
     [localProvider],
   );
   const isImageGenerationProvider = localProvider === "image_generation";
+  const showsWindowsFirewallNote =
+    hasEmbeddedTauriRuntime() && typeof navigator !== "undefined" && /windows/i.test(navigator.userAgent);
 
   if (!connectionDetailId) return null;
 
@@ -958,6 +978,48 @@ export function ConnectionEditor() {
         </div>
       )}
 
+      {/* Test offer after a save */}
+      {offerTestAfterSave && !dirty && showsConnectionTest && localProvider !== "image_generation" && (
+        <div role="status" className="flex flex-wrap items-center gap-2 bg-sky-500/10 px-4 py-2 text-xs text-sky-400">
+          {testConnection.isPending ? (
+            <Loader2 size="0.8125rem" className="animate-spin" />
+          ) : testResult?.success ? (
+            <Wifi size="0.8125rem" className="text-emerald-400" />
+          ) : testResult && !testResult.success ? (
+            <AlertCircle size="0.8125rem" className="text-red-400" />
+          ) : (
+            <Check size="0.8125rem" />
+          )}
+          <span className="min-w-0 flex-1">
+            {testConnection.isPending
+              ? "Checking that the server answers…"
+              : testResult?.success
+                ? "Connected. The server answered."
+                : testResult && !testResult.success
+                  ? `Saved, but the server didn't answer: ${testResult.message}`
+                  : "Saved. Check that the server answers before you start."}
+          </span>
+          {!testResult?.success && (
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={testConnection.isPending}
+              className="flex items-center gap-1.5 rounded-lg bg-sky-400/15 px-3 py-1.5 font-medium hover:bg-sky-400/25 disabled:opacity-50"
+            >
+              <Wifi size="0.75rem" /> {testResult && !testResult.success ? "Test again" : "Test connection"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setOfferTestAfterSave(false)}
+            aria-label="Hide connection check"
+            className="rounded-lg p-1.5 hover:bg-sky-400/15"
+          >
+            <X size="0.75rem" />
+          </button>
+        </div>
+      )}
+
       {/* ── Body ── */}
       <div className="flex-1 overflow-y-auto p-6 max-md:p-4">
         <div className="mx-auto max-w-2xl space-y-6">
@@ -984,43 +1046,58 @@ export function ConnectionEditor() {
             icon={<Globe size="0.875rem" className="text-sky-400" />}
             help="The AI service you want to connect to. Each provider has its own models, pricing, and features. OpenAI and Anthropic are the most popular."
           >
-            {/* Columns follow the editor pane's own width, not the window's: beside the chat list and Connections panel the
-                pane is narrow even on a wide screen, and long names wrap instead of being cut off. */}
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
-              {providerEntries.map(([key, info]) => (
+            {!showProviderPicker ? (
+              <div className="flex items-center gap-2 rounded-xl bg-[var(--secondary)] px-3 py-2.5 ring-1 ring-[var(--border)]">
+                <span className="min-w-0 flex-1 text-sm font-medium">{providerDef?.name ?? localProvider}</span>
                 <button
-                  key={key}
-                  onClick={() => {
-                    const defaultModel = MODEL_LISTS[key]?.[0];
-                    setLocalProvider(key);
-                    // Auto-fill base URL
-                    setLocalBaseUrl(info.defaultBaseUrl);
-                    if (key === "openai_chatgpt" || key === "claude_subscription") {
-                      setLocalApiKey("");
-                    }
-                    if (key === "openai_chatgpt") {
-                      setLocalEmbeddingModel("");
-                      setLocalEmbeddingBaseUrl("");
-                    }
-                    // Clear model when switching providers, except xAI where
-                    // we can seed the newest supported Grok model.
-                    setLocalModel(key === "xai" ? (defaultModel?.id ?? "grok-4.3") : "");
-                    if (key === "xai" && defaultModel?.context) {
-                      setLocalMaxContext(defaultModel.context);
-                    }
-                    markDirty();
-                  }}
-                  className={cn(
-                    "rounded-xl px-3 py-2.5 text-xs leading-tight font-medium break-words transition-all",
-                    localProvider === key
-                      ? SELECTED_PROVIDER_OPTION_CLASS
-                      : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
-                  )}
+                  type="button"
+                  onClick={() => setShowProviderPicker(true)}
+                  aria-label="Change provider"
+                  className="rounded-lg px-2.5 py-1 text-xs font-medium text-sky-400 hover:bg-sky-400/10"
                 >
-                  {info.name}
+                  Change
                 </button>
-              ))}
-            </div>
+              </div>
+            ) : (
+              /* Columns follow the editor pane's own width, not the window's: beside the chat list and Connections panel the
+                pane is narrow even on a wide screen, and long names wrap instead of being cut off. */
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-2">
+                {providerEntries.map(([key, info]) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      const defaultModel = MODEL_LISTS[key]?.[0];
+                      setLocalProvider(key);
+                      // Auto-fill base URL
+                      setLocalBaseUrl(info.defaultBaseUrl);
+                      if (key === "openai_chatgpt" || key === "claude_subscription") {
+                        setLocalApiKey("");
+                      }
+                      if (key === "openai_chatgpt") {
+                        setLocalEmbeddingModel("");
+                        setLocalEmbeddingBaseUrl("");
+                      }
+                      // Clear model when switching providers, except xAI where
+                      // we can seed the newest supported Grok model.
+                      setLocalModel(key === "xai" ? (defaultModel?.id ?? "grok-4.3") : "");
+                      if (key === "xai" && defaultModel?.context) {
+                        setLocalMaxContext(defaultModel.context);
+                      }
+                      setShowProviderPicker(false);
+                      markDirty();
+                    }}
+                    className={cn(
+                      "rounded-xl px-3 py-2.5 text-xs leading-tight font-medium break-words transition-all",
+                      localProvider === key
+                        ? SELECTED_PROVIDER_OPTION_CLASS
+                        : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                    )}
+                  >
+                    {info.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </FieldGroup>
 
           {isClaudeSubscriptionProvider && <ClaudeSubscriptionAuthHelp />}
@@ -1176,7 +1253,9 @@ export function ConnectionEditor() {
                 </span>
               </p>
             )}
-            {localProvider === "custom" && (
+            {/* Only the desktop app on Windows talks to a local server through Windows' own firewall; on a phone or a
+                hosted install this note is noise (#1781). */}
+            {localProvider === "custom" && showsWindowsFirewallNote && (
               <p className="mt-1.5 flex items-start gap-1 text-[0.625rem] text-sky-400/80">
                 <AlertCircle size="0.625rem" className="mt-px shrink-0" />
                 <span>
@@ -1373,50 +1452,65 @@ export function ConnectionEditor() {
 
                     {localProvider === "custom" ? (
                       <div className="p-3">
-                        <p className="mb-2 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Custom endpoints: type the model ID or fetch from API above.
-                        </p>
-                        <input
-                          value={localModel}
-                          onChange={(e) => {
-                            setLocalModel(e.target.value);
-                            markDirty();
-                          }}
-                          className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-sky-400/50"
-                          placeholder="model-name-or-path"
-                        />
-                        {/* Show fetched models for custom provider */}
-                        {remoteModels.length > 0 && (
-                          <div className="mt-2 max-h-48 overflow-y-auto">
-                            {remoteModels
-                              .filter((m) => {
-                                const q = (modelSearch || localModel).trim().toLowerCase();
-                                if (!q) return true;
-                                return m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q);
-                              })
-                              .map((m) => (
-                                <button
-                                  key={m.id}
-                                  onClick={() => selectModel(m)}
-                                  className={cn(
-                                    "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[var(--accent)]",
-                                    localModel === m.id && "bg-sky-400/5",
-                                  )}
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm font-medium">{m.name}</span>
-                                      {localModel === m.id && <Check size="0.75rem" className="text-sky-400" />}
+                        {/* The list filters by the search box only. It used to fall back to the model box, so a
+                            pre-filled model hid everything the server listed (#1782). */}
+                        {remoteModels.length > 0 ? (
+                          (() => {
+                            const q = modelSearch.trim().toLowerCase();
+                            const shown = q
+                              ? remoteModels.filter(
+                                  (m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q),
+                                )
+                              : remoteModels;
+                            return shown.length === 0 ? (
+                              <p className="text-xs text-[var(--muted-foreground)]">
+                                None of the server&apos;s models match &ldquo;{modelSearch.trim()}&rdquo;.
+                              </p>
+                            ) : (
+                              <div className="max-h-48 overflow-y-auto">
+                                {shown.map((m) => (
+                                  <button
+                                    key={m.id}
+                                    onClick={() => selectModel(m)}
+                                    className={cn(
+                                      "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[var(--accent)]",
+                                      localModel === m.id && "bg-sky-400/5",
+                                    )}
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-sm font-medium">{m.name}</span>
+                                        {localModel === m.id && <Check size="0.75rem" className="text-sky-400" />}
+                                      </div>
+                                      <span className="text-[0.625rem] text-[var(--muted-foreground)]">{m.id}</span>
                                     </div>
-                                    <span className="text-[0.625rem] text-[var(--muted-foreground)]">{m.id}</span>
-                                  </div>
-                                  <span className="shrink-0 rounded-md bg-sky-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-400">
-                                    {m.fallback ? "Fallback" : "API"}
-                                  </span>
-                                </button>
-                              ))}
-                          </div>
+                                    <span className="shrink-0 rounded-md bg-sky-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-400">
+                                      {m.fallback ? "Fallback" : "API"}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <p className="text-xs text-[var(--muted-foreground)]">
+                            {modelSearch.trim()
+                              ? "No models loaded yet, so there's nothing to search. Tap Fetch Models from API above, or type the exact name below."
+                              : "Tap Fetch Models from API above to see what this server has, or type the exact name below."}
+                          </p>
                         )}
+                        <label className="mt-3 block text-[0.625rem] font-medium text-[var(--muted-foreground)]">
+                          Exact model name
+                          <input
+                            value={localModel}
+                            onChange={(e) => {
+                              setLocalModel(e.target.value);
+                              markDirty();
+                            }}
+                            className="mt-1 w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-sm font-normal text-[var(--foreground)] ring-1 ring-[var(--border)] focus:outline-none focus:ring-sky-400/50"
+                            placeholder="the name your server uses"
+                          />
+                        </label>
                         <button
                           onClick={() => {
                             setShowModelDropdown(false);
