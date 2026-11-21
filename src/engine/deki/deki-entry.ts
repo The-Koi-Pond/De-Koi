@@ -265,6 +265,10 @@ interface DekiCampaignRequest {
   length: "short" | "medium" | "long";
   blind: boolean;
   limits: string[];
+  /** Names of the user's own library characters to star in it. */
+  characters: string[];
+  /** Names of the user's own lorebooks for its world. */
+  lorebooks: string[];
   focus?: "story" | "character" | "challenge";
 }
 
@@ -284,6 +288,13 @@ function normalizeDekiCampaignRequest(value: unknown): DekiCampaignRequest | nul
   const ask = typeof value.ask === "string" ? value.ask.trim().slice(0, 2000) : "";
   if (!ask) return null;
   const focus = pick(value.focus, CAMPAIGN_FOCUSES);
+  const names = (list: unknown) =>
+    Array.isArray(list)
+      ? list
+          .filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+          .map((name) => name.trim())
+          .slice(0, 6)
+      : [];
   return {
     ask,
     heat: pick(value.heat, CAMPAIGN_HEATS) ?? "fade",
@@ -295,6 +306,8 @@ function normalizeDekiCampaignRequest(value: unknown): DekiCampaignRequest | nul
           .map((limit) => limit.trim())
           .slice(0, 8)
       : [],
+    characters: names(value.characters),
+    lorebooks: names(value.lorebooks),
     ...(focus ? { focus } : {}),
   };
 }

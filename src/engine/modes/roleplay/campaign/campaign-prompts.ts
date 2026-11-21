@@ -7,6 +7,7 @@ import type {
   RoleplayCampaignState,
 } from "../../../contracts/types/roleplay-campaign";
 import { readString, type JsonRecord } from "../../../generation/runtime-records";
+import { libraryPromptLines, type CampaignLibrary } from "./campaign-library";
 import type { CampaignBible, CampaignSituations } from "./campaign-schemas";
 import { playedSituationIds, situationById } from "./campaign-state";
 
@@ -20,6 +21,17 @@ const LENGTH_WORDS: Record<CampaignLength, string> = {
 export interface PlayerPersona {
   name: string;
   description: string;
+}
+
+/** What every planning step knows besides the request: who the player plays and their own characters and world. */
+export interface PlannerContext {
+  persona: PlayerPersona | null;
+  library: CampaignLibrary;
+  /**
+   * The player's own answer to "anything off the table?" (and limits Deki-senpai passed on). Only the bible step
+   * reads it; the limits it settles on become the request's limits.
+   */
+  offTable?: string;
 }
 
 const AUDIENCE = [
@@ -62,18 +74,34 @@ function focusLines(request: CampaignRequest, focusKnown: boolean): string[] {
   ];
 }
 
-function requestLines(request: CampaignRequest, persona: PlayerPersona | null, focusKnown = true): string[] {
+function limitLines(request: CampaignRequest, offTable: string | undefined): string[] {
+  if (offTable !== undefined) {
+    return offTable.trim()
+      ? [
+          `The player's answer to "anything off the table?", in their words: """${offTable.trim()}"""`,
+          'Read it the way a person would and put only real hard limits in the limits field. "No", "none", "nothing" or "go crazy" mean there are none, and "go crazy" or "don\'t hold back" is a nudge to push the ask further.',
+        ]
+      : ["The player named no hard limits; the limits field is empty."];
+  }
+  return [
+    request.limits.length > 0
+      ? `Hard limits, never in this campaign: ${request.limits.join("; ")}.`
+      : "No hard limits were named.",
+  ];
+}
+
+function requestLines(request: CampaignRequest, context: PlannerContext, focusKnown = true): string[] {
+  const { persona } = context;
   return [
     `The player's ask, in their words: """${request.ask}"""`,
     ...focusLines(request, focusKnown),
     `Heat: ${HEAT_GUIDE[request.heat]}`,
-    request.limits.length > 0
-      ? `Hard limits, never in this campaign: ${request.limits.join("; ")}.`
-      : "No hard limits were named.",
+    ...limitLines(request, context.offTable),
     `Length: ${LENGTH_WORDS[request.length]}.`,
     persona
       ? `The player's character: ${persona.name}. ${persona.description}`.trim()
       : "The player's character is whoever the player plays; give them a clear role in the setting and nothing more.",
+    ...libraryPromptLines(context.library),
   ];
 }
 
@@ -89,6 +117,7 @@ const CRAFT = [
 export const BIBLE_SHAPE = `{
   "focus": "story | character | challenge",
   "secondaryFocus": "story | character | challenge | null",
+  "limits": ["hard limits, only ones the player actually set; [] when none"],
   "title": "campaign name, 2-5 words",
   "pitch": "2-3 spoiler-free sentences that make the player want to start",
   "truth": "what is really going on, for the GM only (max 150 words)",
@@ -98,11 +127,7 @@ export const BIBLE_SHAPE = `{
   "endings": [{ "id": "short-id", "condition": "when it happens, in terms of what the player did", "tone": "" }]
 }`;
 
-export function bibleMessages(
-  request: CampaignRequest,
-  persona: PlayerPersona | null,
-  focusKnown: boolean,
-): LlmMessage[] {
+export function bibleMessages(request: CampaignRequest, context: PlannerContext, focusKnown: boolean): LlmMessage[] {
   return [
     {
       role: "system",
@@ -118,7 +143,7 @@ export function bibleMessages(
         BIBLE_SHAPE,
       ].join("\n"),
     },
-    { role: "user", content: requestLines(request, persona, focusKnown).join("\n") },
+    { role: "user", content: requestLines(request, context, focusKnown).join("\n") },
   ];
 }
 
@@ -162,7 +187,7 @@ function situationRules(request: CampaignRequest, count: number): string {
 
 export function situationMessages(
   request: CampaignRequest,
-  persona: PlayerPersona | null,
+  context: PlannerContext,
   bible: CampaignBible,
 ): LlmMessage[] {
   return [
@@ -179,7 +204,12 @@ export function situationMessages(
     },
     {
       role: "user",
-      content: [...requestLines(request, persona), "", "The bible:", JSON.stringify(bible, null, 1)].join("\n"),
+      content: [
+        ...requestLines(request, { ...context, offTable: undefined }),
+        "",
+        "The bible:",
+        JSON.stringify(bible, null, 1),
+      ].join("\n"),
     },
   ];
 }
@@ -197,7 +227,7 @@ const REVIEW_CHECKLIST = [
 
 export function reviewMessages(
   request: CampaignRequest,
-  persona: PlayerPersona | null,
+  context: PlannerContext,
   bible: CampaignBible,
   draft: CampaignSituations,
   problems: string[],
@@ -218,7 +248,7 @@ export function reviewMessages(
     {
       role: "user",
       content: [
-        ...requestLines(request, persona),
+        ...requestLines(request, { ...context, offTable: undefined }),
         "",
         "The bible:",
         JSON.stringify(bible, null, 1),
@@ -246,7 +276,7 @@ export const CONTENT_SHAPE = `{
 
 export function contentMessages(
   request: CampaignRequest,
-  persona: PlayerPersona | null,
+  context: PlannerContext,
   bible: CampaignBible,
   situations: CampaignSituations,
 ): LlmMessage[] {
@@ -259,9 +289,10 @@ export function contentMessages(
         AUDIENCE,
         "Step 3 of 3:",
         "- narrator: a narrator card. Voice and style for this campaign and the sensory feel of the setting. Never the truth, a secret, a clue's meaning, or anything that happens later.",
-        "- lorebook: 6-16 short entries of world facts that anyone there would know: places, groups, customs, and each cast member's public face (look, manner, voice, what people say about them). Keys are names and words that should bring the entry up. No secrets, no plot, no rules, no instructions.",
+        "- lorebook: 6-16 short entries of world facts that anyone there would know: places, groups, customs, and each new cast member's public face (look, manner, voice, what people say about them). Keys are names and words that should bring the entry up. No secrets, no plot, no rules, no instructions. Skip the player's own characters and anything their own lorebooks already cover: those come with the chat.",
         "- opening: the first message of play, 250-450 words, in second person and present tense. Drop the player into the first situation mid-moment with something concrete to react to. End on a moment that invites a response, not a question to the player. Never write the player's words, choices, thoughts or feelings.",
-        "Write fresh, specific prose. Avoid stock phrases and AI tells: no 'a mix of', no 'the air thick with', no 'something shifts', no 'not X but Y' habit.",
+        "Write so it reads easily on the first pass: plain, concrete sentences in a natural order, one vivid detail where it counts instead of an image in every line, no riddles, no stacked metaphors, no sentence fragments for effect. The player's own characters sound exactly like their cards.",
+        "Avoid stock phrases and AI tells: no 'a mix of', no 'the air thick with', no 'something shifts', no 'not X but Y' habit.",
         "Respond with only one JSON object in this exact shape:",
         CONTENT_SHAPE,
       ].join("\n"),
@@ -269,7 +300,7 @@ export function contentMessages(
     {
       role: "user",
       content: [
-        ...requestLines(request, persona),
+        ...requestLines(request, { ...context, offTable: undefined }),
         "",
         "The bible (secrets included so you know what to keep out):",
         JSON.stringify(bible, null, 1),

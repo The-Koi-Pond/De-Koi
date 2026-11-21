@@ -25,8 +25,10 @@ import {
   reviewMessages,
   situationMessages,
   SITUATIONS_SHAPE,
+  type PlannerContext,
   type PlayerPersona,
 } from "./campaign-prompts";
+import { loadCampaignLibrary, type CampaignLibrary } from "./campaign-library";
 import {
   bibleSchema,
   contentSchema,
@@ -39,6 +41,7 @@ import { CAMPAIGN_METADATA_KEY, START_KEY } from "./campaign-state";
 
 const MAX_ASK = 2_000;
 const MAX_LIMITS = 8;
+const MAX_OFF_TABLE = 600;
 
 export interface BuildCampaignInput {
   ask: string;
@@ -46,7 +49,10 @@ export interface BuildCampaignInput {
   focus: CampaignFocus | null;
   secondaryFocus?: CampaignFocus | null;
   heat: CampaignHeat;
+  /** Limits already given as a list (Deki-senpai's card). */
   limits: string[];
+  /** The player's own answer to "anything off the table?"; the planner reads the real limits out of it. */
+  offTable?: string;
   length: CampaignLength;
   blind: boolean;
   /** The connection the campaign is built with and played on; null uses the app default. */
@@ -54,6 +60,10 @@ export interface BuildCampaignInput {
   /** The persona the player plays; null uses the active persona. */
   personaId: string | null;
   folderId?: string | null;
+  /** The player's own characters to build the campaign around; they play themselves in the chat. */
+  characterIds?: string[];
+  /** The player's own lorebooks: the world the campaign takes place in. */
+  lorebookIds?: string[];
 }
 
 export type CampaignBuildStep = "planning" | "situations" | "reviewing" | "writing" | "saving";
@@ -68,6 +78,7 @@ export interface BuiltCampaign {
 /** The plan before anything is written: what the lab and the builder share. */
 interface CampaignDraft {
   request: CampaignRequest;
+  library: CampaignLibrary;
   bible: CampaignBible;
   situations: CampaignSituations;
   /** What the checks found before the review. */
@@ -85,13 +96,31 @@ function cleanRequest(input: BuildCampaignInput): CampaignRequest {
     focus: input.focus ?? "story",
     secondaryFocus: input.secondaryFocus && input.secondaryFocus !== input.focus ? input.secondaryFocus : null,
     heat: input.heat,
-    limits: input.limits
-      .map((limit) => limit.trim())
-      .filter(Boolean)
-      .slice(0, MAX_LIMITS),
+    // Settled by the bible step from the player's own words (see offTableText).
+    limits: [],
     length: input.length,
     blind: input.blind,
   };
+}
+
+/** The player's own characters the bible's cast doesn't name. */
+function missingOwnCharacters(bible: CampaignBible, library: CampaignLibrary): string[] {
+  const castNames = new Set(bible.cast.map((member) => member.name.trim().toLowerCase()));
+  return library.characters.map((own) => own.name).filter((name) => !castNames.has(name.trim().toLowerCase()));
+}
+
+/** Everything the player said about limits, as they said it. */
+function offTableText(input: BuildCampaignInput): string {
+  return [
+    ...input.limits
+      .map((limit) => limit.trim())
+      .filter(Boolean)
+      .slice(0, MAX_LIMITS),
+    input.offTable?.trim() ?? "",
+  ]
+    .filter(Boolean)
+    .join("; ")
+    .slice(0, MAX_OFF_TABLE);
 }
 
 async function personaFor(storage: StorageGateway, personaId: string | null): Promise<PlayerPersona | null> {
@@ -109,20 +138,40 @@ async function draftCampaign(
 ): Promise<CampaignDraft> {
   const { connectionId, onStep, signal } = options;
   let request = cleanRequest(input);
-  const persona = await personaFor(capabilities.storage, input.personaId);
+  const [persona, library] = await Promise.all([
+    personaFor(capabilities.storage, input.personaId),
+    loadCampaignLibrary(capabilities.storage, { characterIds: input.characterIds, lorebookIds: input.lorebookIds }),
+  ]);
+  const context: PlannerContext = { persona, library };
 
   onStep?.("planning");
-  const bible = await campaignCall(
-    capabilities,
-    {
-      kind: "bible",
-      connectionId,
-      messages: bibleMessages(request, persona, input.focus !== null),
-      schema: bibleSchema,
-      shape: BIBLE_SHAPE,
-    },
-    signal,
-  );
+  const bibleRequest = bibleMessages(request, { ...context, offTable: offTableText(input) }, input.focus !== null);
+  const askBible = (messages: typeof bibleRequest) =>
+    campaignCall(
+      capabilities,
+      { kind: "bible", connectionId, messages, schema: bibleSchema, shape: BIBLE_SHAPE },
+      signal,
+    );
+  let bible = await askBible(bibleRequest);
+  const missing = missingOwnCharacters(bible, library);
+  if (missing.length > 0) {
+    // The review step can't add cast, so a bible without the player's own characters is redone once here.
+    bible = await askBible([
+      ...bibleRequest,
+      { role: "assistant", content: JSON.stringify(bible) },
+      {
+        role: "user",
+        content: `The cast must include the player's own characters under their exact names: ${missing.join(", ")}. Return the full corrected bible as one JSON object.`,
+      },
+    ]);
+    const stillMissing = missingOwnCharacters(bible, library);
+    if (stillMissing.length > 0) {
+      throw userFacingError(
+        `The model left ${stillMissing.join(" and ")} out of the campaign. Try again, or switch to a stronger model.`,
+      );
+    }
+  }
+  request = { ...request, limits: bible.limits.slice(0, MAX_LIMITS) };
   if (input.focus === null) {
     request = {
       ...request,
@@ -137,7 +186,7 @@ async function draftCampaign(
     {
       kind: "situations",
       connectionId,
-      messages: situationMessages(request, persona, bible),
+      messages: situationMessages(request, context, bible),
       schema: situationsSchema,
       shape: SITUATIONS_SHAPE,
     },
@@ -151,7 +200,7 @@ async function draftCampaign(
     {
       kind: "review",
       connectionId,
-      messages: reviewMessages(request, persona, bible, first, problems),
+      messages: reviewMessages(request, context, bible, first, problems),
       schema: situationsSchema,
       shape: SITUATIONS_SHAPE,
     },
@@ -164,13 +213,21 @@ async function draftCampaign(
     {
       kind: "content",
       connectionId,
-      messages: contentMessages(request, persona, bible, situations),
+      messages: contentMessages(request, context, bible, situations),
       schema: contentSchema,
       shape: CONTENT_SHAPE,
     },
     signal,
   );
-  return { request, bible, situations, problems, remainingProblems: planProblems(request, bible, situations), content };
+  return {
+    request,
+    bible,
+    situations,
+    problems,
+    remainingProblems: planProblems(request, bible, situations),
+    content,
+    library,
+  };
 }
 
 /** The stored campaign for a draft. */
@@ -218,6 +275,40 @@ function presetHints(heat: CampaignHeat): Record<string, string> {
   return { contentBoundary: "boundary_sfw", eroticTone: "erotic_tone_none" };
 }
 
+/** The narrator card for a campaign without the player's own characters. */
+async function createNarrator(
+  storage: StorageGateway,
+  content: CampaignContent,
+  title: string,
+  created: Array<() => Promise<void>>,
+): Promise<string> {
+  const character = await storage.create<JsonRecord>("characters", {
+    name: content.narrator.name,
+    data: {
+      name: content.narrator.name,
+      description: content.narrator.description,
+      personality: content.narrator.personality,
+      // The opening lives in the campaign chat; a fresh chat with this card has no plan behind it.
+      first_mes: "",
+      scenario: "",
+      mes_example: "",
+      creator_notes: `Narrator for the campaign "${title}". The plan lives in the campaign chat, not on this card.`,
+      system_prompt: "",
+      post_history_instructions: "",
+      creator: "",
+      character_version: "1.0",
+      tags: ["campaign"],
+      alternate_greetings: [],
+      extensions: { campaignNarrator: true },
+      character_book: null,
+    },
+  });
+  const characterId = readString(character.id).trim();
+  if (!characterId) throw new Error("The narrator card was saved without an id.");
+  created.push(async () => void (await storage.delete("characters", characterId)));
+  return characterId;
+}
+
 /** Saves a planned campaign: narrator card, lorebook, the chat with its hidden plan, and the opening. */
 async function saveCampaignDraft(
   storage: StorageGateway,
@@ -228,31 +319,12 @@ async function saveCampaignDraft(
   const { content } = draft;
   const title = draft.bible.title;
   const created: Array<() => Promise<void>> = [];
+  const ownCharacterIds = draft.library.characters.map((character) => character.id);
+  const ownLorebookIds = draft.library.lorebooks.map((lorebook) => lorebook.id);
   try {
-    const character = await storage.create<JsonRecord>("characters", {
-      name: content.narrator.name,
-      data: {
-        name: content.narrator.name,
-        description: content.narrator.description,
-        personality: content.narrator.personality,
-        // The opening lives in the campaign chat; a fresh chat with this card has no plan behind it.
-        first_mes: "",
-        scenario: "",
-        mes_example: "",
-        creator_notes: `Narrator for the campaign "${title}". The plan lives in the campaign chat, not on this card.`,
-        system_prompt: "",
-        post_history_instructions: "",
-        creator: "",
-        character_version: "1.0",
-        tags: ["campaign"],
-        alternate_greetings: [],
-        extensions: { campaignNarrator: true },
-        character_book: null,
-      },
-    });
-    const characterId = readString(character.id).trim();
-    if (!characterId) throw new Error("The narrator card was saved without an id.");
-    created.push(async () => void (await storage.delete("characters", characterId)));
+    // The player's own characters play themselves; only a campaign without them gets a narrator card.
+    const narratorId = ownCharacterIds.length > 0 ? null : await createNarrator(storage, content, title, created);
+    const speakerIds = narratorId ? [narratorId] : ownCharacterIds;
 
     const lorebook = await storage.create<JsonRecord>("lorebooks", {
       name: `${title} (campaign)`,
@@ -280,19 +352,20 @@ async function saveCampaignDraft(
     );
 
     const preset = await resolveUniversalPresetWithHints(storage, presetHints(draft.request.heat));
-    const state = campaignStateFromDraft(draft, { narratorCharacterId: characterId, lorebookId }, now);
+    const state = campaignStateFromDraft(draft, { narratorCharacterId: narratorId, lorebookId }, now);
+    const lorebookIds = [lorebookId, ...ownLorebookIds];
     const chat = await storage.create<JsonRecord>("chats", {
       name: title,
       mode: "roleplay",
-      characterIds: [characterId],
+      characterIds: speakerIds,
       personaId: input.personaId,
       folderId: input.folderId ?? null,
       connectionId: input.connectionId,
       promptPresetId: preset.presetId,
-      activeLorebookIds: [lorebookId],
+      activeLorebookIds: lorebookIds,
       metadata: {
         [CAMPAIGN_METADATA_KEY]: state,
-        activeLorebookIds: [lorebookId],
+        activeLorebookIds: lorebookIds,
         enableMemoryRecall: true,
         ...(preset.presetId ? { presetChoices: preset.presetChoices } : {}),
       },
@@ -300,7 +373,11 @@ async function saveCampaignDraft(
     const chatId = readString(chat.id).trim();
     if (!chatId) throw new Error("The campaign chat was saved without an id.");
     created.push(() => deleteChatAndTranscript(storage, chatId));
-    await storage.createChatMessage(chatId, { role: "assistant", characterId, content: content.opening });
+    await storage.createChatMessage(chatId, {
+      role: "assistant",
+      characterId: speakerIds[0],
+      content: content.opening,
+    });
     return { chatId, title, pitch: draft.request.blind ? "" : draft.bible.pitch };
   } catch (error) {
     return undoThenThrow(error, async () => {

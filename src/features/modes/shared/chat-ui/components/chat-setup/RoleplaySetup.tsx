@@ -77,6 +77,10 @@ type StepKey = (typeof STEPS)[number]["key"];
 
 const RENAME_ALWAYS = () => true;
 
+function readLorebookIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.trim().length > 0) : [];
+}
+
 /**
  * Setup for every mode but Conversation: six steps that each save at once, with Quick setup one click away.
  * Custom parameters are saved by Done, and a picked workflow profile is applied before it finishes.
@@ -258,6 +262,10 @@ export function RoleplaySetup({
             onPickConnection={pickConnection}
             onPickPersona={pickPersona}
             onSetUpConnection={() => leaveTo("connections")}
+            initialCharacterIds={fields.characterIds}
+            initialLorebookIds={readLorebookIds(fields.metadata.activeLorebookIds)}
+            onImportCharacter={() => useUIStore.getState().openModal("import-character")}
+            onOpenCharacters={() => leaveTo("characters")}
             onBack={backToSteps}
             onClose={onCancel}
           />

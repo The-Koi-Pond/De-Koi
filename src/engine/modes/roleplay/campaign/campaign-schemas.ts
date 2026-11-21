@@ -97,6 +97,7 @@ const situationSchema = z.object({
 export const bibleSchema = z.object({
   focus: z.enum(FOCUS).catch("story"),
   secondaryFocus: z.enum(FOCUS).nullable().catch(null),
+  limits: z.array(text(160)).max(8).default([]),
   title: text(80),
   pitch: text(500),
   truth: text(1_000),
