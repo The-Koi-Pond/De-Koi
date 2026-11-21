@@ -4,7 +4,8 @@
 // Runs replies on the server instead of in the browser tab, so a reply keeps going (and gets saved) when the tab
 // closes or the phone locks. It runs the same engine code as the app (startGeneration) against the de-koi-server
 // runtime API, with the same storage/LLM adapters the web app uses in remote mode. Fanfic chapter writes run here
-// too (startFanficGeneration); a chapter's auto-polish and a "write all" run's next chapter chain as jobs finish.
+// too (startFanficGeneration); a chapter's auto-polish and a "write all" run's next chapter chain as jobs finish, and
+// a chapter that finishes with no screen following it gets its ledger update and re-plan here (fanfic-steps.ts).
 //
 //   GET  /runner/health
 //   POST /runner/generate            { input }  -> { jobId }   (409 + jobId when the chat already has one running)
@@ -18,8 +19,9 @@
 import http from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { JobRegistry, type RunnerEvent, type RunnerJob } from "./jobs";
-import { runGenerationJob, configureRuntime, isFanficJobInput, nextRunnerJobInput } from "./engine";
-import { fanficWriteSavedFinished } from "../engine/modes/fanfic/batch";
+import { runGenerationJob, configureRuntime, fanficStepRunners, isFanficJobInput, nextRunnerJobInput } from "./engine";
+import { FANFIC_STEPS_ON_SERVER_EVENT, fanficWriteSavedFinished } from "../engine/modes/fanfic/batch";
+import { FanficStepQueue, fanficStepsAfterJob } from "./fanfic-steps";
 import { sentMediaFromEvents, sentMediaTitle, type SentMediaKind } from "../engine/modes/chat/core/sent-media";
 import { startAutonomousScheduler, type PresenceStatus } from "./autonomous";
 import { PushStore } from "./push-store";
@@ -144,7 +146,7 @@ function savedReplyCharacterId(job: RunnerJob): string | null | undefined {
   return typeof data?.characterId === "string" ? data.characterId : null;
 }
 
-function createRunnerServer(
+export function createRunnerServer(
   config: RunnerConfig,
   registry = new JobRegistry(),
   features: RunnerFeatures = { push: null, textingFirst: false },
@@ -155,6 +157,7 @@ function createRunnerServer(
   const presenceStatus = (): PresenceStatus =>
     Date.now() - presence.reportedAt < PRESENCE_MS ? presence.status : "idle";
   const autonomousJobs = new Set<string>();
+  const fanficSteps = new FanficStepQueue(fanficStepRunners);
 
   const notify = (
     chatId: string,
@@ -208,6 +211,13 @@ function createRunnerServer(
         // Decided before this job ends, so a screen that sees it end finds the next chapter already running.
         const next = job.controller.signal.aborted ? null : await nextJobAfter(job);
         const watched = registry.followers(job) > 0;
+        // A fanfic chapter no screen is following gets its after-chapter steps here. The event goes in before the
+        // job ends, so a screen that catches up on the job later sees the runner has them and leaves them be.
+        const steps = job.controller.signal.aborted || watched ? null : fanficStepsAfterJob(input, job.events, next);
+        if (steps) {
+          registry.push(job, { type: FANFIC_STEPS_ON_SERVER_EVENT });
+          void fanficSteps.run(steps);
+        }
         registry.finish(job, job.controller.signal.aborted ? "cancelled" : "done");
         if (next && job.status === "done") {
           try {
@@ -248,7 +258,7 @@ function createRunnerServer(
     return job;
   };
 
-  const streamJob = async (req: http.IncomingMessage, res: http.ServerResponse, job: RunnerJob, from: number) => {
+  const streamJob = async (res: http.ServerResponse, job: RunnerJob, from: number) => {
     res.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-store",
@@ -256,7 +266,9 @@ function createRunnerServer(
       "x-accel-buffering": "no",
     });
     const closed = new AbortController();
-    req.on("close", () => closed.abort());
+    // The response closes when the screen goes away (the request's own close fired once its body was read), so the
+    // job stops counting it as a follower right then.
+    res.on("close", () => closed.abort());
     const keepAlive = setInterval(() => res.write(": keep-alive\n\n"), 15_000);
     const write = (event: RunnerEvent) => res.write(`data: ${JSON.stringify(event)}\n\n`);
     try {
@@ -368,7 +380,7 @@ function createRunnerServer(
           }
           const body = await readJson(req);
           const from = typeof body.from === "number" && Number.isFinite(body.from) ? body.from : 0;
-          await streamJob(req, res, job, from);
+          await streamJob(res, job, from);
           return;
         }
         throw new HttpError(404, "Not found");

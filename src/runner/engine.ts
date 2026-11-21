@@ -3,11 +3,14 @@ import { startGeneration } from "../engine/generation/start-generation";
 import { startFanficGeneration, type StartFanficGenerationInput } from "../engine/modes/fanfic/chapters";
 import { fanficFollowUpInput, fanficFollowUpWrite, fanficWriteSavedFinishedId } from "../engine/modes/fanfic/batch";
 import { FANFIC_GENERATION_KINDS } from "../engine/modes/fanfic/chapters";
+import { updateFanficLedger } from "../engine/modes/fanfic/ledger";
+import { proposeFanficPlan } from "../engine/modes/fanfic/plan";
 import { integrationGateway } from "../shared/api/integration-gateway";
 import { llmApi } from "../shared/api/llm-api";
 import { storageApi } from "../shared/api/storage-api";
 import { visualAssetsApi } from "../shared/api/visual-assets-api";
 import { useUIStore } from "../shared/stores/ui.store";
+import type { FanficStepRunners } from "./fanfic-steps";
 import type { RunnerEvent } from "./jobs";
 
 /** Points the shared runtime adapters at the de-koi-server API (credentials may ride in the URL). */
@@ -60,3 +63,12 @@ export async function nextRunnerJobInput(
   });
   return followUp ? fanficFollowUpInput(input, followUp) : null;
 }
+
+/**
+ * A fic's after-chapter steps against the hosted runtime, run the way the reader runs them after a chapter: the ledger
+ * update skips a fic that doesn't need one, and each step picks its own helper route (else the fic's connection).
+ */
+export const fanficStepRunners: FanficStepRunners = {
+  updateLedger: (chatId) => updateFanficLedger({ storage: storageApi, llm: llmApi }, { chatId, onlyIfInUse: true }),
+  proposePlan: (chatId) => proposeFanficPlan({ storage: storageApi, llm: llmApi }, { chatId }),
+};

@@ -1,13 +1,12 @@
 import type { StreamEvent } from "../../../../engine/contracts/types/chat";
-import type { FanficVersionOriginKind } from "../../../../engine/contracts/types/fanfic";
 import { parseRecord, readString } from "../../../../engine/generation/runtime-records";
+import { FANFIC_STEPS_ON_SERVER_EVENT, type FanficFinishedChapter } from "../../../../engine/modes/fanfic/batch";
 import { readFanficVersion } from "../../../../engine/modes/fanfic/versions";
 
-/** A chapter that just became finished (written, continued, reset or kept as is) and the write that made it. */
-export interface FanficFinishedChapter {
-  messageId: string;
-  /** Null when the version record can't be read. */
-  origin: FanficVersionOriginKind | null;
+/** A chapter a write finished, as the reader saw the write. */
+export interface FanficWrittenChapter extends FanficFinishedChapter {
+  /** The hosted runner runs this write's ledger update and re-plan (no screen was following when it ended). */
+  stepsOnServer: boolean;
 }
 
 /**
@@ -16,11 +15,17 @@ export interface FanficFinishedChapter {
  */
 export function trackFanficWriteFinished(events: AsyncGenerator<StreamEvent>): {
   events: AsyncGenerator<StreamEvent>;
-  finished: () => FanficFinishedChapter | null;
+  finished: () => FanficWrittenChapter | null;
 } {
   let finished: FanficFinishedChapter | null = null;
+  let stepsOnServer = false;
   async function* tracked(): AsyncGenerator<StreamEvent> {
     for await (const event of events) {
+      // The runner's own event, not a generation event: the screen has nothing to show for it.
+      if ((event.type as string) === FANFIC_STEPS_ON_SERVER_EVENT) {
+        stepsOnServer = true;
+        continue;
+      }
       if (event.type === "assistant_message") {
         const data = parseRecord(event.data);
         const version = readFanficVersion(data.extra);
@@ -31,23 +36,5 @@ export function trackFanficWriteFinished(events: AsyncGenerator<StreamEvent>): {
       yield event;
     }
   }
-  return { events: tracked(), finished: () => finished };
-}
-
-/**
- * What runs in the reader once a chapter is finished, whichever way it got there: the phrase bans for that chapter and
- * the ledger update, and for a chapter written as a new chapter a re-plan of the rest, as after any new one. While its
- * auto-polish comes next, the bans and the ledger wait for the polished text; the polish itself proposes no re-plan,
- * since the chapter it polished already did.
- */
-export function fanficFollowUps(
-  chapter: FanficFinishedChapter,
-  write: { polish: boolean; polishNext: boolean },
-): { phraseBansFor: string | null; updateLedger: boolean; proposePlan: boolean } {
-  const settled = !write.polishNext;
-  return {
-    phraseBansFor: settled ? chapter.messageId : null,
-    updateLedger: settled,
-    proposePlan: !write.polish && chapter.origin === "chapter",
-  };
+  return { events: tracked(), finished: () => (finished ? { ...finished, stepsOnServer } : null) };
 }
