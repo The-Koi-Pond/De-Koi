@@ -68,7 +68,7 @@ const STEPS = [
   {
     key: "workflow",
     title: "Choose a workflow profile",
-    help: "Optional extras for longer or more visual stories. To start chatting now, press Done. If you pick one, Done becomes Apply & finish.",
+    help: "Optional extras for longer or more visual stories. Simple Roleplay is already on, so press Done to start chatting. Pick another to add its extras; the button then says Apply & finish.",
   },
 ] as const;
 
@@ -321,7 +321,24 @@ export function RoleplaySetup({
                   <span className="hidden sm:inline">Use settings presets</span>
                   <span className="sm:hidden">Presets</span>
                 </button>
-                {isLastStep ? (
+                {step.key === "characters" && characters.selected.length > 0 ? (
+                  <>
+                    {/* With a character added, the rest (lorebooks, workflow extras) is optional: start right away (#1784). */}
+                    <button type="button" aria-label="More options" onClick={next} className={SETUP_QUIET_BUTTON_CLASS}>
+                      <span className="hidden sm:inline">More options</span>
+                      <span className="sm:hidden">More</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={finishing}
+                      onClick={() => void finish()}
+                      className={SETUP_PRIMARY_BUTTON_CLASS}
+                    >
+                      {finishing && <Loader2 size="0.85rem" aria-hidden="true" className="animate-spin" />}
+                      Start chatting
+                    </button>
+                  </>
+                ) : isLastStep ? (
                   <button
                     type="button"
                     disabled={finishing}
@@ -480,7 +497,7 @@ function RoleplayStepBody({
             enabled
             selectedIds={characters.selectedIds}
             noCharactersText="No characters yet. Pick one to start with, or make or import your own."
-            allAddedText="All characters already added."
+            allAddedText="Everyone in your library is in this chat."
             starters={ROLEPLAY_STARTER_CHARACTERS}
             onAdd={(character) => void characters.add(character)}
             onCreated={(id, name) => void characters.addNamed(id, name)}

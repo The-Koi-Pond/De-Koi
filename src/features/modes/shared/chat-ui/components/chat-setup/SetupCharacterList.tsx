@@ -68,6 +68,12 @@ export function SetupCharacterList({
   );
 
   const libraryRows = (searching ? library.data : results.data) ?? [];
+  // A starter already in the library (added earlier, maybe renamed back) isn't offered again.
+  const remainingStarters = useMemo(() => {
+    if (!starters) return undefined;
+    const names = new Set(libraryRows.map((row) => toSetupCharacter(row).name.trim().toLowerCase()));
+    return starters.filter((starter) => !names.has(starter.name.trim().toLowerCase()));
+  }, [starters, libraryRows]);
   const status = {
     hasError: results.isError || (searching && library.isError),
     isPending: results.isFetching || search !== debouncedSearch,
@@ -127,7 +133,7 @@ export function SetupCharacterList({
           status={status}
           noCharactersText={noCharactersText}
           allAddedText={allAddedText}
-          starters={starters}
+          starters={remainingStarters}
           onCharacterCreated={onCreated}
           onImportCharacters={onImport}
           onOpenCharacters={onOpenCharacters}

@@ -1,5 +1,6 @@
+import { useEffect, useRef } from "react";
 import { Check, ChevronRight, Circle, Server, Sparkles, X } from "lucide-react";
-import type { SetupReadinessFacts } from "../../../../engine/onboarding";
+import type { SetupJourneyMode, SetupReadinessFacts } from "../../../../engine/onboarding";
 
 export interface SetupReadinessChecklistProps {
   facts: SetupReadinessFacts;
@@ -13,6 +14,8 @@ export interface SetupReadinessChecklistProps {
   onRepairRuntime?: () => void;
   onCreateConnection?: () => void;
   onContinueChat?: () => void;
+  /** The mode card that started setup, so the checklist reads as the answer to that tap. */
+  mode?: SetupJourneyMode;
 }
 
 export function SetupReadinessChecklist({
@@ -26,7 +29,14 @@ export function SetupReadinessChecklist({
   onRepairRuntime,
   onCreateConnection,
   onContinueChat,
+  mode,
 }: SetupReadinessChecklistProps) {
+  // Tapping a mode card on Home showed this above the cards and pushed them down, which felt like the tap was ignored
+  // (#1784). Bring it into view when it appears.
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!completed && !dismissed) sectionRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [completed, dismissed]);
   if (completed) return null;
   if (dismissed) {
     // The tucked-away reminder: resume the setup, or (the attached ×) cancel this chat setup for good.
@@ -89,6 +99,7 @@ export function SetupReadinessChecklist({
 
   return (
     <section
+      ref={sectionRef}
       aria-labelledby="setup-readiness-title"
       className="w-full max-w-[32rem] rounded-xl border border-[var(--primary)]/25 bg-[var(--card)]/85 p-4 shadow-sm"
     >
@@ -98,7 +109,9 @@ export function SetupReadinessChecklist({
             Finish setting up De-Koi
           </h2>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            Your chat starts as soon as these steps are done.
+            {mode
+              ? `Your ${MODE_WORDS[mode]} opens as soon as these steps are done.`
+              : "Your chat starts as soon as these steps are done."}
           </p>
         </div>
         <button
@@ -139,3 +152,10 @@ export function SetupReadinessChecklist({
     </section>
   );
 }
+
+const MODE_WORDS: Record<SetupJourneyMode, string> = {
+  conversation: "conversation",
+  roleplay: "roleplay",
+  fanfic: "fanfic",
+  trance: "trance session",
+};

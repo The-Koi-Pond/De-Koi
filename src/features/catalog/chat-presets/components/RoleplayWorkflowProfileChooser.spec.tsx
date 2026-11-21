@@ -210,6 +210,8 @@ describe("RoleplayWorkflowProfileChooser", () => {
     });
 
     expect(onPendingApplyChange.mock.calls.every(([value]) => value === null)).toBe(true);
+    // The wizard's own Done / Apply & finish applies the pick, so there's no second primary button here (#1784).
+    expect(container.textContent).not.toContain("Review and apply");
 
     await act(async () => {
       (container.querySelector('[aria-label="Choose Long-Running Story"]') as HTMLButtonElement).click();

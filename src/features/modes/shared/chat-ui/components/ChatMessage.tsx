@@ -1224,6 +1224,9 @@ export const ChatMessage = memo(function ChatMessage({
   const mergedNames = useMemo(() => mergedGroupNames(chatCharacterIds, characterMap), [chatCharacterIds, characterMap]);
   const mergedDisplayName = mergedGroupDisplayLabel(mergedNames);
   const displayName = isUser ? userName : isMergedGroup ? mergedDisplayName : charName;
+  // A character with no picture shows their initial, like the chat list does, instead of a robot icon (#1779).
+  const avatarInitial =
+    !isUser && !isMergedGroup && primaryCharInfo?.name ? primaryCharInfo.name.trim().charAt(0).toUpperCase() : "";
   const baseAvatarUrl = isUser
     ? msgPersona
       ? (msgPersona.avatarUrl ?? null)
@@ -1874,6 +1877,10 @@ export const ChatMessage = memo(function ChatMessage({
                 >
                   {isUser ? (
                     <User size={compactAvatarIconSize} className="text-white" />
+                  ) : avatarInitial ? (
+                    <span aria-hidden="true" className="text-sm font-semibold text-white">
+                      {avatarInitial}
+                    </span>
                   ) : (
                     <Bot size={compactAvatarIconSize} className="text-white" />
                   )}
@@ -2024,6 +2031,10 @@ export const ChatMessage = memo(function ChatMessage({
                         >
                           {isUser ? (
                             <User size="1.25rem" className="text-white" />
+                          ) : avatarInitial ? (
+                            <span aria-hidden="true" className="text-lg font-semibold text-white">
+                              {avatarInitial}
+                            </span>
                           ) : (
                             <Bot size="1.25rem" className="text-white" />
                           )}

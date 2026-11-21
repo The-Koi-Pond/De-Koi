@@ -605,6 +605,35 @@ describe("Roleplay wizard steps", () => {
     });
   });
 
+  // #1784: lorebooks and workflow extras are optional, so a first chat can start as soon as it has a character.
+  it("offers Start chatting once a character is added, and More options for the rest", async () => {
+    mocks.characters.push(MIRA);
+    const { container, finish } = renderSetup("roleplay");
+    advance(container, 3);
+    expect(findButton(container, "Start chatting")).toBeUndefined();
+
+    await clickAsync(container, "Add Mira");
+    expect(findButton(container, "Next")).toBeUndefined();
+    await clickAsync(container, "Start chatting");
+
+    expect(mocks.updateMetadataAsync).toHaveBeenCalledWith({ id: "chat-1", chatParameters: null });
+    expect(finish).toHaveBeenCalledOnce();
+  });
+
+  // #1785: after making their own character, first-timers saw the starters vanish under "All characters already added".
+  it("keeps the starters and quick create on offer after making your own character", async () => {
+    const { container } = renderSetup("roleplay");
+    advance(container, 3);
+    typeInto(container.querySelector<HTMLInputElement>('input[placeholder="e.g. Mira"]')!, "Mira");
+    await clickAsync(container, "Create and add");
+
+    expect(button(container, "Remove Mira")).toBeDefined();
+    expect(container.textContent).toContain("Start with one of these");
+    expect(container.textContent).toContain("Wisp");
+    expect(container.textContent).not.toContain("All characters already added");
+    expect(container.querySelector('input[placeholder="e.g. Mira"]')).not.toBeNull();
+  });
+
   it("adds one greeting with its alternates as swipes and takes it back when the character is removed (decision 1)", async () => {
     mocks.characters.push(MIRA);
     mocks.cards.mira = {
@@ -758,7 +787,7 @@ describe("Roleplay workflow step", () => {
     const { container } = renderSetup("roleplay");
     advance(container, 5);
 
-    expect(container.textContent).toContain("To start chatting now, press Done.");
+    expect(container.textContent).toContain("Simple Roleplay is already on, so press Done to start chatting.");
     expect(button(container, "Done")).toBeDefined();
 
     click(container, "Pick workflow profile");

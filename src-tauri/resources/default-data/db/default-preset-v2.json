@@ -471,7 +471,7 @@
         "id": "choice_v2_agency",
         "presetId": "preset_universal_v2",
         "variableName": "agencyStrictness",
-        "question": "Choose how strictly to preserve user agency.",
+        "question": "Should the AI ever act or speak for your character?",
         "options": [
           {
             "id": "agency_strict",
