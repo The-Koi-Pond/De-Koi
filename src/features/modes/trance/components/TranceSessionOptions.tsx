@@ -110,9 +110,14 @@ export function TranceSessionOptions({
   const screenProblem = pace === "auto" || eyesClosed ? keepScreenOnSupport() : null;
 
   return (
-    <section className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-left">
-      <h3 className="mb-2 text-sm font-bold text-[var(--foreground)]">Before you start</h3>
-      <div className="flex flex-col gap-3">
+    // Folded by default: the quick start promises "No choices", and five settings before Start broke that (#1787). The
+    // defaults work; everything stays one tap away.
+    <details className="group w-full rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-left">
+      <summary className="cursor-pointer list-none text-sm font-bold text-[var(--foreground)]">
+        Session options{" "}
+        <span className="font-normal text-[var(--muted-foreground)]">(optional: background, sound, voice)</span>
+      </summary>
+      <div className="mt-3 flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
           <span className="text-[0.8125rem] font-semibold text-[var(--foreground)]">Background</span>
           <div role="group" aria-label="Background" className="flex flex-wrap gap-1.5">
@@ -229,6 +234,6 @@ export function TranceSessionOptions({
           )}
         </div>
       </div>
-    </section>
+    </details>
   );
 }

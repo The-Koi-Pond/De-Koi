@@ -635,6 +635,15 @@ describe("quickTranceRequest", () => {
     expect(quickTranceRequest({ moods: [], moodNote: "", now: at(4) }).ending).toBe("sleep");
   });
 
+  it("drifts to sleep for someone tired in the evening, and still wakes them by day", () => {
+    expect(quickTranceRequest({ moods: ["tired"], moodNote: "", now: at(19) })).toMatchObject({
+      category: "sleep",
+      ending: "sleep",
+    });
+    expect(quickTranceRequest({ moods: ["tired"], moodNote: "", now: at(14) }).ending).toBe("wake");
+    expect(quickTranceRequest({ moods: ["calm"], moodNote: "", now: at(19) }).ending).toBe("wake");
+  });
+
   it("adds fractionation for a restless mind and keeps how they feel", () => {
     const request = quickTranceRequest({ moods: ["wired", "tired"], moodNote: "brain won't stop", now: at(14) });
     expect(request.features).toEqual(["fractionation"]);

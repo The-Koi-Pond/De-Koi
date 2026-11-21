@@ -6,7 +6,7 @@ import { cn } from "../../../../shared/lib/utils";
 import { FanficButton, FanficSection, FanficWaitNote, fanficInputClass } from "./fanfic-ui";
 
 const PLANNING_PHASE_TEXT: Record<FanficPlanningPhase, { title: string; detail: string }> = {
-  choosing_searches: { title: "Looking things up…", detail: "Working out what to check about the canon." },
+  choosing_searches: { title: "Looking things up…", detail: "Working out what to look up about your story's world." },
   searching: { title: "Reading sources…", detail: "Searching fan wikis and other references." },
   writing_notes: { title: "Writing research notes…", detail: "Pulling out what the story has to get right." },
   finding_quotes: { title: "Finding canon lines…", detail: "Reading pages that quote the characters." },

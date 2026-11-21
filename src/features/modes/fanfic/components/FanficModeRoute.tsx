@@ -398,10 +398,12 @@ export function FanficModeRoute({ activeChatId }: FanficModeRouteProps) {
             />
           }
           helperNote={
-            <>
+            // Which connection ran each step reads like an error to a first-timer (#1789), so it sits behind a toggle.
+            <details className="mt-1 text-xs text-[var(--muted-foreground)]">
+              <summary className="cursor-pointer">Which model planned this?</summary>
               <HelperRunNote task="fanficPlanning" job="research" chatId={activeChatId} className={PLANNING_NOTE} />
               <HelperRunNote task="fanficPlanning" job="outline" chatId={activeChatId} className={PLANNING_NOTE} />
-            </>
+            </details>
           }
           saving={updateMetadata.isPending}
           onApprove={(approved, notes) => void approveOutline(approved, notes)}

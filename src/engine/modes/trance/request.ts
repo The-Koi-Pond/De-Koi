@@ -142,7 +142,8 @@ export function quickTranceRequest(input: {
   /** What a session made from a chat draws on; a quick session keeps it. */
   basis?: string;
 }): TranceRequest {
-  const night = isNight(input.now);
+  // Tired in the evening wants sleep too: a 7:30pm "I'm tired" quick session used to end with "Wake up" (#1787).
+  const night = isNight(input.now) || (input.moods.includes("tired") && input.now.getHours() >= 18);
   const restless = input.moods.some((mood) => mood === "wired" || mood === "anxious" || mood === "stressed");
   return normalizeTranceRequest({
     ...defaultTranceRequest(),
