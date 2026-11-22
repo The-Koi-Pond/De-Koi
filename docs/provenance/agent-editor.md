@@ -493,6 +493,12 @@ connectionId, promptTemplate, settings`; inside `settings` the activation
 - **Uploads and file deletes.** A failed upload shows nothing. A failed file
   delete shows the hooks' generic toast. Picking another file while an upload
   is running still changes the selection.
+- **Custom cadence focus** survives switching agents: the box keeps showing the
+  raw value if it was focused when the agent changed.
+- **Built-in cadence group** shows when the agent type is `illustrator` and the
+  built-in meta (from the built-in id) has cadence meta, whatever that built-in
+  is (a corrupt row with id `lorebook-keeper` and type `illustrator` shows both
+  Run Interval groups).
 - **Coverage dot** compares the unrounded share (75% or more emerald, 25% or
   more amber), so 74.5% shows `75% described` with an amber dot. An entry whose
   description isn't a string crashes the coverage count.
@@ -612,6 +618,10 @@ accessibility changes (no stored value or visible text changes):
 4. **Small accessibility details** (no visible change): header button labels
    hidden visually but kept for screen readers below 768px, decorative icons
    `aria-hidden`.
+5. **The Description box shows leftover text.** When the stored row has no
+   `description` (`null` or missing), the old box showed the previous agent's
+   text or the built-in's description while saving `undefined`. Recommended:
+   show an empty box (what will be saved). The payload doesn't change.
 
 ## Follow-ups after the rebuild
 
