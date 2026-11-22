@@ -37,8 +37,9 @@ export interface ChoiceBlockRow {
 export type OptionRow = Record<string, unknown> & { id?: unknown; label?: unknown; value?: unknown };
 
 export interface VariableView {
-  name: string;
-  question: string;
+  /** As stored (a number or other non-text value stays as it is; inputs compare against it strictly). */
+  name: unknown;
+  question: unknown;
   options: OptionRow[];
   multiSelect: boolean;
   randomPick: boolean;
@@ -56,8 +57,8 @@ export function readVariable(row: ChoiceBlockRow): VariableView {
   const options = Array.isArray(row.options) ? (row.options as OptionRow[]) : [];
   const multiSelect = isOn(row.multiSelect);
   return {
-    name: String(row.variableName ?? row.variable_name ?? ""),
-    question: String(row.question ?? ""),
+    name: row.variableName ?? row.variable_name ?? "",
+    question: row.question ?? "",
     options,
     multiSelect,
     randomPick: isOn(row.randomPick),
@@ -66,9 +67,9 @@ export function readVariable(row: ChoiceBlockRow): VariableView {
   };
 }
 
-/** What an option's label or value input shows. */
-export function shownText(value: unknown): string {
-  return value === undefined || value === null ? "" : String(value);
+/** What an input shows for a stored value: the value as React would show it, nothing for missing or `null`. */
+export function inputValue(value: unknown): string {
+  return (value ?? "") as string;
 }
 
 /**
@@ -80,6 +81,6 @@ export function isBlankValue(opt: OptionRow): boolean {
 }
 
 /** The name shown in control names, `variable` when the variable has none. */
-export function nameForLabels(name: string): string {
-  return name || "variable";
+export function nameForLabels(name: unknown): string {
+  return `${name || "variable"}`;
 }

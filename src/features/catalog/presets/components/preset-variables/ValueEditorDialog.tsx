@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { shownText, type OptionRow } from "./variable-row";
+import { inputValue, type OptionRow } from "./variable-row";
 
 const SAVE_DELAY_MS = 600;
 const FOCUS_DELAY_MS = 100;
@@ -25,7 +25,8 @@ export function ValueEditorDialog({
   onClose: () => void;
 }) {
   const titleId = useId();
-  const [text, setText] = useState(() => shownText(option.value));
+  // Starts as the stored value as it is (missing, `null` or a number included); closing compares against it strictly.
+  const [text, setText] = useState<unknown>(option.value);
   const textArea = useRef<HTMLTextAreaElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -37,7 +38,7 @@ export function ValueEditorDialog({
 
   const close = () => {
     clearTimeout(timer.current);
-    if (text !== option.value) onSave(text);
+    if (text !== option.value) onSave(text as string);
     onClose();
   };
 
@@ -67,16 +68,16 @@ export function ValueEditorDialog({
     const area = event.currentTarget;
     const start = area.selectionStart;
     const end = area.selectionEnd;
-    change(text.slice(0, start) + TAB_TEXT + text.slice(end));
+    // Works on the text as it is: a stored value that isn't text throws here, as it did before (follow-up).
+    const current = text as string;
+    change(current.substring(0, start) + TAB_TEXT + current.substring(end));
     requestAnimationFrame(() => {
       area.selectionStart = area.selectionEnd = start + TAB_TEXT.length;
     });
   };
 
-  const label = shownText(option.label);
-
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 max-md:pt-[max(1.5rem,env(safe-area-inset-top))]">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={close} />
       <div
         role="dialog"
@@ -86,7 +87,7 @@ export function ValueEditorDialog({
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <h3 id={titleId} className="text-sm font-semibold">
-            {`Edit Value: ${label || `Option ${number}`}`}
+            {`Edit Value: ${option.label ? option.label : `Option ${number}`}`}
           </h3>
           <button
             type="button"
@@ -100,7 +101,7 @@ export function ValueEditorDialog({
         <div className="flex-1 overflow-hidden p-4">
           <textarea
             ref={textArea}
-            value={text}
+            value={inputValue(text)}
             placeholder="Prompt content… (supports macros like {{user}}, {{char}}, etc.)"
             onChange={(event) => change(event.target.value)}
             onKeyDown={onKeyDown}

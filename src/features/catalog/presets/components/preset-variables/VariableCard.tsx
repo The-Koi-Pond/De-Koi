@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Hash, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../../shared/lib/utils";
 import type { CardDrag } from "./use-card-drag";
@@ -124,7 +124,7 @@ export function VariableCard({
         </button>
         <Hash size="0.875rem" className="shrink-0 text-amber-400" />
         <span onClick={onToggle} className="min-w-0 flex-1 truncate text-sm font-medium text-amber-400">
-          {view.name}
+          {view.name as ReactNode}
         </span>
         <span className="shrink-0 rounded bg-amber-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-amber-400">
           {view.options.length} options

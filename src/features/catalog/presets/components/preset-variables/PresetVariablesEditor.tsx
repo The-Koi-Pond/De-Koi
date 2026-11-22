@@ -82,7 +82,11 @@ export function PresetVariablesEditor({
               expanded={expandedId === variable.id}
               onToggle={() => setExpandedId((current) => (current === variable.id ? null : variable.id))}
               reorderPending={onReorderVariables.isPending}
-              onMove={(delta) => reorder(movedIds(variables, index, delta < 0 ? index - 1 : index + 2))}
+              onMove={(delta) => {
+                // A variable without an id (corrupt row) can't be moved, as before.
+                if (!variable.id) return;
+                reorder(movedIds(variables, index, delta < 0 ? index - 1 : index + 2));
+              }}
               onUpdateVariable={onUpdateVariable}
               onDeleteVariable={onDeleteVariable}
               drag={drag}

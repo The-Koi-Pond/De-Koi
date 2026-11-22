@@ -2,7 +2,7 @@ import { Maximize2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../../../../../shared/lib/utils";
 import { blurOnEnter } from "./controls";
-import { isBlankValue, shownText, type OptionRow } from "./variable-row";
+import { inputValue, isBlankValue, type OptionRow } from "./variable-row";
 
 const SAVE_DELAY_MS = 600;
 
@@ -19,15 +19,16 @@ function OptionTextInput({
   mono = false,
   onSave,
 }: {
-  stored: string;
+  /** The stored label or value as it is; the typed text is compared against it strictly. */
+  stored: unknown;
   placeholder: string;
   name: string;
   invalid?: boolean;
   mono?: boolean;
   onSave: (text: string) => void;
 }) {
-  const [text, setText] = useState(stored);
-  const [shownStored, setShownStored] = useState(stored);
+  const [text, setText] = useState<unknown>(stored);
+  const [shownStored, setShownStored] = useState<unknown>(stored);
   const [focused, setFocused] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   if (stored !== shownStored) {
@@ -39,7 +40,7 @@ function OptionTextInput({
   return (
     <input
       type="text"
-      value={text}
+      value={inputValue(text)}
       placeholder={placeholder}
       aria-label={name}
       onFocus={(event) => {
@@ -55,7 +56,7 @@ function OptionTextInput({
       onBlur={() => {
         setFocused(false);
         clearTimeout(timer.current);
-        if (text !== stored) onSave(text);
+        if (text !== stored) onSave(text as string);
       }}
       onKeyDown={blurOnEnter}
       className={cn(
@@ -89,7 +90,7 @@ export function OptionRows({
     const blank = isBlankValue(opt);
     const number = index + 1;
     return (
-      <div key={(opt.id as string | undefined) ?? index}>
+      <div key={opt.id as string | undefined}>
         <div
           className={cn(
             "flex items-center gap-2 rounded-lg px-2.5 py-1.5 ring-1",
@@ -100,13 +101,13 @@ export function OptionRows({
         >
           <span className="shrink-0 text-[0.625rem] font-medium text-amber-400">{number}.</span>
           <OptionTextInput
-            stored={shownText(opt.label)}
+            stored={opt.label}
             placeholder="Label…"
             name={`Option ${number} label`}
             onSave={(text) => saveField(index, "label", text)}
           />
           <OptionTextInput
-            stored={shownText(opt.value)}
+            stored={opt.value}
             placeholder="Value…"
             name={`Option ${number} value`}
             invalid={blank}

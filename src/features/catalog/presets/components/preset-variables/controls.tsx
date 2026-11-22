@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent } from "react";
 import { cn } from "../../../../../shared/lib/utils";
+import { inputValue } from "./variable-row";
 
 /** The Variable Name and Question inputs. */
 export const FIELD_INPUT =
@@ -23,15 +24,16 @@ export function BlurringTextInput({
   className,
 }: {
   id: string;
-  stored: string;
+  /** The stored value as it is; the typed text is compared against it strictly. */
+  stored: unknown;
   placeholder: string;
   /** Applied to every change as it is typed. */
   clean?: (text: string) => string;
   onSave: (text: string) => void;
   className: string;
 }) {
-  const [text, setText] = useState(stored);
-  const [shownStored, setShownStored] = useState(stored);
+  const [text, setText] = useState<unknown>(stored);
+  const [shownStored, setShownStored] = useState<unknown>(stored);
   if (stored !== shownStored) {
     setShownStored(stored);
     setText(stored);
@@ -41,12 +43,12 @@ export function BlurringTextInput({
     <input
       id={id}
       type="text"
-      value={text}
+      value={inputValue(text)}
       placeholder={placeholder}
       onFocus={(event) => event.target.select()}
       onChange={(event) => setText(clean(event.target.value))}
       onBlur={() => {
-        if (text !== stored) onSave(text);
+        if (text !== stored) onSave(text as string);
       }}
       onKeyDown={blurOnEnter}
       className={className}
