@@ -453,6 +453,51 @@ Try again." })` and the unsaved state stays. Returns whether it saved (for
 The unsaved state is mirrored to the UI store (`setEditorDirty`) whenever it
 changes.
 
+### Recorded details
+
+The recordings are the source of truth for these (found while recording the
+old editor; keep them):
+
+- **Stored shape.** The tables above are what the editor hands the hooks. The
+  hooks' schema then fixes the stored key order and fills defaults (on create:
+  `type, name, description, credit, imagePath: null, phase, enabled,
+connectionId, promptTemplate, settings`; inside `settings` the activation
+  keys come first, then `resultType`). Hand the hooks the same values; the
+  recordings show what storage receives.
+- **Schema rejections.** An empty name, a name over 200 characters and other
+  values the schema rejects send nothing; the banner shows the generic
+  `Couldn't save agent config. Try again.`
+- **Odd stored values** save as recorded: `maxTokens: "abc"` saves `NaN`; a row
+  without `description` hands `description: undefined`; a numeric `credit`
+  shows as `5` and saves `""`; a built-in row with a `null` credit saves the
+  built-in's credit; a stored `save_lorebook_entry` tool is dropped on save;
+  stored source lorebook or file ids that no longer exist still count in the
+  "selected" summary and are saved as they are.
+- **A held save.** Edits typed while a save is running are lost when it
+  succeeds (the refetched row refills the form).
+- **Saved flash.** Every Save starts its own 1.5-second timer and none is
+  cancelled, so an earlier timer can end a later flash early.
+- **Number boxes.** A browser number box hands an empty string for text it
+  can't read (`abc`), so the value becomes empty; only text `parseInt` reads
+  oddly (`1e3`, `2.9`) gives the clamped integer.
+- **Whitespace prompt.** On a built-in, a prompt of only whitespace counts as
+  blank, so the read-only default replaces the text area while typing.
+- **Duplicate matches.** When one row matches by `type` and another by `id`,
+  the first in list order wins.
+- **Export throws before saving** (no toast, an unhandled rejection) when the
+  export envelope can't be built: a type that isn't `custom-…`, a built-in
+  opened by its row id, or a row the schema rejects. Only throws from the file
+  save give the error toast.
+- **Delete** with unsaved edits closes without the unsaved bar; a failed
+  Delete is an unhandled rejection and the editor stays open.
+- **Uploads and file deletes.** A failed upload shows nothing. A failed file
+  delete shows the hooks' generic toast. Picking another file while an upload
+  is running still changes the selection.
+- **Custom tool schemas.** A selectable custom tool with `parametersSchema:
+null` crashes the whole editor; an `enum` that isn't an array crashes when
+  its card is expanded; a `required` that is a string marks parameters by
+  substring; a schema stored as a JSON string shows no parameters.
+
 ## Layout
 
 Use the screenshots. The editor fills the detail area (column, page
@@ -512,6 +557,13 @@ request after it:
    the chosen phase even when Text Rewrite will save Post-Processing.
 8. `EditAgentModal.tsx` (172 of 184 lines not team-owned) looks like an older
    editor for the same rows; check whether it is still used.
+9. A custom tool with a `null` or odd parameter schema crashes the editor for
+   every agent (see "Recorded details"); treat a bad schema as no parameters.
+10. Export of an agent whose envelope can't be built and a failed Delete fail
+    silently; show an error instead.
+11. Edits typed during a held save are lost; a failed upload shows nothing.
+12. The schema's name rule (1 to 200 characters) shows only the generic error;
+    say what is wrong.
 
 ## Tests
 
