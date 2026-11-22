@@ -600,8 +600,8 @@ to edit` with `FileText`. The default box is monospace 0.75rem relaxed, 1rem
 ## Decisions
 
 The rebuild keeps every stored payload, every visible text, every shown value
-and every enabled/disabled state exactly as recorded, except these
-accessibility changes (no stored value or visible text changes):
+and every enabled/disabled state exactly as recorded, except these (no stored value changes; only decision 5 changes visible
+text):
 
 1. **Toggles don't announce their state.** Recommended: `aria-pressed` on every
    on/off or pick-one button: Agent Status, the three phases, the two result
