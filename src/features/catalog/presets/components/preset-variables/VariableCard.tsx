@@ -22,7 +22,7 @@ interface VariableCardProps {
 }
 
 const ARROW_BUTTON =
-  "rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-30";
+  "rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-30";
 
 function DropLine({ where }: { where: "before" | "after" }) {
   return (
@@ -72,62 +72,65 @@ export function VariableCard({
       onDragStart={(event) => drag.dragStart(event, index)}
       onDragEnd={drag.dragEnd}
       className={cn(
-        "relative rounded-xl border border-amber-400/20 bg-amber-400/[0.04] transition-opacity",
+        "relative rounded-xl border border-amber-400/20 bg-amber-400/5",
         drag.draggedIndex === index && "opacity-40",
       )}
     >
       {drag.dropIndex === index && <DropLine where="before" />}
       {drag.dropIndex === count && index === count - 1 && <DropLine where="after" />}
-      <div className="flex items-center gap-1.5 px-3 py-2.5">
-        <div
-          title="Drag to reorder"
-          aria-hidden="true"
-          onMouseDown={() => drag.gripDown(index)}
-          className="cursor-grab p-0.5 text-[var(--muted-foreground)] active:cursor-grabbing"
-        >
-          <GripVertical size="0.875rem" />
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <div className="flex shrink-0 items-center gap-0.5">
+          <div
+            title="Drag to reorder"
+            aria-hidden="true"
+            onMouseDown={() => drag.gripDown(index)}
+            className="rounded p-0.5"
+          >
+            <GripVertical size="0.875rem" className="text-[var(--muted-foreground)]" />
+          </div>
+          <button
+            type="button"
+            title="Move up"
+            aria-label={`Move ${labelName} up`}
+            disabled={index === 0 || reorderPending}
+            onClick={() => onMove(-1)}
+            className={ARROW_BUTTON}
+          >
+            <ArrowUp size="0.75rem" />
+          </button>
+          <button
+            type="button"
+            title="Move down"
+            aria-label={`Move ${labelName} down`}
+            disabled={index === count - 1 || reorderPending}
+            onClick={() => onMove(1)}
+            className={ARROW_BUTTON}
+          >
+            <ArrowDown size="0.75rem" />
+          </button>
         </div>
-        <button
-          type="button"
-          title="Move up"
-          aria-label={`Move ${labelName} up`}
-          disabled={index === 0 || reorderPending}
-          onClick={() => onMove(-1)}
-          className={ARROW_BUTTON}
-        >
-          <ArrowUp size="0.8125rem" />
-        </button>
-        <button
-          type="button"
-          title="Move down"
-          aria-label={`Move ${labelName} down`}
-          disabled={index === count - 1 || reorderPending}
-          onClick={() => onMove(1)}
-          className={ARROW_BUTTON}
-        >
-          <ArrowDown size="0.8125rem" />
-        </button>
         <button
           type="button"
           aria-label={`${expanded ? "Collapse" : "Expand"} ${labelName}`}
           aria-expanded={expanded}
           onClick={onToggle}
-          className="ml-1 rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+          className="shrink-0 rounded p-0.5"
         >
-          {expanded ? <ChevronDown size="0.875rem" /> : <ChevronRight size="0.875rem" />}
+          {expanded ? (
+            <ChevronDown size="0.875rem" className="text-[var(--muted-foreground)]" />
+          ) : (
+            <ChevronRight size="0.875rem" className="text-[var(--muted-foreground)]" />
+          )}
         </button>
-        <Hash size="0.9375rem" className="ml-1 shrink-0 text-amber-400" />
-        <span
-          onClick={onToggle}
-          className="min-w-0 flex-1 cursor-pointer truncate text-sm font-semibold text-amber-400"
-        >
+        <Hash size="0.875rem" className="shrink-0 text-amber-400" />
+        <span onClick={onToggle} className="min-w-0 flex-1 truncate text-sm font-medium text-amber-400">
           {view.name}
         </span>
-        <span className="shrink-0 rounded bg-amber-400/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-amber-400">
+        <span className="shrink-0 rounded bg-amber-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-amber-400">
           {view.options.length} options
         </span>
         {pill && (
-          <span className="shrink-0 rounded bg-purple-400/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-purple-400">
+          <span className="shrink-0 rounded bg-purple-400/15 px-1.5 py-0.5 text-[0.5625rem] font-medium text-purple-400">
             {pill}
           </span>
         )}
@@ -139,9 +142,9 @@ export function VariableCard({
           title="Delete variable"
           aria-label={`Delete ${labelName}`}
           onClick={() => void confirmDelete()}
-          className="ml-1 shrink-0 rounded p-1 text-red-400 transition-colors hover:bg-red-400/10"
+          className="shrink-0 rounded-lg p-1 hover:bg-[var(--destructive)]/10"
         >
-          <Trash2 size="0.8125rem" />
+          <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
         </button>
       </div>
       {expanded && (

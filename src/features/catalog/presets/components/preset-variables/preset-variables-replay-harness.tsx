@@ -93,7 +93,7 @@ export interface Recording {
   scenarios: Scenario[];
 }
 
-export const PRESET_ID = "preset-1";
+const PRESET_ID = "preset-1";
 /** `Date.now()` at the start of every scenario (2026-01-01T00:00:00.000Z). */
 const BASE_TIME = 1767225600000;
 
@@ -105,7 +105,7 @@ function isTag(value: object, key: string): boolean {
 }
 
 /** Turns the recordings' encoded values back into what they stand for. */
-export function decode(value: unknown): unknown {
+function decode(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(decode);
   if (typeof value !== "object" || value === null) return value;
   const record = value as Record<string, unknown>;
@@ -701,9 +701,13 @@ export class VariablesHarness {
       case "done":
         await this.click(this.buttonWithText("Done", this.modal()));
         return {};
-      case "backdrop":
-        await this.click(this.modal());
+      case "backdrop": {
+        // The dimmed layer behind the panel.
+        const backdrop = [...this.modal().children].find((child) => !child.matches('[role="dialog"]'));
+        if (!backdrop) throw new ControlNotFound("no backdrop");
+        await this.click(backdrop);
         return {};
+      }
       case "focus":
         await this.focus(this.field(str(0)));
         return {};

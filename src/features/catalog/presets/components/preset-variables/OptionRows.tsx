@@ -1,7 +1,7 @@
 import { Maximize2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "../../../../../shared/lib/utils";
-import { INPUT, blurOnEnter } from "./controls";
+import { blurOnEnter } from "./controls";
 import { isBlankValue, shownText, type OptionRow } from "./variable-row";
 
 const SAVE_DELAY_MS = 600;
@@ -59,10 +59,10 @@ function OptionTextInput({
       }}
       onKeyDown={blurOnEnter}
       className={cn(
-        INPUT,
-        "min-w-0 flex-1 py-1",
+        "flex-1 rounded bg-[var(--background)] px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--ring)]",
         mono && "font-mono",
-        invalid && "border-red-500/50 bg-red-500/10 placeholder:text-red-400/60",
+        invalid &&
+          "bg-[var(--destructive)]/10 ring-1 ring-[var(--destructive)]/30 placeholder:text-[var(--destructive)]/40",
       )}
     />
   );
@@ -85,57 +85,55 @@ export function OptionRows({
   const saveField = (index: number, field: "label" | "value", text: string) =>
     onSave(options.map((opt, at) => (at === index ? { ...opt, [field]: text } : opt)));
 
-  return (
-    <div className="space-y-1.5">
-      {options.map((opt, index) => {
-        const blank = isBlankValue(opt);
-        const number = index + 1;
-        return (
-          <div key={(opt.id as string | undefined) ?? index}>
-            <div
-              className={cn(
-                "flex items-center gap-2 rounded-lg border px-2 py-1.5",
-                blank ? "border-red-500/40 bg-red-500/5" : "border-[var(--border)] bg-[var(--secondary)]",
-              )}
-            >
-              <span className="w-5 shrink-0 text-[0.6875rem] font-semibold text-amber-400">{number}.</span>
-              <OptionTextInput
-                stored={shownText(opt.label)}
-                placeholder="Label…"
-                name={`Option ${number} label`}
-                onSave={(text) => saveField(index, "label", text)}
-              />
-              <OptionTextInput
-                stored={shownText(opt.value)}
-                placeholder="Value…"
-                name={`Option ${number} value`}
-                invalid={blank}
-                mono
-                onSave={(text) => saveField(index, "value", text)}
-              />
-              <button
-                type="button"
-                title="Expand value editor"
-                aria-label={`Edit value of option ${number}`}
-                onClick={() => onExpand(index)}
-                className="shrink-0 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-              >
-                <Maximize2 size="0.75rem" />
-              </button>
-              <button
-                type="button"
-                title="Remove option"
-                aria-label={`Remove option ${number}`}
-                onClick={() => onRemove(index)}
-                className="shrink-0 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:text-red-400"
-              >
-                <X size="0.75rem" />
-              </button>
-            </div>
-            {blank && <p className="mt-0.5 pl-7 text-[0.625rem] text-red-400">Value cannot be empty.</p>}
-          </div>
-        );
-      })}
-    </div>
-  );
+  return options.map((opt, index) => {
+    const blank = isBlankValue(opt);
+    const number = index + 1;
+    return (
+      <div key={(opt.id as string | undefined) ?? index}>
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-lg px-2.5 py-1.5 ring-1",
+            blank
+              ? "bg-[var(--destructive)]/5 ring-[var(--destructive)]/30"
+              : "bg-[var(--secondary)] ring-[var(--border)]",
+          )}
+        >
+          <span className="shrink-0 text-[0.625rem] font-medium text-amber-400">{number}.</span>
+          <OptionTextInput
+            stored={shownText(opt.label)}
+            placeholder="Label…"
+            name={`Option ${number} label`}
+            onSave={(text) => saveField(index, "label", text)}
+          />
+          <OptionTextInput
+            stored={shownText(opt.value)}
+            placeholder="Value…"
+            name={`Option ${number} value`}
+            invalid={blank}
+            mono
+            onSave={(text) => saveField(index, "value", text)}
+          />
+          <button
+            type="button"
+            title="Expand value editor"
+            aria-label={`Edit value of option ${number}`}
+            onClick={() => onExpand(index)}
+            className="shrink-0 rounded p-0.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+          >
+            <Maximize2 size="0.625rem" />
+          </button>
+          <button
+            type="button"
+            title="Remove option"
+            aria-label={`Remove option ${number}`}
+            onClick={() => onRemove(index)}
+            className="shrink-0 rounded p-0.5 hover:bg-[var(--destructive)]/10"
+          >
+            <X size="0.625rem" className="text-[var(--destructive)]" />
+          </button>
+        </div>
+        {blank && <p className="mt-1 pl-6 text-[0.5625rem] text-[var(--destructive)]">Value cannot be empty.</p>}
+      </div>
+    );
+  });
 }

@@ -1,8 +1,9 @@
 import { useState, type KeyboardEvent } from "react";
 import { cn } from "../../../../../shared/lib/utils";
 
-export const INPUT =
-  "w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-xs text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)]/60 focus:border-amber-400/50";
+/** The Variable Name and Question inputs. */
+export const FIELD_INPUT =
+  "w-full rounded bg-[var(--background)] px-2 py-1 text-xs ring-1 ring-[var(--border)] focus:outline-none focus:ring-[var(--ring)]";
 
 /** Enter leaves the field, which saves it. */
 export function blurOnEnter(event: KeyboardEvent<HTMLInputElement>) {
@@ -74,13 +75,13 @@ export function PillSwitch({
       aria-label={label}
       onClick={onToggle}
       className={cn(
-        "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400",
+        "relative flex h-4 w-7 shrink-0 rounded-full transition-colors",
         on ? onClass : "bg-[var(--border)]",
       )}
     >
       <span
         className={cn(
-          "inline-block h-3 w-3 rounded-full bg-white shadow transition-transform",
+          "h-3 w-3 translate-y-0.5 rounded-full bg-white shadow-sm transition-transform",
           on ? "translate-x-3.5" : "translate-x-0.5",
         )}
       />

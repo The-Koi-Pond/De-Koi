@@ -93,6 +93,12 @@ describe("PresetVariablesEditor decisions", () => {
     expect(grips).toHaveLength(4);
     for (const grip of grips) expect(grip.getAttribute("aria-hidden")).toBe("true");
 
+    // The value editor's icons too (the replay leaves SVGs out).
+    await list.run(["expandValue", 0]);
+    const dialogIcons = [...list.modalRoot()!.querySelectorAll("svg")];
+    expect(dialogIcons.length).toBeGreaterThan(0);
+    for (const icon of dialogIcons) expect(icon.getAttribute("aria-hidden")).toBe("true");
+
     // A variable without a name is called `variable`, as the arrow buttons already were.
     await list.unmount();
     const odd = await mountStd("ODD");
@@ -102,12 +108,37 @@ describe("PresetVariablesEditor decisions", () => {
   });
 
   it('2: every button is type="button"', async () => {
-    const list = await mountStd();
+    const expectButtons = (root: Element, atLeast: number) => {
+      const buttons = [...root.querySelectorAll("button")];
+      expect(buttons.length).toBeGreaterThanOrEqual(atLeast);
+      for (const button of buttons) expect(button.getAttribute("type"), button.outerHTML).toBe("button");
+    };
+
+    // The empty list.
+    let list = await mountStd("NONE");
+    expectButtons(list.element, 1);
+    await list.unmount();
+
+    // Odd rows with cards expanded: no options, blank values, a single multi-select option.
+    list = await mountStd("ODD");
+    for (const card of [11, 15, 10]) {
+      await list.run(["toggle", card]);
+      expectButtons(list.element, 80);
+    }
+    await list.unmount();
+
+    // Many options.
+    list = await mountStd("MANY");
+    await list.run(["toggle", 0]);
+    expectButtons(list.element, 60);
+    await list.unmount();
+
+    // A multi-select card with the value editor open.
+    list = await mountStd();
     await list.run(["toggle", 2]);
     await list.run(["expandValue", 0]);
-    const buttons = [...list.element.querySelectorAll("button"), ...list.modalRoot()!.querySelectorAll("button")];
-    expect(buttons.length).toBeGreaterThan(20);
-    for (const button of buttons) expect(button.getAttribute("type"), button.outerHTML).toBe("button");
+    expectButtons(list.element, 20);
+    expectButtons(list.modalRoot()!, 2);
   });
 
   it("3: the value editor is a modal dialog named by its title, with a named close button", async () => {

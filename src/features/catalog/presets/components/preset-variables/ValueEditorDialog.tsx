@@ -76,42 +76,38 @@ export function ValueEditorDialog({
   const label = shownText(option.label);
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) close();
-      }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={close} />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl"
+        className="relative flex h-[80vh] w-full max-w-3xl flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-2xl shadow-black/50"
       >
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
-          <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-[var(--foreground)]">
-            Edit Value: {label || `Option ${number}`}
-          </h2>
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+          <h3 id={titleId} className="text-sm font-semibold">
+            {`Edit Value: ${label || `Option ${number}`}`}
+          </h3>
           <button
             type="button"
             aria-label="Close"
             onClick={close}
-            className="shrink-0 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+            className="rounded-lg p-1.5 hover:bg-[var(--accent)]"
           >
             <X size="1rem" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 p-4">
+        <div className="flex-1 overflow-hidden p-4">
           <textarea
             ref={textArea}
             value={text}
             placeholder="Prompt content… (supports macros like {{user}}, {{char}}, etc.)"
             onChange={(event) => change(event.target.value)}
             onKeyDown={onKeyDown}
-            className="h-[60vh] w-full resize-none rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-4 font-mono text-xs leading-relaxed text-[var(--foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)]/60 focus:border-orange-400/70"
+            className="h-full w-full resize-none rounded-lg bg-[var(--secondary)] p-4 font-mono text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
           />
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3">
+        <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-2.5">
           <p className="text-[0.625rem] text-[var(--muted-foreground)]">Changes auto-save. Press Escape to close.</p>
           <button
             type="button"
