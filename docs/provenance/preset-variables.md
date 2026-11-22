@@ -333,6 +333,14 @@ Kept as recorded in the rebuild; each is its own small pull request after it:
 10. A second Delete while one is running asks again and deletes twice.
 11. Deleting a variable leaves its id in the preset's `variableOrder` (seen in
     real Chrome, old and new alike).
+12. Rows with non-text fields (a `null`, missing, number or boolean name,
+    question, label or value; an empty or missing id) behave unevenly, as
+    recorded: inputs compare typed text with the stored value strictly (so
+    retyping `42` over a stored number saves `"42"`), a boolean name shows
+    nothing in the header and an object name crashes the list, Tab in the
+    value editor throws on a missing value, and moving a variable with no id
+    does nothing. The schema refuses such rows on write, so they only come from
+    older or imported data (the Pi has none); read them as text when loading.
 
 ## Tests
 
