@@ -3,7 +3,6 @@
 // ──────────────────────────────────────────────
 import { lazy, Suspense } from "react";
 import { useUIStore } from "../../shared/stores/ui.store";
-import type { AgentData } from "../../features/catalog/agents/shell";
 import type { CardCheckModalProps, CardLintModalProps } from "../../features/catalog/characters/shell";
 import type {
   CreateLorebookModalDefaults,
@@ -40,9 +39,6 @@ const CreatePresetModal = lazy(() =>
 );
 const ImportPresetModal = lazy(() =>
   import("../../features/catalog/presets/shell").then((module) => ({ default: module.ImportPresetModal })),
-);
-const EditAgentModal = lazy(() =>
-  import("../../features/catalog/agents/shell").then((module) => ({ default: module.EditAgentModal })),
 );
 const STBulkImportModal = lazy(() =>
   import("../../features/shell/imports/shell").then((module) => ({ default: module.STBulkImportModal })),
@@ -129,9 +125,6 @@ export function ModalRenderer() {
       break;
     case "import-preset":
       content = <ImportPresetModal open onClose={closeModal} />;
-      break;
-    case "edit-agent":
-      content = <EditAgentModal open onClose={closeModal} agent={(modal?.props?.agent as AgentData | null) ?? null} />;
       break;
     case "import-persona":
       content = <ImportPersonaModal open onClose={closeModal} />;

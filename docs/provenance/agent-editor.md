@@ -645,7 +645,10 @@ request after it:
 7. The phase description under the phase buttons and in the About card shows
    the chosen phase even when Text Rewrite will save Post-Processing.
 8. `EditAgentModal.tsx` (172 of 184 lines not team-owned) looks like an older
-   editor for the same rows; check whether it is still used.
+   editor for the same rows; check whether it is still used. **Done** in a
+   later PR: nothing opened it (no `openModal("edit-agent")` anywhere, and the
+   open modal isn't persisted), so it and its `edit-agent` case in
+   `ModalRenderer.tsx` were deleted.
 9. A custom tool with a `null` or odd parameter schema crashes the editor for
    every agent (see "Recorded details"); treat a bad schema as no parameters.
    **Done** in a later PR: a schema stored as JSON text is parsed (as
