@@ -274,7 +274,9 @@ show each one):
   again and sends a second delete. Two **Add Variable** clicks in the same
   millisecond create two variables with the same name and option ids.
 - **Expanded card** is remembered by id, even when the card goes away and
-  comes back.
+  comes back. Which option's value editor is open is kept on the card (by the
+  option's place), so collapsing and expanding the card again reopens the
+  editor with the stored value.
 
 ## Layout
 
@@ -329,6 +331,8 @@ Kept as recorded in the rebuild; each is its own small pull request after it:
 9. Closing the value editor without typing can write an old value back over a
    newer one.
 10. A second Delete while one is running asks again and deletes twice.
+11. Deleting a variable leaves its id in the preset's `variableOrder` (seen in
+    real Chrome, old and new alike).
 
 ## Tests
 
