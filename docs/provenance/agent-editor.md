@@ -648,6 +648,12 @@ request after it:
    editor for the same rows; check whether it is still used.
 9. A custom tool with a `null` or odd parameter schema crashes the editor for
    every agent (see "Recorded details"); treat a bad schema as no parameters.
+   **Done** in a later PR: a schema stored as JSON text is parsed (as
+   generation does before sending it to the model); a schema or `properties`
+   that isn't an object shows no parameters; only names listed in a
+   `required` array get the `*`; a parameter's `type`, `description` or
+   `enum` that can't be shown (not text, not a list) is left out and its name
+   stays. Saved payloads don't change.
 10. Export of an agent whose envelope can't be built and a failed Delete fail
     silently; show an error instead.
 11. Edits typed during a held save are lost; a failed upload shows nothing.

@@ -1,17 +1,17 @@
 import { Wrench } from "lucide-react";
 import { useState } from "react";
-import { BUILT_IN_TOOLS, type ToolParameterSchema } from "../../../../../engine/contracts/types/agent";
+import { BUILT_IN_TOOLS } from "../../../../../engine/contracts/types/agent";
 import { cn } from "../../../../../shared/lib/utils";
 import { isCustomToolSelectable } from "../../hooks/use-custom-tools";
 import { LOREBOOK_WRITE_TOOL_NAME } from "../../lib/agent-lorebook-writer-settings";
 import { FieldGroup, NOTE, ToggleIcon } from "./editor-parts";
+import { toolParameterRows, type ToolParameterRow } from "./tool-parameters";
 import type { AgentEditorModel } from "./use-agent-editor";
 
 interface ToolCardData {
   name: string;
   description: string;
-  /** As stored for custom tools: may be null, a JSON string or carry odd values (see the spec's follow-ups). */
-  parameters: ToolParameterSchema;
+  parameters: ToolParameterRow[];
   custom: boolean;
 }
 
@@ -19,7 +19,7 @@ function toolCards(editor: AgentEditorModel): ToolCardData[] {
   const builtIn = BUILT_IN_TOOLS.filter((tool) => tool.name !== LOREBOOK_WRITE_TOOL_NAME).map((tool) => ({
     name: tool.name,
     description: tool.description,
-    parameters: tool.parameters,
+    parameters: toolParameterRows(tool.parameters),
     custom: false,
   }));
   const custom = (editor.customTools ?? [])
@@ -27,7 +27,7 @@ function toolCards(editor: AgentEditorModel): ToolCardData[] {
     .map((tool) => ({
       name: tool.name,
       description: tool.description,
-      parameters: tool.parametersSchema as unknown as ToolParameterSchema,
+      parameters: toolParameterRows(tool.parametersSchema),
       custom: true,
     }));
   return [...builtIn, ...custom];
@@ -36,8 +36,6 @@ function toolCards(editor: AgentEditorModel): ToolCardData[] {
 function ToolCard({ tool, editor }: { tool: ToolCardData; editor: AgentEditorModel }) {
   const [expanded, setExpanded] = useState(false);
   const enabled = editor.form.enabledTools.includes(tool.name);
-  const params = Object.entries(tool.parameters.properties ?? {});
-  const required = tool.parameters.required;
   return (
     <li
       className={cn(
@@ -101,10 +99,10 @@ function ToolCard({ tool, editor }: { tool: ToolCardData; editor: AgentEditorMod
         <div className="border-t border-[var(--border)] px-3 py-2">
           <p className="mb-1 text-[0.625rem] font-medium text-[var(--muted-foreground)]">Parameters:</p>
           <ul className="space-y-0.5">
-            {params.map(([name, p]) => (
-              <li key={name} className="text-[0.625rem] text-[var(--muted-foreground)]">
-                <code className="font-mono text-[var(--foreground)]">{name}</code>
-                {required?.includes(name) && <span className="text-red-500">*</span>}
+            {tool.parameters.map((p) => (
+              <li key={p.name} className="text-[0.625rem] text-[var(--muted-foreground)]">
+                <code className="font-mono text-[var(--foreground)]">{p.name}</code>
+                {p.required && <span className="text-red-500">*</span>}
                 <span className="ml-1 text-[var(--primary)]">{p.type}</span>
                 {p.description && <span> — {p.description}</span>}
                 {p.enum && <span className="ml-1">[{p.enum.join(", ")}]</span>}
