@@ -28,3 +28,5 @@ src/shared/components/ui/color-picker/test-fixtures/*.json
 src/shared/components/ui/generation-parameters/test-fixtures/*.json
 # Agent editor recordings, one line each for the same reason.
 src/features/catalog/agents/components/agent-editor/test-fixtures/*.json
+# Preset variables editor recordings, one line each for the same reason.
+src/features/catalog/presets/components/preset-variables/test-fixtures/*.json
