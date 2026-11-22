@@ -192,3 +192,7 @@ Follow-up 9 (a bad custom tool schema) changes three recordings from a step on: 
 mount), `show:tools-null-schema-appears` (from the refetch) and `show:tools-odd-schema` (from the first expanded card).
 The replay compares the steps before those and sets the rest aside (`FOLLOW_UP_CHANGES`);
 `AgentEditor.follow-ups.spec.tsx` checks what they show now.
+
+Follow-ups 2 (phase), 3, 4, 10, 11 (upload) and 12 change 18 more the same way: the bad-phase show and save, the
+header-Save unsaved bar (three agents and `save:held`), `delete:fails`, the five exports that can't be built, the failed
+upload and file delete, and the four name-rule saves. `FOLLOW_UP_CHANGES` lists each one with its first changed step.

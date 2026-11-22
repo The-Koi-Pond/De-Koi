@@ -632,11 +632,21 @@ request after it:
    refills the form and throws away unsaved edits, and so does any change to
    the stored row.
 2. Stored `settings` that is a string but not valid JSON, or a stored `phase`
-   that isn't one of the three, crashes the editor.
+   that isn't one of the three, crashes the editor. **Phase done** in a later
+   PR: no phase button is chosen, the note under them and the About card say
+   `Pick when this agent runs.`, and Save says `Pick a pipeline phase before
+saving.` and writes nothing. Settings left as recorded: the server parses
+   `settings` on every write and repairs it at startup, so a string that isn't
+   JSON can't reach the editor.
 3. The unsaved bar stays after a successful Save from the header (like the
-   tool editor's old bar).
+   tool editor's old bar). **Done** in a later PR: a successful Save hides
+   it (also when a held save finishes after Back opened it).
 4. A failed Delete says nothing and the editor stays open; a failed upload or
-   file delete only shows whatever the hooks show.
+   file delete only shows whatever the hooks show. **Done** in a later PR:
+   a failed Delete shows `Couldn't delete agent. Try again.` (or the
+   server's message) and stays open; a failed upload shows `Couldn't upload
+file. Try again.`; a failed file delete shows `Couldn't delete file. Try
+again.` in place of the generic mutation toast.
 5. A built-in opened by its row `id` instead of its type is treated as a custom
    agent (Delete, Export, Result Type and the custom groups show, and Save
    forces the custom settings).
@@ -655,10 +665,17 @@ request after it:
    `enum` that can't be shown (not text, not a list) is left out and its name
    stays. Saved payloads don't change.
 10. Export of an agent whose envelope can't be built and a failed Delete fail
-    silently; show an error instead.
+    silently; show an error instead. **Done** in a later PR: Export says why
+    (`Couldn't export this agent. Only custom agent types can be exported.
+Received "my-agent".`, or `Couldn't export this agent: its name isn't
+valid (…).` for the first schema problem), since retrying can't help.
 11. Edits typed during a held save are lost; a failed upload shows nothing.
+    **Upload done** with 4. The lost edits are left for follow-up 1 (both
+    come from refilling the form when the stored row changes).
 12. The schema's name rule (1 to 200 characters) shows only the generic error;
-    say what is wrong.
+    say what is wrong. **Done** in a later PR: Save says `Give the agent a
+name before saving.` or `Agent names can be up to 200 characters. Shorten
+the name and save again.` and writes nothing.
 
 ## Tests
 

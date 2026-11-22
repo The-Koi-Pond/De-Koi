@@ -27,10 +27,13 @@ const PHASES: Record<string, { label: string; description: string; icon: LucideI
 
 const PHASE_ORDER = ["pre_generation", "parallel", "post_processing"] as const;
 
-/** The chosen phase's label and description; a phase outside the three throws, as the old editor did. */
+/** The chosen phase's label and description; `undefined` for a stored phase outside the three. */
 export function phaseInfo(phase: string) {
-  return PHASES[phase]!;
+  return Object.hasOwn(PHASES, phase) ? PHASES[phase] : undefined;
 }
+
+/** Shown in place of a phase description when the stored phase isn't one of the three. */
+export const NO_PHASE_NOTE = "Pick when this agent runs.";
 
 export function DescriptionGroup({ editor }: { editor: AgentEditorModel }) {
   const id = useId();
@@ -123,7 +126,7 @@ export function PhaseGroup({ editor }: { editor: AgentEditorModel }) {
           );
         })}
       </div>
-      <p className={NOTE}>{phaseInfo(phase).description}</p>
+      <p className={NOTE}>{phaseInfo(phase)?.description ?? NO_PHASE_NOTE}</p>
     </FieldGroup>
   );
 }
