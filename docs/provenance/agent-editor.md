@@ -493,6 +493,14 @@ connectionId, promptTemplate, settings`; inside `settings` the activation
 - **Uploads and file deletes.** A failed upload shows nothing. A failed file
   delete shows the hooks' generic toast. Picking another file while an upload
   is running still changes the selection.
+- **Coverage dot** compares the unrounded share (75% or more emerald, 25% or
+  more amber), so 74.5% shows `75% described` with an amber dot. An entry whose
+  description isn't a string crashes the coverage count.
+- **Max tokens blur** clamps and truncates (`1500.7` becomes `1500`).
+- **Connection** fills with the stored value unless it is `null` or missing
+  (`0` and `false` show as stored). After creating, any truthy returned id is
+  opened.
+- **Budget note** prints `DEFAULT_AGENT_MAX_TOKENS` with `toLocaleString()`.
 - **Custom tool schemas.** A selectable custom tool with `parametersSchema:
 null` crashes the whole editor; an `enum` that isn't an array crashes when
   its card is expanded; a `required` that is a string marks parameters by
@@ -500,20 +508,88 @@ null` crashes the whole editor; an `enum` that isn't an array crashes when
 
 ## Layout
 
-Use the screenshots. The editor fills the detail area (column, page
-background, body scrolls). Header: card background, bottom border, padding
-1rem across (0.75rem at phone width), 0.75rem gaps; icon tile 2.5rem square
-(2rem at phone width) with primary background; name input 1.125rem semibold
-(1rem at phone width), transparent. Header buttons: Delete is destructive text;
-Export is a pill with the secondary background and a ring; Save has the
-primary background with a shadow; all 0.75rem text with 0.8125rem icons. Body:
-1.5rem padding (1rem at phone width), groups 1.5rem apart, group labels 0.75rem
-semibold with 0.875rem icons. Inputs and dropdowns use the secondary
-background, 0.75rem corners, a 1px border-colored ring and a 2px ring on
-focus, 0.875rem text; notes are 0.625rem muted text. Toggle cards are 0.75rem
-corners with a 1px ring, tinted primary when on. Everything uses the theme
-tokens except the fixed amber/sky/emerald/red accents described above and the
-Files list (white-alpha colors; see "Follow-ups").
+Use the screenshots (old build, real Chrome, every agent type at 1366 and 660
+wide, dark and light). Checked against them:
+
+- **Breakpoints.** Below 768px the header's right group wraps onto its own row
+  under a thin divider, the three header buttons show only their icons, the
+  icon tile is 2rem (else 2.5rem), the name is 1rem (else 1.125rem), header
+  padding is 0.75rem across (else 1rem) and body padding 1rem (else 1.5rem).
+  The pick grids (phases, result types, turn data) and the budget columns go
+  from one column to several at 640px; the Illustrator tag boxes sit side by
+  side from 768px.
+- **Header buttons.** Delete is destructive-colored text with a trash icon.
+  Export is a pill (secondary background, a ring, 1rem side padding, a small
+  shadow) with the **Upload** icon (arrow up out of a tray); while exporting it
+  shows a spinner, a wait cursor and 70% opacity. Save has the primary
+  background with a shadow. 0.75rem text, 0.8125rem icons.
+- **Knowledge warning** is a full-width strip between the error banner and the
+  scrolling body (it doesn't scroll): amber 400 text on a 10% amber
+  background, `AlertCircle` icon, 0.75rem text.
+- **Group headers**: icon (0.875rem, primary color unless noted), semibold
+  0.75rem label, help icon; 0.5rem between header and content. Icons:
+  Description `Info`, Author `Sparkles`, Agent Status `Sparkles`, Pipeline
+  Phase `Zap`, Result Type `FileText`, Turn Data Access `Layers`, Lorebook
+  Writer `BookOpen`, Connection Override `Link2`, Image Generation Connection
+  Override `ImageIcon`, Auto-Generate NPC Avatars `Sparkles`, Background Image
+  Generation `ImageIcon`, Agent Budget `Clock`, both cadences, Triggers After
+  and Run Interval `Clock`, Activation Keywords `Activity`, Add as Prompt
+  Section `Layers`, Knowledge Sources `BookOpen` in amber 400, Prompt Template
+  `FileText`, Tools `Wrench`.
+- **Toggle cards** (Agent Status, Turn Data Access, Lorebook Writer): full
+  width, 0.75rem corners, a 1px ring, 0.75rem padding, `ToggleRight` (emerald 400) when on / `ToggleLeft` when off at 1rem, a semibold title and a
+  0.625rem tight line under it. On: primary 10% background, full primary ring,
+  foreground text; off: muted text, border ring, accent on hover. No pill
+  switches.
+- **Add as Prompt Section** is a content-width button (secondary background,
+  ring, 1rem by 0.75rem padding) with a 1.25rem toggle icon (emerald 400 on),
+  a 0.875rem medium title and a 0.625rem muted line. **Background Image
+  Generation** is the same but full width.
+- **Phase buttons**: icon (1rem) **above** the medium label, centered, 0.75rem
+  padding; icons Pre-Generation `Zap`, Parallel `Activity`, Post-Processing
+  `Clock`. Chosen: primary 10% background and primary ring, text and icon in
+  the phase color (amber 400, sky 400, emerald 400). Others: muted text, border
+  ring.
+- **Result type cards**: semibold label over a 0.625rem tight description,
+  left-aligned. The Text Rewrite note is an amber box (amber 400 at 20% border,
+  10% background, amber 200 text, 0.625rem, 0.5rem corners) with the JSON in a
+  small dark code chip.
+- **Number boxes** (secondary background, ring): Context Size, Scan Depth,
+  Triggers After, Run Interval and the cadence boxes are 7rem wide, Max Output
+  Tokens 8rem; the unit beside them is 0.6875rem muted with a 0.75rem gap. The
+  custom cadence's up/down chevrons sit **inside** the right end of its 7rem
+  box, stacked. Labels above number boxes are 0.6875rem medium muted.
+- **Chat Summary budget note** is a box (accent 50% background, a ring,
+  0.75rem corners, 0.6875rem muted text).
+- **Illustrator tag boxes**: 0.75rem text, a 1px border (not a ring), 0.75rem
+  corners, secondary background, at least 5rem tall, placeholder at 45%; the
+  border turns primary on focus. The NPC checkbox label is 0.875rem.
+- **Knowledge Sources**: the chat-active toggle uses a 1px border and 0.5rem
+  corners and is **amber** when on (amber 500 at 30% border, 10% background,
+  amber 200 text), with a 1.25rem toggle icon. Lorebook rows and file rows sit
+  in lists capped at 12rem tall that scroll; each row has a 1rem square
+  checkbox (with a check icon when selected) and, when selected, amber styling
+  (amber 500 at 10% background and 20% border, amber 300 text). Lorebook name
+  medium and truncated, description 0.625rem muted truncated below. Files:
+  white-alpha list (10% border, 2% background), name truncated and the size
+  under it (0.625rem, 40% white), trash 20% white turning red on hover; the
+  `Files` label is 60% white, the dashed upload button 15% white border and
+  50% white text (amber on hover), the summary 40% white. Coverage dots are
+  0.375rem, emerald/amber/red 400, the grey one at 50% opacity.
+- **Prompt Template**: badges 0.5rem corners (`Check` icon for default,
+  `FileText` for override); `Reset to default` with `RotateCcw`, `Copy default
+to edit` with `FileText`. The default box is monospace 0.75rem relaxed, 1rem
+  by 0.75rem padding, at most half the screen tall, resizable, with the corner
+  label as a small chip (card background, ring) at the top right. The text area
+  is at most 60% of the screen tall.
+- **Tool cards**: 0.75rem corners, a ring (primary 50% and primary 5%
+  background when on); a toggle icon button (`ToggleRight` primary /
+  `ToggleLeft` muted, 1.25rem), then a 1.5rem square tile with a `Wrench`
+  (primary 15% background for custom tools, muted for built-in), the name in
+  semibold monospace 0.75rem with the small `custom` tag, the description on
+  one truncated line, and ▲/▼ at the right.
+- **About card**: no icon; the labels (`Type:`, `Phase:`…) are bold foreground.
+- Notes use the normal line height. Everything else uses the theme tokens.
 
 ## Decisions
 
@@ -533,6 +609,9 @@ accessibility changes (no stored value or visible text changes):
    to their inputs for the number boxes, dropdowns and text areas that have a
    visible label above them.
 3. **Buttons default to submit.** Recommended: `type="button"` on every button.
+4. **Small accessibility details** (no visible change): header button labels
+   hidden visually but kept for screen readers below 768px, decorative icons
+   `aria-hidden`.
 
 ## Follow-ups after the rebuild
 
