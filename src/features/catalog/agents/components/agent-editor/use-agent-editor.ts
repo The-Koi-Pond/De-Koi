@@ -31,6 +31,29 @@ import {
 
 const SAVED_FLASH_MS = 1500;
 const SAVE_FALLBACK = "Couldn't save agent config. Try again.";
+const PHASES = ["pre_generation", "parallel", "post_processing"];
+/** The name rule of the agent schema (1 to 200 characters). */
+const NAME_MAX = 200;
+
+/** What's wrong with a payload the agent schema would refuse, said plainly; `null` when it's fine. */
+function payloadProblem(payload: { name: unknown; phase: unknown }): string | null {
+  if (typeof payload.name !== "string" || payload.name.length === 0) return "Give the agent a name before saving.";
+  if (payload.name.length > NAME_MAX) {
+    return `Agent names can be up to ${NAME_MAX} characters. Shorten the name and save again.`;
+  }
+  if (typeof payload.phase !== "string" || !PHASES.includes(payload.phase)) {
+    return "Pick a pipeline phase before saving.";
+  }
+  return null;
+}
+
+/** Why a stored row can't be turned into an export file: the first schema problem, or the error's message. */
+function exportFailureMessage(error: unknown): string {
+  const issue = (error as { issues?: Array<{ path?: unknown[]; message?: string }> } | null)?.issues?.[0];
+  if (issue)
+    return `Couldn't export this agent: its ${issue.path?.join(".") || "data"} isn't valid (${issue.message}).`;
+  return `Couldn't export this agent. ${error instanceof Error ? error.message : String(error)}`;
+}
 
 /** A connection row as the catalog lists it (only what the editor reads). */
 export interface ConnectionOption {
@@ -143,6 +166,11 @@ export function useAgentEditor() {
       return false;
     }
     const payload = agentSavePayload(form, { custom, isType }, writer);
+    const problem = payloadProblem(payload);
+    if (problem) {
+      setSaveError(problem);
+      return false;
+    }
     try {
       if (row) {
         await updateAgent.mutateAsync({ id: row.id, ...payload });
@@ -153,6 +181,7 @@ export function useAgentEditor() {
         if (custom && created?.id) openAgentDetail(created.id);
       }
       setDirty(false);
+      setLeaving(false);
       setSaved(true);
       setTimeout(() => setSaved(false), SAVED_FLASH_MS);
       return true;
@@ -180,13 +209,25 @@ export function useAgentEditor() {
       tone: "destructive",
     });
     if (!confirmed) return;
-    await deleteAgent.mutateAsync(row.id);
+    try {
+      await deleteAgent.mutateAsync(row.id);
+    } catch (error) {
+      toast.error(toUserMessage(error, { fallback: "Couldn't delete agent. Try again." }));
+      return;
+    }
     closeAgentDetail();
   }
 
   async function exportAgent() {
     if (!row) return;
-    const content = `${JSON.stringify(buildAgentExportEnvelope(row), null, 2)}\n`;
+    let content: string;
+    try {
+      content = `${JSON.stringify(buildAgentExportEnvelope(row), null, 2)}\n`;
+    } catch (error) {
+      // Retrying can't help here (the row itself can't be exported), so say why.
+      toast.error(exportFailureMessage(error));
+      return;
+    }
     setExporting(true);
     try {
       const result = await saveTextFileToUserSelectedLocation({
@@ -212,8 +253,8 @@ export function useAgentEditor() {
     try {
       const source = await uploadSource.mutateAsync(file);
       edit((current) => ({ sourceFileIds: [...current.sourceFileIds, source.id] }));
-    } catch {
-      // A failed upload shows nothing more (recorded behavior; see the spec's follow-ups).
+    } catch (error) {
+      toast.error(toUserMessage(error, { fallback: "Couldn't upload file. Try again." }));
     } finally {
       input.value = "";
     }
@@ -223,6 +264,7 @@ export function useAgentEditor() {
     deleteSource.mutate(id, {
       onSuccess: () =>
         setForm((current) => ({ ...current, sourceFileIds: current.sourceFileIds.filter((x) => x !== id) })),
+      onError: (error) => toast.error(toUserMessage(error, { fallback: "Couldn't delete file. Try again." })),
     });
   }
 

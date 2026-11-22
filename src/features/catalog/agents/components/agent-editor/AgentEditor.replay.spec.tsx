@@ -232,6 +232,28 @@ const FOLLOW_UP_CHANGES: Readonly<Record<string, number>> = {
   "show:tools-null-schema": 0,
   "show:tools-null-schema-appears": 2,
   "show:tools-odd-schema": 1,
+  // Follow-up 2: a stored phase outside the three no longer crashes; Save says to pick one.
+  "show:custom:cust-badphase": 0,
+  "save0:custom:cust-badphase": 0,
+  // Follow-up 3: the unsaved bar hides after a successful Save.
+  "back:header-save-bar-stays:cust-full": 3,
+  "back:header-save-bar-stays:__new__": 3,
+  "back:header-save-bar-stays:continuity": 3,
+  "save:held": 8,
+  // Follow-ups 4, 10 and 11: a failed Delete, Export, upload or file delete says so.
+  "delete:fails": 3,
+  "export:row:cust-legacy-type": 1,
+  "export:row:cust-upper-type": 1,
+  "export:row:cust-longname": 1,
+  "export:row:cust-credit-num": 1,
+  "export:odd-builtin-row": 1,
+  "k:retrieval:upload-fails": 2,
+  "k:retrieval:delete-file-fails": 3,
+  // Follow-up 12: the name rule says what is wrong.
+  "save0:custom:cust-longname": 1,
+  "type:name-empty-save:new": 2,
+  "type:name-empty-save:custom": 2,
+  "type:name-long-save:custom": 2,
 };
 
 describe("AgentEditor replays the recorded old editor", () => {

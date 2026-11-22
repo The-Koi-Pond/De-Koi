@@ -19,6 +19,7 @@ import {
   PhaseGroup,
   PromptSectionGroup,
   StatusGroup,
+  NO_PHASE_NOTE,
   phaseInfo,
 } from "./GeneralGroups";
 import { BackgroundImageGroup, IllustratorImageGroup, NpcAvatarsGroup } from "./ImageGroups";
@@ -101,9 +102,7 @@ function AboutCard({ editor }: { editor: AgentEditorModel }) {
       <h3 className="mb-2 text-sm font-semibold text-[var(--foreground)]">About this Agent</h3>
       <dl className="space-y-2 text-xs text-[var(--muted-foreground)]">
         <AboutLine term="Type:">{editor.custom && row ? "Custom" : editor.agentDetailId}</AboutLine>
-        <AboutLine term="Phase:">
-          {phase.label} — {phase.description}
-        </AboutLine>
+        <AboutLine term="Phase:">{phase ? `${phase.label} — ${phase.description}` : NO_PHASE_NOTE}</AboutLine>
         {editor.custom && <AboutLine term="Result Type:">{resultTypeLabel(form.resultType)}</AboutLine>}
         <AboutLine term="DB Status:">
           {row ? `Persisted (ID: ${row.id})` : "Not yet saved — click Save to persist"}
