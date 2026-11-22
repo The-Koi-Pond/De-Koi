@@ -95,10 +95,14 @@ descriptions), and `src/engine/generation/prompt-assembly.ts` replaces
 - **Question**: `question`, else empty.
 - **Options**: `options` when it is an array, else none. An option shows its
   `label` and `value` as stored.
-- **Multi-Select** and **Random Pick** are on only for `true` or `"true"`.
+- **Multi-Select** and **Random Pick** are on only for `true` or `"true"`
+  (`"TRUE"`, `1` and anything else are off).
 - **Separator**: `separator`, else `", "` (so an empty string shows as empty,
   and only a missing or `null` separator shows `", "`).
-- **Boolean variable**: exactly one option and Multi-Select off.
+- **Boolean variable**: exactly one option and Multi-Select off. With
+  Multi-Select on, one option shows the **multi** (or **random**) pill and the
+  switches, not the boolean note. No options (`[]`, or options that aren't an
+  array) shows `0 options` and the Multi-Select switch.
 
 ## The list
 
@@ -124,7 +128,7 @@ arrives.
 
 Header, left to right:
 
-1. A grip (drag handle), **Move up** and **Move down** arrow buttons (titles
+1. A grip (drag handle, title `Drag to reorder`), **Move up** and **Move down** arrow buttons (titles
    `Move up` / `Move down`, names `Move <name> up` / `Move <name> down`, or
    `variable` when the name is empty). Move up is disabled on the first card,
    Move down on the last, and both on every card while a reorder is pending.
@@ -182,8 +186,9 @@ user choose?`). Focusing selects; saves on blur (Enter blurs) when changed:
      once when the text differs from the stored one. While an input has focus,
      a new stored value doesn't replace what is typed; otherwise it does. A
      save sends the whole option list with that one field changed:
-     `update({ options })`, each option otherwise as given (extra keys such as
-     `description` kept).
+     `update({ options })`, each option otherwise as given (the list sends
+     every key it has; the update schema then keeps only `id`, `label`,
+     `description` and `value`, in that order).
    - Remove: with one option left, `toast.error("A variable needs at least 1 option.")`
      and nothing else; otherwise `update({ options })` without that option.
    - **Add Option** (plus icon): `update({ options: [...options, { id: "opt_<now>", label: "Option <letter>", value: "" }] })`
@@ -223,6 +228,54 @@ of the list. No line shows at the dragged card's own place. Dropping moves the
 id there and sends `onReorderVariables.mutate({ presetId, variableIds })`;
 dropping at its own place sends nothing.
 
+## Recorded details
+
+Found while recording the old list; the rebuild keeps them (the recordings
+show each one):
+
+- **Saves are built from the list as last rendered.** Two edits to options of
+  the same variable before the refreshed row arrives (two blurs, two 600 ms
+  timers firing together, or a second edit while the first update is held)
+  send the second list without the first edit, so storage loses it. The first
+  input keeps showing its text even after the refresh, because the stored value
+  it compares against never changed. With the refresh in between, both edits
+  survive.
+- **Separator.** Every keystroke saves the input's whole value. While the
+  refresh is late the input shows the stored value again, so typing `a` then
+  `b` after `|` sends ` | a`, then ` | b`.
+- **Failed saves** (a storage failure or a payload the schema refuses: an
+  empty name or question, a separator over 20 characters, an option with a
+  missing or `null` label or value) show only the shared toast
+  `Couldn't save that change. Try again.`. The typed text stays in the input;
+  the Variable Name and Question inputs keep it even after a refresh (so they
+  disagree with storage), and the next blur sends the same save again. A
+  refused payload makes no storage call. A failed reorder shows the moved
+  order, then the old order again, and toasts. When a create succeeds but
+  adding it to `variableOrder` fails, it toasts and the new variable shows
+  after the next refresh.
+- **Variable Name and Question** replace the typed text whenever the stored
+  value changes, even while focused; the blur after that sends nothing.
+  Label and value inputs keep typed text while focused.
+- **Collapsing a card** (or the card going away) drops a pending 600 ms label
+  or value save, unblurred name or question text and the value editor's text,
+  without saving (in the test environment; real Chrome may blur first, see the
+  Chrome recordings).
+- **Value editor.** Closing it without typing after the option's value changed
+  elsewhere writes the text it opened with back over that change. If its option
+  goes away, it closes and its text is lost. Tab before the 100 ms focus
+  inserts at the start; Tab with a selection replaces the selection.
+- **A numeric option value** (`value: 42`) crashes the whole list when its card
+  is expanded. A missing label shows an empty input.
+- **Add Option past `Z`** gives `Option [`, `Option \`, `Option ]`, …
+- **Drag.** A mouse-down on a card's grip is remembered until a drag ends, so a
+  later drag of that card works without pressing the grip again, and a grip
+  press on one card blocks dragging another.
+- **Repeated clicks.** While a delete is held, Delete on the same card asks
+  again and sends a second delete. Two **Add Variable** clicks in the same
+  millisecond create two variables with the same name and option ids.
+- **Expanded card** is remembered by id, even when the card goes away and
+  comes back.
+
 ## Layout
 
 Use the screenshots (old build, real Chrome, at 1366 and 660 wide, dark and
@@ -243,7 +296,9 @@ purpose (accessibility only):
    are named `Option <n> label` / `Option <n> value`; the Variable Name,
    Question and Separator labels are tied to their inputs; the two switches
    are `role="switch"` with `aria-checked` and the names `Multi-Select` /
-   `Random Pick`; the grip and decorative icons are `aria-hidden`.
+   `Random Pick`; decorative icons are `aria-hidden`. The grip keeps its
+   `Drag to reorder` title and is `aria-hidden` (the arrow buttons are the
+   keyboard way to reorder).
 2. **Buttons** all have `type="button"`.
 3. **Value editor** is a `role="dialog"` with `aria-modal="true"`, named by its
    title; its close button is named `Close`.
@@ -264,6 +319,16 @@ Kept as recorded in the rebuild; each is its own small pull request after it:
 4. Option ids from **Add Option** clicked twice in the same millisecond
    collide; labels go past `Z` into punctuation.
 5. Dragging works only with a mouse (the arrow buttons cover keyboard use).
+6. A numeric (or otherwise non-text) option value crashes the list when its
+   card is expanded; show it as text.
+7. Collapsing a card drops unsaved typing (a pending option save, unblurred
+   name or question, open value editor text); save or keep it.
+8. Variable Name and Question lose typed text when the stored value changes
+   while they're focused; a failed save leaves them showing text storage
+   doesn't have.
+9. Closing the value editor without typing can write an old value back over a
+   newer one.
+10. A second Delete while one is running asks again and deletes twice.
 
 ## Tests
 
