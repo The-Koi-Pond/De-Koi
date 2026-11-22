@@ -185,3 +185,10 @@ The recordings show no `aria-pressed` on the toggles, no names on the tool toggl
 trash button, no `aria-expanded` on the tool headers, and no `type="button"` on some buttons. The rebuild adds those
 (decisions 1 to 3), so a replay should compare `buttons`/`fields` ignoring the attributes those decisions add, and check
 the added ones in their own tests.
+
+## What the follow-ups change
+
+Follow-up 9 (a bad custom tool schema) changes three recordings from a step on: `show:tools-null-schema` (from the
+mount), `show:tools-null-schema-appears` (from the refetch) and `show:tools-odd-schema` (from the first expanded card).
+The replay compares the steps before those and sets the rest aside (`FOLLOW_UP_CHANGES`);
+`AgentEditor.follow-ups.spec.tsx` checks what they show now.

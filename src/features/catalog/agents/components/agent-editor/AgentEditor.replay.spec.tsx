@@ -224,7 +224,25 @@ function compareStep(actual: StepResult, expected: StepResult, label: string) {
   ).toEqual(expectedCalls.map((call) => JSON.stringify(call)));
 }
 
+// ── Follow-ups ──────────────────────────────────────────────────────────────────
+// Recorded steps a later follow-up changes on purpose, by scenario id: the index of the first changed step. Steps
+// before it still replay exactly; it and the steps after it are checked in `AgentEditor.follow-ups.spec.tsx`.
+const FOLLOW_UP_CHANGES: Readonly<Record<string, number>> = {
+  // Follow-up 9: a bad custom tool schema shows no parameters instead of crashing.
+  "show:tools-null-schema": 0,
+  "show:tools-null-schema-appears": 2,
+  "show:tools-odd-schema": 1,
+};
+
 describe("AgentEditor replays the recorded old editor", () => {
+  it("sets aside only recorded steps that exist", () => {
+    for (const [id, from] of Object.entries(FOLLOW_UP_CHANGES)) {
+      const found = scenarios.find(({ scenario }) => scenario.id === id);
+      expect(found, id).toBeDefined();
+      expect(from, id).toBeLessThan(found!.scenario.steps.length);
+    }
+  });
+
   it("covers every recorded scenario and step", () => {
     expect(scenarios).toHaveLength(553);
     expect(scenarios.reduce((sum, { scenario }) => sum + scenario.steps.length, 0)).toBe(1818);
@@ -235,7 +253,9 @@ describe("AgentEditor replays the recorded old editor", () => {
     async (_name, recording: Recording, scenario: Scenario) => {
       const { results, unhandledAfterUnmount } = await replayScenario(recording, scenario);
       expect(results).toHaveLength(scenario.steps.length);
+      const changedFrom = FOLLOW_UP_CHANGES[scenario.id] ?? scenario.steps.length;
       results.forEach((result, index) => {
+        if (index >= changedFrom) return;
         const recorded = scenario.steps[index]!;
         const expected = resolveStep(recording, recorded);
         const { unhandledAfterUnmount: _after, ...expectedStep } = expected as StepResult & {
@@ -247,7 +267,9 @@ describe("AgentEditor replays the recorded old editor", () => {
           `${scenario.id} step ${index} ${JSON.stringify(recorded.step)}`,
         );
       });
-      expect(unhandledAfterUnmount).toEqual(scenario.steps.at(-1)?.unhandledAfterUnmount ?? []);
+      if (changedFrom === scenario.steps.length) {
+        expect(unhandledAfterUnmount).toEqual(scenario.steps.at(-1)?.unhandledAfterUnmount ?? []);
+      }
     },
     30_000,
   );
