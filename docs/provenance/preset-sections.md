@@ -269,9 +269,10 @@ focused 100 ms after opening, placeholder
 two spaces; footer Changes auto-save. Press Escape to close. and **Done**.
 Typing hands the text to the content editor 600 ms after the last change; the
 content editor then saves it 800 ms later as above. Closing (X, Done, the
-backdrop, or Escape anywhere) hands over unsaved text at once and closes; the
-content editor then saves its text when it differs from the stored content.
-The recordings decide the exact calls.
+backdrop, or Escape anywhere) hands over unsaved text at once and closes; it
+saves nothing itself: the content editor's 800 ms timer saves it. Several
+expanded editors can be open at once (from different sections); Escape closes
+all of them. The recordings decide the exact calls.
 
 ### Macros reference
 
@@ -335,8 +336,59 @@ Kept as recorded in the rebuild; each is its own small pull request after it:
 5. A marker without a usable marker config shows no content and no note.
 6. Dragging works only with a mouse (the arrow buttons cover keyboard use).
 7. The add menu doesn't close on Escape.
+8. Enter in the name input saves twice.
+9. A section without a name breaks the name input's blur; duplicating it
+   toasts `Duplicated "undefined"`.
+10. Pending content edits are lost when a card collapses, or when the section
+    is deleted or collapsed with the expanded editor open; closing the expanded
+    editor after a hand-over saves twice.
+11. An unknown role shows System in the dropdown; duplicating it fails.
+12. The depth box saves on every blur and reads `3.7` as 3.
+13. Deleting a group leaves its sections pointing at it.
 
-The recorder adds what it finds to "Recorded details".
+## Recorded details
+
+Found while recording the old tab; the rebuild keeps them (the recordings show
+each one):
+
+- **Name input.** Enter saves twice (Enter saves, then the blur it causes saves
+  again, before the refresh). A trimmed name equal to the stored one sends
+  nothing and puts the stored text back. On a row with no `name`, blur throws
+  (in the event handler) and saves nothing.
+- **Expanded editor timing.** Opening it flushes a pending inline edit (it
+  takes focus 100 ms after opening, which blurs the inline textarea, which saves
+  at once). If a 600 ms hand-over already happened and more was typed, closing
+  saves the handed-over text and then the newer text 800 ms later. Collapsing
+  the card or deleting the section while it is open loses the pending text.
+- **Collapsing a card** with a pending content edit loses it (nothing saved).
+- **Quick edits to two fields** go out as separate updates, in the order they
+  finish; none were lost.
+- **Group rename.** Escape closes the input without saving. Closing the groups
+  panel while renaming saves nothing, and the input with its typed text comes
+  back when the panel reopens. Enter saves once (through the blur). Before the
+  refresh arrives, renaming again starts from the old name. The rename input
+  gets focus with the cursor at the end (not selected).
+- **Unknown role** (or missing / `null`): the header shows the raw role text
+  (`system` for missing / `null`), the dropdown shows System. Duplicating such a
+  row (or a marker of an unknown type) fails the schema: the error toast and no
+  storage call.
+- **Markers.** A marker without a usable config (null, missing, `""`, bad JSON,
+  no or non-text `type`, an array) shows no note and no content editor. An
+  agent config on a row that isn't a marker shows the plain content editor and
+  no MARKER pill.
+- **Duplicate.** A section with no name toasts `Duplicated "undefined"`. The
+  payload carries a parsed JSON-text config with every key (the schema then
+  drops unknown ones). Errors show the fallback text. While the create is held,
+  every Duplicate button is disabled.
+- **Agent menu items.** An agent with `name: null` shows as `(Agent)` and
+  creates `<type> (Agent)`; `name: ""` creates ` (Agent)`. Settings stored as
+  JSON text, or `injectAsSection: "true"`, don't count.
+- **Depth box.** Every blur or Enter saves, even unchanged. Text is read like
+  `parseInt` (`3.7` saves 3, ` 05x` saves 5); empty, `abc` and `-1` put the
+  stored value back without saving.
+- **Deleting a group** leaves its sections' `groupId` (no pill, the dropdown
+  shows No group).
+- A `sectionOrder` that isn't a list shows no sections.
 
 ## Tests
 
