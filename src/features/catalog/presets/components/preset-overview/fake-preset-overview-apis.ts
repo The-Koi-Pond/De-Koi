@@ -110,6 +110,14 @@ export const fakePresetOverviewApis = {
   get probeProps(): Record<string, unknown> | null {
     return state.probeProps;
   },
+  /** Adds a call to the shared log, for fakes that build on this store (the AI Review tab's). */
+  logCall(call: unknown[]) {
+    state.calls.push(call);
+  },
+  /** A copy of the stored rows as they are now (no call is logged). */
+  stored(): World {
+    return copy(world());
+  },
 };
 
 /** Waits while `op` is held, then throws a queued failure. */
