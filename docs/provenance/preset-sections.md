@@ -269,8 +269,9 @@ focused 100 ms after opening, placeholder
 two spaces; footer Changes auto-save. Press Escape to close. and **Done**.
 Typing hands the text to the content editor 600 ms after the last change; the
 content editor then saves it 800 ms later as above. Closing (X, Done, the
-backdrop, or Escape anywhere) hands over unsaved text at once and closes; it
-saves nothing itself: the content editor's 800 ms timer saves it. Several
+backdrop, or Escape anywhere) hands over unsaved text at once and closes; the
+content editor then saves its current text at once if it differs from the
+stored content, and the 800 ms timer saves the handed-over text. Several
 expanded editors can be open at once (from different sections); Escape closes
 all of them. The recordings decide the exact calls.
 
@@ -389,6 +390,9 @@ each one):
 - **Deleting a group** leaves its sections' `groupId` (no pill, the dropdown
   shows No group).
 - A `sectionOrder` that isn't a list shows no sections.
+- **Switching presets** shows nothing while the other preset loads, so the tab
+  starts fresh: expanded cards, the add menu and the groups panel reset.
+- **Dragging an off section** shows only the drag fade, not the off fade.
 
 ## Tests
 
