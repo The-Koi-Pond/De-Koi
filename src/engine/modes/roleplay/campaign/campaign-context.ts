@@ -6,7 +6,7 @@ import type {
   CampaignSituation,
   RoleplayCampaignState,
 } from "../../../contracts/types/roleplay-campaign";
-import type { JsonRecord } from "../../../generation/runtime-records";
+import { readString, type JsonRecord } from "../../../generation/runtime-records";
 import { currentProgress, readCampaign, situationById } from "./campaign-state";
 
 export interface CampaignPromptContext {
@@ -16,6 +16,34 @@ export interface CampaignPromptContext {
 
 const MAX_FACTS = 6;
 const MAX_CLUES = 2;
+/** Hours since the last story reply after which the next reply first grounds a returning player. */
+const BREAK_HOURS = 6;
+
+/** Lines that say the player is lost, overwhelmed or unsure what to do, in or out of character. */
+const LOST_PATTERN =
+  /\b(?:confus\w*|overwhelm\w*|(?:i'?m|i am|so|bit|kinda|feel(?:ing)?|getting) lost|who(?:'s| is| are| was) (?:that|this|he|she|they|these|those|all|everyone)|what(?:'s| is) (?:going on|happening)|what (?:do|should|can) i (?:do|say)|wait,? what|slow (?:it )?down|i don'?t (?:get it|understand|follow)|remind me)\b/i;
+
+/** Every reply: the plan is easier to follow one small step at a time. */
+const LOAD_LINE =
+  "Keep it easy to follow: one beat per reply, about 250 words at most unless the player asked for longer replies, and shorter when they write short. Bring in at most one new named person, place or term, and say in a few plain words who or what it is the first time. At most two characters speak. End where the player can act.";
+
+const LOST_LINE =
+  "The player sounds lost or overwhelmed. If they asked out of character, answer briefly out of character first. Then, in the fiction and in a few plain sentences: where they are, who is with them (each with a few plain words), and what they are trying to do; then one clear thing they can act on. Nothing new this reply: no new names, threads or reveals. The world keeps moving, gently.";
+
+function hoursSinceLastReply(messages: readonly JsonRecord[], nowMs: number): number | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (readString(message.role).trim() !== "assistant") continue;
+    const at = Date.parse(readString(message.createdAt));
+    return Number.isFinite(at) ? (nowMs - at) / 3_600_000 : null;
+  }
+  return null;
+}
+
+function breakLine(hours: number): string {
+  const span = hours >= 48 ? `${Math.round(hours / 24)} days` : `${Math.round(hours)} hours`;
+  return `The player is coming back after a break of about ${span}. Open this reply with two or three plain sentences in the fiction that ground them: where they are, who is with them, and what was happening when they left off. Then carry on from their message.`;
+}
 
 function pacingLine(
   pacing: CampaignPacing,
@@ -80,7 +108,11 @@ function clueLines(state: RoleplayCampaignState, situation: CampaignSituation, p
 }
 
 /** The prompt text for one reply, from the plan and the snapshot it continues from. */
-function campaignBlock(state: RoleplayCampaignState, progress: CampaignProgress): string | null {
+function campaignBlock(
+  state: RoleplayCampaignState,
+  progress: CampaignProgress,
+  player: { lost: boolean; breakHours: number | null },
+): string | null {
   const situation = situationById(state, progress.situationId);
   if (!situation) return null;
   const pressureStep = situation.pressure[Math.min(progress.clock, situation.pressure.length - 1)];
@@ -106,6 +138,9 @@ function campaignBlock(state: RoleplayCampaignState, progress: CampaignProgress)
     ...(debt ? [`Owed to the player (bring it back when it fits): ${debt.text}`] : []),
     "",
     pacingLine(progress.pacing, situation, progress, state),
+    ...(player.breakHours !== null && player.breakHours >= BREAK_HOURS ? [breakLine(player.breakHours)] : []),
+    ...(player.lost ? [LOST_LINE] : []),
+    LOAD_LINE,
     "The player's latest message wins over everything here. Never write the player's words, choices, thoughts or feelings. If they do something unexpected, play it straight with real consequences instead of steering them back.",
     "</campaign>",
   ].join("\n");
@@ -120,12 +155,18 @@ export function buildCampaignContext(input: {
   chatMode: string;
   metadata: unknown;
   messages: readonly JsonRecord[];
+  /** The message being answered; when it sounds lost, the reply reorients the player first. */
+  latestUserInput?: string;
+  nowMs?: number;
 }): CampaignPromptContext | null {
   if (input.chatMode !== "roleplay") return null;
   const state = readCampaign(input.metadata);
   if (!state || state.status !== "playing") return null;
   const progress = currentProgress(state, input.messages);
-  const block = campaignBlock(state, progress);
+  const block = campaignBlock(state, progress, {
+    lost: LOST_PATTERN.test(input.latestUserInput ?? ""),
+    breakHours: hoursSinceLastReply(input.messages, input.nowMs ?? Date.now()),
+  });
   if (!block) return null;
   return {
     block,

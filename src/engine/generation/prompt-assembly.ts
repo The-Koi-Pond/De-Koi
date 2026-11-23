@@ -4687,6 +4687,7 @@ export async function assembleGenerationPrompt(
     chatMode,
     metadata: chatMeta,
     messages: input.storedMessages,
+    latestUserInput: input.userRegenerationSourceMessage?.content ?? input.latestUserInput,
   });
   // A campaign plans the story itself; a Director's beats beside it would pull the other way.
   const continuityDirectorContext = campaignContext

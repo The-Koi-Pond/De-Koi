@@ -302,6 +302,38 @@ describe("campaign prompt block", () => {
     expect(context?.attributionItems[0]?.snippet).toBeNull();
   });
 
+  it("keeps every reply small, and grounds a lost or returning player first", () => {
+    const metadata = { roleplayCampaign: campaign() };
+    const reply = { ...opening, createdAt: "2026-01-01T10:00:00.000Z" };
+    const block = (latestUserInput: string, hoursLater: number) =>
+      buildCampaignContext({
+        chatId: "c1",
+        chatMode: "roleplay",
+        metadata,
+        messages: [reply],
+        latestUserInput,
+        nowMs: Date.parse(reply.createdAt) + hoursLater * 3_600_000,
+      })!.block;
+
+    const plain = block("I climb to the lamp room.", 0.1);
+    expect(plain).toContain("one beat per reply");
+    expect(plain).not.toContain("sounds lost");
+    expect(plain).not.toContain("coming back after a break");
+
+    for (const lost of [
+      "(ooc: sorry, I'm confused)",
+      "wait, who is that?",
+      "What should I do now?",
+      "I'm so overwhelmed rn",
+    ]) {
+      expect(block(lost, 0.1)).toContain("sounds lost");
+    }
+    expect(block("I lost my footing on the stair.", 0.1)).not.toContain("sounds lost");
+
+    expect(block("I climb to the lamp room.", 20)).toContain("coming back after a break of about 20 hours");
+    expect(block("I climb to the lamp room.", 72)).toContain("about 3 days");
+  });
+
   it("adds nothing outside Roleplay or once the campaign has ended", () => {
     const metadata = { roleplayCampaign: campaign() };
     expect(buildCampaignContext({ chatId: "c1", chatMode: "conversation", metadata, messages: [] })).toBeNull();
