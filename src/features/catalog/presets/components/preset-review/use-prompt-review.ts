@@ -64,10 +64,10 @@ export function usePromptReview(presetId: string): PromptReview {
         { presetId, connectionId, streaming: true, focusAreas: [...FOCUS_AREAS] },
       );
       for await (const event of events) {
-        // Event data is shown as it comes, whatever its type (spec, "Recorded details").
-        const data: unknown = event.data;
-        if (event.type === "token") setOutput((shown) => shown + String(data ?? ""));
-        else if (event.type === "error") setError(String(data ?? "Review failed"));
+        // Event data is shown as it comes, whatever its type (spec, "Recorded details"). Like the recorded tab, `type`
+        // is read first and `data` only for tokens and errors; a token's data is read when the output updates.
+        if (event.type === "token") setOutput((shown) => shown + String((event.data as unknown) ?? ""));
+        else if (event.type === "error") setError(String((event.data as unknown) ?? "Review failed"));
       }
     } catch (reason) {
       setError(toUserMessage(reason, { fallback: "Review failed. Try again." }));

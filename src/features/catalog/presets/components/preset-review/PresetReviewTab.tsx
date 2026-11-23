@@ -29,12 +29,12 @@ function ConnectionPicker({ connections, value, onChange }: ConnectionPickerProp
       value={value}
       onChange={(event) => onChange(event.target.value)}
       aria-label="Connection"
-      className="flex-1 rounded-xl bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)] ring-1 ring-[var(--border)] focus:outline-none"
+      className="flex-1 rounded-xl bg-[var(--secondary)] px-2.5 py-2 text-xs ring-1 ring-[var(--border)] focus:outline-none"
     >
       <option value="">Select connection…</option>
-      {/* Rows are shown as listed: ids may repeat, and a nameless row is an empty option. */}
-      {connections.map((connection, index) => (
-        <option key={index} value={connection.id}>
+      {/* Rows are shown as listed: a nameless row is an empty option, and repeated ids aren't handled (follow-up 5). */}
+      {connections.map((connection) => (
+        <option key={connection.id} value={connection.id}>
           {connection.name}
         </option>
       ))}
@@ -60,7 +60,7 @@ export function PresetReviewTab({ presetId }: { presetId: string }) {
             type="button"
             onClick={() => void review.start(connectionId)}
             disabled={review.reviewing || !connectionId}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-400 to-violet-500 px-4 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-400 to-violet-500 px-4 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-50"
           >
             <Sparkles size="0.8125rem" aria-hidden="true" /> {review.reviewing ? "Reviewing…" : "Start Review"}
           </button>
@@ -73,7 +73,7 @@ export function PresetReviewTab({ presetId }: { presetId: string }) {
       )}
       {review.output && (
         <div aria-live="polite" className="rounded-xl bg-[var(--secondary)] p-4 ring-1 ring-[var(--border)]">
-          <pre className="whitespace-pre-wrap font-mono text-xs">{review.output}</pre>
+          <pre className="whitespace-pre-wrap text-xs text-[var(--foreground)]">{review.output}</pre>
         </div>
       )}
     </>
