@@ -95,9 +95,9 @@ export function readMarkerConfig(value: unknown): MarkerConfigView | null {
   return typeof record.type === "string" ? (record as MarkerConfigView) : null;
 }
 
-/** The `{{agent::…}}` macro of an agent marker. */
+/** The `{{agent::…}}` macro of an agent marker (`agent` only when the type is missing or `null`). */
 export function agentMacro(config: MarkerConfigView): string {
-  return `{{agent::${(config.agentType as string | undefined) || "agent"}}}`;
+  return `{{agent::${(config.agentType as string | null | undefined) ?? "agent"}}}`;
 }
 
 export interface SectionView {

@@ -30,11 +30,15 @@ function readLoreWarningDismissed(presetId: string): boolean {
   }
 }
 
-/** The ids with the one at `from` moved to the insert index `insertAt` (counted before the move). */
-function movedIds(sections: SectionRow[], from: number, insertAt: number): string[] {
+/**
+ * The ids with the one at `from` moved to the insert index `insertAt` (counted before the move), or `null` when the
+ * moved section has no id (a falsy id moves nothing, as recorded).
+ */
+function movedIds(sections: SectionRow[], from: number, insertAt: number): string[] | null {
   const ids = sections.map((section) => section.id);
   const [id] = ids.splice(from, 1);
-  ids.splice(insertAt > from ? insertAt - 1 : insertAt, 0, id!);
+  if (!id) return null;
+  ids.splice(insertAt > from ? insertAt - 1 : insertAt, 0, id);
   return ids;
 }
 
@@ -84,7 +88,9 @@ export function PresetSectionsTab({
     setLoreDismissed(readLoreWarningDismissed(presetId));
   }
 
-  const reorder = (sectionIds: string[]) => onReorderSections.mutate({ presetId, sectionIds });
+  const reorder = (sectionIds: string[] | null) => {
+    if (sectionIds) onReorderSections.mutate({ presetId, sectionIds });
+  };
   const drag = useSectionDrag(sections.length, (from, insertAt) => reorder(movedIds(sections, from, insertAt)));
 
   const setCardExpanded = (id: string, open: boolean) =>
@@ -97,7 +103,8 @@ export function PresetSectionsTab({
 
   const add = (choice: AddChoice) => {
     setMenuOpen(false);
-    if (choice.kind === "prompt") {
+    // An agent without a type adds a plain prompt block, as recorded.
+    if (choice.kind === "prompt" || (choice.kind === "agent" && !choice.agent.type)) {
       onCreateSection.mutate({
         presetId,
         identifier: `section_${Date.now()}`,
@@ -136,8 +143,8 @@ export function PresetSectionsTab({
     try {
       const created = await onCreateSection.mutateAsync({
         presetId,
-        identifier: `${(section.identifier as string | undefined) || "section"}_copy_${now}`,
-        name: `${(section.name as string | undefined) || "Prompt Block"} Copy`,
+        identifier: `${(section.identifier as string | null | undefined) ?? "section"}_copy_${now}`,
+        name: `${(section.name as string | null | undefined) ?? "Prompt Block"} Copy`,
         content: (section.content as string | null | undefined) ?? "",
         role: (section.role as string | null | undefined) ?? "system",
         enabled: isOn(section.enabled),
@@ -182,7 +189,7 @@ export function PresetSectionsTab({
             type="button"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-400 to-violet-500 px-3 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg"
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-400 to-violet-500 px-3 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98]"
           >
             <Plus size="0.8125rem" /> Add Section
           </button>
@@ -195,7 +202,7 @@ export function PresetSectionsTab({
           aria-expanded={groupsOpen}
           onClick={() => setGroupsOpen((open) => !open)}
           className={cn(
-            "flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium ring-1 ring-[var(--border)] transition-all",
+            "flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium ring-1 ring-[var(--border)] transition-all active:scale-[0.98]",
             groupsOpen
               ? "bg-sky-400/10 text-sky-400 ring-sky-400/30"
               : "bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:bg-[var(--accent)]",
@@ -212,7 +219,7 @@ export function PresetSectionsTab({
               title="Dismiss warning"
               aria-label="Dismiss warning"
               onClick={dismissLoreWarning}
-              className="ml-0.5 rounded-md p-0.5 text-amber-200/75 transition-colors hover:text-amber-100"
+              className="ml-0.5 rounded-md p-0.5 text-amber-200/75 transition-colors hover:bg-amber-400/15 hover:text-amber-100"
             >
               <X size="0.6875rem" />
             </button>

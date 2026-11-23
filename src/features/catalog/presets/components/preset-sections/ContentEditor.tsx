@@ -21,8 +21,8 @@ export function ContentEditor({
   name,
   onSave,
 }: {
-  /** The stored content as shown (an empty agent marker shows its macro). */
-  stored: string;
+  /** The stored content as stored, not normalised (an empty agent marker shows its macro). */
+  stored: unknown;
   /** The section name, for the expanded editor's title. */
   name: unknown;
   onSave: (content: string) => void;
@@ -39,24 +39,24 @@ export function ContentEditor({
 
   useEffect(() => () => clearTimeout(saveTimer.current), []);
 
-  const change = (next: string) => {
+  const change = (next: unknown) => {
     setText(next);
     clearTimeout(saveTimer.current);
     // Compared with the stored content as it is now, not when the timer fires.
     const storedNow = stored;
     saveTimer.current = setTimeout(() => {
-      if (next !== storedNow) onSave(next);
+      if (next !== storedNow) onSave(next as string);
     }, SAVE_MS);
   };
 
   const saveNow = () => {
-    if (text !== stored) onSave(text);
+    if (text !== stored) onSave(text as string);
   };
 
   return (
     <div className="relative">
       <textarea
-        value={text}
+        value={text as string}
         onChange={(event) => change(event.target.value)}
         onFocus={() => {
           focused.current = true;
@@ -66,9 +66,9 @@ export function ContentEditor({
           clearTimeout(saveTimer.current);
           saveNow();
         }}
-        onKeyDown={(event) => insertTabSpaces(event, change)}
+        onKeyDown={(event) => insertTabSpaces(event, text, change)}
         placeholder="Prompt content… (supports {{user}}, {{char}}, {{// comment}}, {{trim}} macros)"
-        className="min-h-[7.5rem] w-full resize-y rounded-lg bg-[var(--secondary)] p-2.5 pr-8 font-mono text-xs ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+        className="min-h-[7.5rem] w-full resize-y rounded-lg bg-[var(--secondary)] p-2.5 pr-8 font-mono text-xs ring-1 placeholder:text-[var(--muted-foreground)] ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
       />
       <div className="absolute right-1.5 top-1.5 flex flex-col gap-0.5">
         <button

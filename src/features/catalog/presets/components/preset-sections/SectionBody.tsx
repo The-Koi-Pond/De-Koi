@@ -6,6 +6,8 @@ import { agentMacro, LOREBOOK_MARKER_TYPES, markerLabel, type SectionRow, type S
 
 const FIELD =
   "rounded-lg bg-[var(--secondary)] ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]";
+/** The dropdowns and the depth box keep their border ring when focused. */
+const SELECT = "rounded-lg bg-[var(--secondary)] ring-1 ring-[var(--border)]";
 const LABEL = "text-[var(--muted-foreground)]";
 
 /**
@@ -28,7 +30,7 @@ function NameInput({ stored, onSave }: { stored: unknown; onSave: (name: string)
     <input
       type="text"
       aria-label="Section name"
-      value={text ?? ""}
+      value={text}
       placeholder="Section name"
       onFocus={(event) => event.target.select()}
       onChange={(event) => setText(event.target.value)}
@@ -59,7 +61,8 @@ export function SectionBody({
   const positionId = useId();
   const groupId = useId();
   const config = view.marker ? view.config : null;
-  const content = (section.content as string | null | undefined) ?? "";
+  // As stored: `null`, missing or non-text content stays as it is as recorded.
+  const content = section.content;
   const saveContent = (text: string) => update({ content: text });
 
   return (
@@ -70,7 +73,7 @@ export function SectionBody({
           aria-label="Role"
           value={(section.role as string | null | undefined) ?? "system"}
           onChange={(event) => update({ role: event.target.value })}
-          className={`px-2 py-1.5 text-xs ${FIELD}`}
+          className={`px-2 py-1.5 text-xs focus:outline-none ${SELECT}`}
         >
           <option value="system">System</option>
           <option value="user">User</option>
@@ -93,7 +96,7 @@ export function SectionBody({
               instructions around it.
             </p>
           </div>
-          <ContentEditor stored={content || agentMacro(config)} name={section.name} onSave={saveContent} />
+          <ContentEditor stored={(content as string) || agentMacro(config)} name={section.name} onSave={saveContent} />
         </div>
       )}
 
@@ -117,7 +120,7 @@ export function SectionBody({
           id={positionId}
           value={(section.injectionPosition as string | undefined) ?? "ordered"}
           onChange={(event) => update({ injectionPosition: event.target.value })}
-          className={`px-2 py-1 ${FIELD}`}
+          className={`px-2 py-1 ${SELECT}`}
         >
           <option value="ordered">Ordered (in sequence)</option>
           <option value="depth">Depth (from end of chat)</option>
@@ -132,7 +135,7 @@ export function SectionBody({
                 min={0}
                 selectOnFocus
                 onCommit={(injectionDepth) => update({ injectionDepth })}
-                className={`w-16 px-2 py-1 ${FIELD}`}
+                className={`w-16 px-2 py-1 ${SELECT}`}
               />
             </label>
             <span className={LABEL}>(0 = after last message)</span>
@@ -148,7 +151,7 @@ export function SectionBody({
           id={groupId}
           value={(section.groupId as string | null | undefined) ?? ""}
           onChange={(event) => update({ groupId: event.target.value || null })}
-          className={`px-2 py-1 ${FIELD}`}
+          className={`px-2 py-1 ${SELECT}`}
         >
           <option value="">No group</option>
           {[...groupMap.values()].map((group) => (

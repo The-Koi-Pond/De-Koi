@@ -4,7 +4,9 @@ import { useRef, useState, type DragEvent } from "react";
 // its grip; that grip press is remembered until a drag ends. The drop place is an insert index: before card `i`, or
 // `count` for after the last card. Its own place (before or after the dragged card) shows no line and drops nothing.
 // Over the list's empty space the line goes after the last card below it, before the first card above it, and stays
-// where it was in the gaps between cards.
+// where it was in the gaps between cards. A drag over the list while no card is dragged still moves the (hidden)
+// drop place, so the next drag can start with that line showing, as recorded; the own-place rule is applied again
+// when the line is drawn and at the drop.
 
 const SECTION_CARD_ATTRIBUTE = "data-section-index";
 
@@ -12,7 +14,7 @@ export interface SectionDrag {
   /** The card being dragged (shown faded). */
   draggedIndex: number | null;
   /** Where the drop line shows: before this card, or after the last one when it equals the card count. */
-  dropIndex: number | null;
+  lineIndex: number | null;
   gripDown: (index: number) => void;
   dragStart: (event: DragEvent<HTMLElement>, index: number) => void;
   dragEnd: () => void;
@@ -26,6 +28,9 @@ function cardAt(target: EventTarget | null): { index: number; element: Element }
   if (!element) return null;
   return { index: Number(element.getAttribute(SECTION_CARD_ATTRIBUTE)), element };
 }
+
+/** Before or after the dragged card: no line, and a drop there moves nothing. */
+const isOwnPlace = (from: number, insertAt: number) => insertAt === from || insertAt === from + 1;
 
 export function useSectionDrag(count: number, onMove: (from: number, insertAt: number) => void): SectionDrag {
   const grip = useRef<number | null>(null);
@@ -50,7 +55,7 @@ export function useSectionDrag(count: number, onMove: (from: number, insertAt: n
 
   return {
     draggedIndex,
-    dropIndex,
+    lineIndex: draggedIndex !== null && dropIndex !== null && !isOwnPlace(draggedIndex, dropIndex) ? dropIndex : null,
     gripDown: (index) => {
       grip.current = index;
     },
@@ -70,7 +75,6 @@ export function useSectionDrag(count: number, onMove: (from: number, insertAt: n
     dragOver: (event) => {
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
-      if (draggedIndex === null) return;
       const card = cardAt(event.target);
       let insertAt: number | undefined;
       if (card) {
@@ -80,15 +84,14 @@ export function useSectionDrag(count: number, onMove: (from: number, insertAt: n
         insertAt = listPlace(event.currentTarget, event.clientY);
         if (insertAt === undefined) return;
       }
-      const ownPlace = insertAt === draggedIndex || insertAt === draggedIndex + 1;
-      setDropIndex(ownPlace ? null : insertAt);
+      setDropIndex(draggedIndex !== null && isOwnPlace(draggedIndex, insertAt) ? null : insertAt);
     },
     drop: (event) => {
       event.preventDefault();
       const from = draggedIndex;
       const insertAt = dropIndex;
       reset();
-      if (from !== null && insertAt !== null) onMove(from, insertAt);
+      if (from !== null && insertAt !== null && !isOwnPlace(from, insertAt)) onMove(from, insertAt);
     },
   };
 }

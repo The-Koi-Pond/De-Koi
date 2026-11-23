@@ -20,7 +20,7 @@ import { readSection, type SectionRow } from "./section-row";
 import type { SectionDrag } from "./use-section-drag";
 
 const ARROW_BUTTON =
-  "rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-30";
+  "rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-30";
 const ACTION_BUTTON = "rounded-lg p-1";
 
 function RoleIcon({ role }: { role: string }) {
@@ -80,7 +80,7 @@ export function SectionCard({
 
   return (
     <div>
-      {drag.dropIndex === index && <DropLine where="before" />}
+      {drag.lineIndex === index && <DropLine where="before" />}
       <div
         data-section-index={index}
         draggable
@@ -98,7 +98,7 @@ export function SectionCard({
               title="Drag to reorder"
               aria-hidden="true"
               onMouseDown={() => drag.gripDown(index)}
-              className="rounded p-0.5"
+              className="rounded p-0.5 hover:bg-[var(--accent)]"
             >
               <GripVertical size="0.875rem" className="text-[var(--muted-foreground)]" />
             </div>
@@ -128,7 +128,7 @@ export function SectionCard({
             aria-label={`${expanded ? "Collapse" : "Expand"} ${labelName}`}
             aria-expanded={expanded}
             onClick={onToggle}
-            className="shrink-0 rounded p-0.5"
+            className="shrink-0 rounded p-0.5 hover:bg-[var(--accent)]"
           >
             {expanded ? (
               <ChevronDown size="0.875rem" className="text-[var(--muted-foreground)]" />
@@ -160,7 +160,7 @@ export function SectionCard({
               onClick={onDuplicate}
               className={cn(
                 ACTION_BUTTON,
-                "text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-30",
+                "text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-30",
               )}
             >
               <Copy size="0.75rem" />
@@ -184,7 +184,7 @@ export function SectionCard({
               title="Delete"
               aria-label={`Delete ${labelName}`}
               onClick={onDelete}
-              className={cn(ACTION_BUTTON, "hover:bg-[var(--destructive)]/10")}
+              className={cn(ACTION_BUTTON, "hover:bg-[var(--destructive)]/15")}
             >
               <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
             </button>
@@ -192,7 +192,7 @@ export function SectionCard({
         </div>
         {expanded && <SectionBody section={section} view={view} groupMap={groupMap} update={update} />}
       </div>
-      {drag.dropIndex === count && index === count - 1 && <DropLine where="after" />}
+      {drag.lineIndex === count && index === count - 1 && <DropLine where="after" />}
     </div>
   );
 }

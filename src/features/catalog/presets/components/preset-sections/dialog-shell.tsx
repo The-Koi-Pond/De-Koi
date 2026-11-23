@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../../../../shared/lib/utils";
 
@@ -23,17 +23,15 @@ export function DialogShell({
   footer: ReactNode;
 }) {
   const titleId = useId();
-  // Escape reaches the latest close handler (it hands over the latest text).
-  const close = useRef(onClose);
-  close.current = onClose;
-
+  // Subscribed again after every render, so with several dialogs open Escape closes them in the order they last
+  // re-rendered (the one typed in most recently closes last), as recorded; each sees its latest close handler.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close.current();
+      if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+  });
 
   const heading = (
     <h3 id={titleId} className="text-sm font-semibold">
@@ -42,7 +40,7 @@ export function DialogShell({
   );
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 max-md:pt-[max(1.5rem,env(safe-area-inset-top))]">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
         role="dialog"

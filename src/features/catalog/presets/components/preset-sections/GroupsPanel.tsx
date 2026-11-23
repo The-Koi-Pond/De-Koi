@@ -58,7 +58,7 @@ export function GroupsPanel({
         <button
           type="button"
           onClick={() => onCreateGroup.mutate({ presetId, name: "New Group" })}
-          className="flex items-center gap-1 rounded-lg bg-sky-400/15 px-2 py-1 text-[0.625rem] font-medium text-sky-400 hover:bg-sky-400/25"
+          className="flex items-center gap-1 rounded-lg bg-sky-400/15 px-2 py-1 text-[0.625rem] font-medium text-sky-400 hover:bg-sky-400/25 active:scale-95"
         >
           <Plus size="0.625rem" /> New Group
         </button>
@@ -113,7 +113,7 @@ export function GroupsPanel({
                 type="button"
                 aria-label={`Delete group ${group.name}`}
                 onClick={() => void confirmDelete(group)}
-                className="rounded p-0.5 hover:bg-[var(--destructive)]/10"
+                className="rounded p-0.5 hover:bg-[var(--destructive)]/15"
               >
                 <Trash2 size="0.625rem" className="text-[var(--destructive)]" />
               </button>

@@ -17,8 +17,8 @@ export function ExpandedEditorDialog({
 }: {
   name: unknown;
   /** The content editor's current text. */
-  value: string;
-  onChange: (text: string) => void;
+  value: unknown;
+  onChange: (text: unknown) => void;
   onClose: () => void;
 }) {
   // Filled once when the dialog opens.
@@ -34,7 +34,7 @@ export function ExpandedEditorDialog({
     };
   }, []);
 
-  const change = (next: string) => {
+  const change = (next: unknown) => {
     setText(next);
     clearTimeout(handOver.current);
     handOver.current = setTimeout(() => onChange(next), HAND_OVER_MS);
@@ -57,7 +57,7 @@ export function ExpandedEditorDialog({
           <button
             type="button"
             onClick={close}
-            className="rounded-xl bg-gradient-to-r from-purple-400 to-violet-500 px-4 py-1.5 text-xs font-medium text-white shadow-md"
+            className="rounded-xl bg-gradient-to-r from-purple-400 to-violet-500 px-4 py-1.5 text-xs font-medium text-white shadow-md hover:shadow-lg active:scale-[0.98]"
           >
             Done
           </button>
@@ -67,11 +67,11 @@ export function ExpandedEditorDialog({
       <div className="flex-1 overflow-hidden p-4">
         <textarea
           ref={area}
-          value={text}
+          value={text as string}
           onChange={(event) => change(event.target.value)}
-          onKeyDown={(event) => insertTabSpaces(event, change)}
+          onKeyDown={(event) => insertTabSpaces(event, text, change)}
           placeholder="Prompt content… (supports macros like {{user}}, {{char}}, etc.)"
-          className="h-full w-full resize-none rounded-lg bg-[var(--secondary)] p-4 font-mono text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+          className="h-full w-full resize-none rounded-lg bg-[var(--secondary)] p-4 font-mono text-sm ring-1 placeholder:text-[var(--muted-foreground)] ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
         />
       </div>
     </DialogShell>
