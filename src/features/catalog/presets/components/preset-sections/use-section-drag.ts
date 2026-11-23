@@ -4,9 +4,9 @@ import { useRef, useState, type DragEvent } from "react";
 // its grip; that grip press is remembered until a drag ends. The drop place is an insert index: before card `i`, or
 // `count` for after the last card. Its own place (before or after the dragged card) shows no line and drops nothing.
 // Over the list's empty space the line goes after the last card below it, before the first card above it, and stays
-// where it was in the gaps between cards. A drag over the list while no card is dragged still moves the (hidden)
-// drop place, so the next drag can start with that line showing, as recorded; the own-place rule is applied again
-// when the line is drawn and at the drop.
+// where it was in the gaps between cards. A drag over keeps the drop place as it is, even next to the dragged card or
+// with no card dragged; the own-place rule is applied when the line is drawn and at the drop. So a new drag can start
+// with the line a previous drag over left, as recorded.
 
 const SECTION_CARD_ATTRIBUTE = "data-section-index";
 
@@ -84,7 +84,7 @@ export function useSectionDrag(count: number, onMove: (from: number, insertAt: n
         insertAt = listPlace(event.currentTarget, event.clientY);
         if (insertAt === undefined) return;
       }
-      setDropIndex(draggedIndex !== null && isOwnPlace(draggedIndex, insertAt) ? null : insertAt);
+      setDropIndex(insertAt);
     },
     drop: (event) => {
       event.preventDefault();

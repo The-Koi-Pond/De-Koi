@@ -7,6 +7,7 @@ import {
   type Step,
   type StepResult,
 } from "./preset-sections-replay-harness";
+import { fakePresetSectionsApis } from "./fake-preset-sections-apis";
 import show from "./test-fixtures/recorded-show.json";
 
 // Old behavior on legacy and odd rows that the recordings don't cover, found by black-box testing the old tab and
@@ -280,5 +281,51 @@ describe("PresetSectionsTab keeps the old behavior on odd rows", () => {
   it("8: Move on a section whose id is empty sends nothing", async () => {
     const tab = await mount([row(""), row("s-b")]);
     expect((await step(tab, ["moveDown", 0])).calls).toEqual([]);
+  });
+
+  it("9: a drop after the list shrank mid-drag sends the moved id as `undefined` (no id check on a drop)", async () => {
+    const rows = [row("s-a"), row("s-b"), row("s-c")];
+    // The dragged card's index points past the end of the shrunk list.
+    let tab = await mount(rows);
+    await step(tab, ["gripDown", 2]);
+    await step(tab, ["dragStart", 2]);
+    fakePresetSectionsApis.setSections([rows[0]!, rows[2]!]);
+    expect((await step(tab, ["refetch"])).cards).toHaveLength(2);
+    await step(tab, ["dragOverList", -20]);
+    let snapshot = await step(tab, ["dropList"]);
+    expect(snapshot.calls.slice(0, 2)).toEqual([
+      ["mutate", "reorderSections", { presetId: "preset-1", sectionIds: [{ $undefined: true }, "s-a", "s-c"] }],
+      ["reorder", { presetId: "preset-1", kind: "sections", ids: [{ $undefined: true }, "s-a", "s-c"] }],
+    ]);
+    // Then the refetch.
+    expect(snapshot.calls[2]).toEqual(["storage.get", "prompts", "preset-1"]);
+    // Serialized, the missing id is `null`.
+    expect(JSON.stringify((snapshot.calls[0] as unknown[])[2])).toBe(
+      '{"presetId":"preset-1","sectionIds":[{"$undefined":true},"s-a","s-c"]}',
+    );
+
+    // The dragged index pointing at another card: the drop at its own place (by index) sends nothing.
+    tab = await mount(rows);
+    await step(tab, ["gripDown", 1]);
+    await step(tab, ["dragStart", 1]);
+    fakePresetSectionsApis.setSections([rows[0]!, rows[2]!]);
+    await step(tab, ["refetch"]);
+    await step(tab, ["dragOverList", 999]);
+    snapshot = await step(tab, ["dropList"]);
+    expect(snapshot.calls).toEqual([]);
+  });
+
+  it("10: a new drag shows the drop place the previous drag over left, when it isn't the new card's own place", async () => {
+    const tab = await mount([row("s-a"), row("s-b", { enabled: false }), row("s-c")]);
+    await step(tab, ["gripDown", 1]);
+    await step(tab, ["dragStart", 1]);
+    // Card 0's lower half: before card 1, the dragged card's own place (no line).
+    expect((await step(tab, ["dragOver", 0, 63])).cards).toEqual([[], ["dragging"], []]);
+    await step(tab, ["gripDown", 2]);
+    expect((await step(tab, ["dragStart", 2])).cards).toEqual([[], ["off", "lineBefore"], ["dragging"]]);
+    // Dropped there, it moves card 2 before card 1.
+    expect(mutations(await step(tab, ["drop", 2]))).toEqual([
+      ["mutate", "reorderSections", { presetId: "preset-1", sectionIds: ["s-a", "s-c", "s-b"] }],
+    ]);
   });
 });

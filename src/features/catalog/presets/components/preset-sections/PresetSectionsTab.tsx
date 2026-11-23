@@ -31,14 +31,14 @@ function readLoreWarningDismissed(presetId: string): boolean {
 }
 
 /**
- * The ids with the one at `from` moved to the insert index `insertAt` (counted before the move), or `null` when the
- * moved section has no id (a falsy id moves nothing, as recorded).
+ * The ids with the one at `from` moved to the insert index `insertAt` (counted before the move). A drag doesn't check
+ * the moved id: when the list shrank during the drag, `from` can point past the end and `undefined` is sent in its
+ * place, as recorded.
  */
-function movedIds(sections: SectionRow[], from: number, insertAt: number): string[] | null {
+function movedIds(sections: SectionRow[], from: number, insertAt: number): string[] {
   const ids = sections.map((section) => section.id);
   const [id] = ids.splice(from, 1);
-  if (!id) return null;
-  ids.splice(insertAt > from ? insertAt - 1 : insertAt, 0, id);
+  ids.splice(insertAt > from ? insertAt - 1 : insertAt, 0, id!);
   return ids;
 }
 
@@ -88,9 +88,7 @@ export function PresetSectionsTab({
     setLoreDismissed(readLoreWarningDismissed(presetId));
   }
 
-  const reorder = (sectionIds: string[] | null) => {
-    if (sectionIds) onReorderSections.mutate({ presetId, sectionIds });
-  };
+  const reorder = (sectionIds: string[]) => onReorderSections.mutate({ presetId, sectionIds });
   const drag = useSectionDrag(sections.length, (from, insertAt) => reorder(movedIds(sections, from, insertAt)));
 
   const setCardExpanded = (id: string, open: boolean) =>
@@ -258,7 +256,11 @@ export function PresetSectionsTab({
               onToggle={() => setCardExpanded(section.id, !expanded.has(section.id))}
               reorderPending={onReorderSections.isPending}
               duplicatePending={onCreateSection.isPending || onReorderSections.isPending}
-              onMove={(delta) => reorder(movedIds(sections, index, delta < 0 ? index - 1 : index + 2))}
+              onMove={(delta) => {
+                // Move up / down send nothing for a section without an id, as recorded.
+                if (!section.id) return;
+                reorder(movedIds(sections, index, delta < 0 ? index - 1 : index + 2));
+              }}
               onDuplicate={() => void duplicate(section, index)}
               onDelete={() => onDeleteSection.mutate({ presetId, sectionId: section.id })}
               update={(data) => onUpdateSection.mutate({ presetId, sectionId: section.id, ...data })}
