@@ -34,3 +34,5 @@ src/features/catalog/presets/components/preset-variables/test-fixtures/*.json
 src/features/catalog/presets/components/preset-sections/test-fixtures/*.json
 # Preset editor shell and Overview recordings, one line each for the same reason.
 src/features/catalog/presets/components/preset-overview/test-fixtures/*.json
+# Preset AI Review tab recordings, one line each for the same reason.
+src/features/catalog/presets/components/preset-review/test-fixtures/*.json

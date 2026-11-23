@@ -116,6 +116,8 @@ function addedFieldAttributes(fields: FieldSnapshot[]): Added {
     }
     if (field.placeholder === "What does this preset do?") return { "aria-label": "Description" };
     if (field.placeholder === "Your name (optional)") return { "aria-label": "Author" };
+    // The AI Review tab's connection picker, named by its own spec (docs/provenance/preset-review.md, decision 1).
+    if (field.tag === "select") return { "aria-label": "Connection" };
     return {};
   });
 }
