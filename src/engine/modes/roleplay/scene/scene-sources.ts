@@ -5,6 +5,7 @@ import {
   boolish,
   hiddenFromAi,
   isRecord,
+  oldestFirst,
   parseRecord,
   readString,
   type JsonRecord,
@@ -26,8 +27,7 @@ export async function loadRecentMessages(
     descending: true,
     limit,
   });
-  // The page comes newest first; reversing it keeps messages with equal timestamps in their stored order.
-  return rows.filter(isRecord).slice(0, limit).reverse();
+  return oldestFirst(rows.filter(isRecord)).slice(-limit);
 }
 
 /** `role: content` for each message the model may see, skipping empty ones and ones hidden from the AI. */

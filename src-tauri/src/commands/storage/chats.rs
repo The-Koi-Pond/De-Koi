@@ -715,6 +715,15 @@ fn replace_message_with_swipes_and_chat_cleanup(
                         &[message_id.to_string()],
                         "source_message_edited",
                     )?;
+                    if prune_memories {
+                        canonical_memory::forget_automatic_memories_for_edited_messages_in_collections(
+                            collections,
+                            story_collection_index,
+                            Some(story_collection_index + 1),
+                            story_collection_index + 3,
+                            &[message_id.to_string()],
+                        )?;
+                    }
                     knowledge_edges::invalidate_message_sources_in_collections(
                         collections,
                         story_collection_index + 3,
@@ -877,6 +886,15 @@ pub(crate) fn message_swipes(
                         &[message_id.to_string()],
                         "source_message_edited",
                     )?;
+                    if visible_content_changed {
+                        canonical_memory::forget_automatic_memories_for_edited_messages_in_collections(
+                            collections,
+                            1,
+                            None,
+                            3,
+                            &[message_id.to_string()],
+                        )?;
+                    }
                     knowledge_edges::invalidate_message_sources_in_collections(
                         collections,
                         3,
@@ -947,6 +965,15 @@ pub(crate) fn update_message_content_if_unchanged(
                         &[message_id.to_string()],
                         "source_message_edited",
                     )?;
+                    if visible_content_changed {
+                        canonical_memory::forget_automatic_memories_for_edited_messages_in_collections(
+                            collections,
+                            3,
+                            Some(4),
+                            6,
+                            &[message_id.to_string()],
+                        )?;
+                    }
                     knowledge_edges::invalidate_message_sources_in_collections(
                         collections,
                         6,
@@ -7419,6 +7446,129 @@ mod tests {
                 .unwrap()["status"],
             json!("active")
         );
+    }
+
+    #[test]
+    fn editing_a_message_stales_the_automatic_memories_captured_from_its_old_text() {
+        let state = test_state("edit-message-captured-memories");
+        for (id, role, content) in [
+            ("user-1", "user", "the vault code is 4165"),
+            ("reply-1", "assistant", "the clown pockets the key"),
+            ("reply-2", "assistant", "untouched reply"),
+        ] {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({ "id": id, "chatId": "chat-1", "role": role, "content": content, "createdAt": "2026-11-23T00:00:00Z", "extra": {} }),
+                )
+                .unwrap();
+        }
+        let seed = |id: &str, status: &str, payload: Value, message_ids: Value| {
+            canonical_memory::create_memory(
+                &state,
+                json!({
+                    "id": id,
+                    "kind": "scene_event",
+                    "status": status,
+                    "scope": { "kind": "character", "id": "character-1" },
+                    "content": format!("memory {id}"),
+                    "confidence": 0.9,
+                    "provenance": { "sourceChatId": "chat-1", "messageIds": message_ids },
+                    "tags": [],
+                    "payload": payload
+                }),
+            )
+            .unwrap();
+        };
+        let automatic = |sources: Value| json!({ "automatic": true, "sourceMessageIds": sources, "referenceMessageIds": [] });
+        seed(
+            "from-reply-1",
+            "active",
+            automatic(json!(["reply-1"])),
+            json!(["reply-1"]),
+        );
+        seed(
+            "from-user-1",
+            "active",
+            automatic(json!(["user-1"])),
+            json!(["user-1"]),
+        );
+        seed(
+            "from-reply-2",
+            "active",
+            automatic(json!(["reply-2"])),
+            json!(["reply-2"]),
+        );
+        seed(
+            "pinned",
+            "pinned",
+            automatic(json!(["reply-1"])),
+            json!(["reply-1"]),
+        );
+        seed("manual", "active", json!({}), json!(["reply-1"]));
+        state
+            .storage
+            .create(
+                "memory-index-rows",
+                json!({ "id": "index-reply-1", "memoryId": "from-reply-1" }),
+            )
+            .unwrap();
+        let status = |id: &str| {
+            state
+                .storage
+                .get("canonical-memories", id)
+                .unwrap()
+                .unwrap()["status"]
+                .clone()
+        };
+
+        // An extra-only patch leaves the text alone: nothing is forgotten.
+        patch_message_update_with_memory_prune(
+            &state,
+            "reply-1",
+            json!({ "extra": { "note": "x" } }),
+        )
+        .unwrap();
+        assert_eq!(status("from-reply-1"), json!("active"));
+
+        // The user cuts the plot point out of the narrator's reply.
+        patch_message_update_with_memory_prune(
+            &state,
+            "reply-1",
+            json!({ "content": "the clown waves" }),
+        )
+        .unwrap();
+        assert_eq!(status("from-reply-1"), json!("stale"));
+        assert_eq!(
+            state
+                .storage
+                .get("canonical-memories", "from-reply-1")
+                .unwrap()
+                .unwrap()["payload"]["staleReason"],
+            json!("source_message_edited")
+        );
+        assert!(state
+            .storage
+            .get("memory-index-rows", "index-reply-1")
+            .unwrap()
+            .is_none());
+        assert_eq!(status("from-user-1"), json!("active"));
+        assert_eq!(status("from-reply-2"), json!("active"));
+        assert_eq!(status("pinned"), json!("pinned"));
+        assert_eq!(status("manual"), json!("active"));
+
+        // The compare-and-set edit path forgets too.
+        update_message_content_if_unchanged(
+            &state,
+            "chat-1",
+            "user-1",
+            "the vault code is 4165",
+            "the vault is open",
+        )
+        .unwrap();
+        assert_eq!(status("from-user-1"), json!("stale"));
+        assert_eq!(status("from-reply-2"), json!("active"));
     }
 
     #[test]

@@ -67,6 +67,19 @@ export function bySortOrder(a: JsonRecord, b: JsonRecord): number {
   return readString(a.createdAt).localeCompare(readString(b.createdAt));
 }
 
+/**
+ * A page of chat messages, oldest first, whichever way it arrived. The server's message list returns the newest
+ * `limit` rows oldest first even when `descending` is asked for (apply_message_pagination), while in-memory fakes
+ * honor `descending`; reversing the page by habit read real chats backwards. A newest-first page is flipped (keeping
+ * equal timestamps in stored order), then a stable sort by `createdAt` settles anything else.
+ */
+export function oldestFirst<T>(rows: readonly T[]): T[] {
+  const at = (row: T) => (isRecord(row) ? readString(row.createdAt) : "");
+  const page = [...rows];
+  if (page.length > 1 && at(page[0]!) > at(page[page.length - 1]!)) page.reverse();
+  return page.sort((a, b) => (at(a) < at(b) ? -1 : at(a) > at(b) ? 1 : 0));
+}
+
 export function hiddenFromAi(message: JsonRecord): boolean {
   const extra = parseRecord(message.extra);
   return boolish(extra.hiddenFromAI ?? extra.hiddenFromAi, false);
