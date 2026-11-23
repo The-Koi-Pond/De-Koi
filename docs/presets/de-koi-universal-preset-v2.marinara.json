@@ -21,7 +21,8 @@
         "section_v2_pacing",
         "section_v2_examples",
         "section_v2_history",
-        "section_v2_output"
+        "section_v2_output",
+        "section_v2_length_reminder"
       ],
       "groupOrder": ["group_v2_context"],
       "variableOrder": [
@@ -338,6 +339,24 @@
         "injectionPosition": "ordered",
         "injectionDepth": 0,
         "injectionOrder": 1200,
+        "wrapInXml": false,
+        "xmlTagName": "",
+        "forbidOverrides": false
+      },
+      {
+        "id": "section_v2_length_reminder",
+        "presetId": "preset_universal_v2",
+        "identifier": "universal_v2_length_reminder",
+        "name": "Length Reminder",
+        "content": "(OOC: reply length: {{length}}. Treat it as a hard limit, not a target; if there is more to say, stop at a natural point and I will ask.)",
+        "role": "user",
+        "enabled": true,
+        "isMarker": false,
+        "groupId": null,
+        "markerConfig": null,
+        "injectionPosition": "ordered",
+        "injectionDepth": 0,
+        "injectionOrder": 1300,
         "wrapInXml": false,
         "xmlTagName": "",
         "forbidOverrides": false
