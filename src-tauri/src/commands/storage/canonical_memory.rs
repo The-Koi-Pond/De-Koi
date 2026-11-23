@@ -946,6 +946,55 @@ pub(crate) fn delete_automatic_memories_for_deleted_messages_in_collections(
     edge_collection_index: usize,
     message_ids: &[String],
 ) -> AppResult<usize> {
+    forget_automatic_memories_for_messages_in_collections(
+        collections,
+        memory_collection_index,
+        Some(index_collection_index),
+        edge_collection_index,
+        message_ids,
+        MemoryForget::Deleted,
+    )
+}
+
+/// Editing a message's visible text makes the active automatic memories captured from the old text `stale`, so recall
+/// (active and pinned only) stops telling the model what the user cut out. Later captures can save what the new text
+/// still says. `index_collection_index` is None for journaled writes, where the changed `updatedAt` already fails
+/// every old index row's freshness check.
+pub(crate) fn forget_automatic_memories_for_edited_messages_in_collections(
+    collections: &mut [marinara_storage::AtomicCollectionRows],
+    memory_collection_index: usize,
+    index_collection_index: Option<usize>,
+    edge_collection_index: usize,
+    message_ids: &[String],
+) -> AppResult<usize> {
+    forget_automatic_memories_for_messages_in_collections(
+        collections,
+        memory_collection_index,
+        index_collection_index,
+        edge_collection_index,
+        message_ids,
+        MemoryForget::Edited,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum MemoryForget {
+    Deleted,
+    Edited,
+}
+
+fn forget_automatic_memories_for_messages_in_collections(
+    collections: &mut [marinara_storage::AtomicCollectionRows],
+    memory_collection_index: usize,
+    index_collection_index: Option<usize>,
+    edge_collection_index: usize,
+    message_ids: &[String],
+    forget: MemoryForget,
+) -> AppResult<usize> {
+    let (next_status, reason_field, reason) = match forget {
+        MemoryForget::Deleted => ("deleted", "deletedReason", "source_message_deleted"),
+        MemoryForget::Edited => ("stale", "staleReason", "source_message_edited"),
+    };
     let deleted_message_ids = message_ids
         .iter()
         .map(|id| id.trim())
@@ -964,9 +1013,11 @@ pub(crate) fn delete_automatic_memories_for_deleted_messages_in_collections(
         .iter_mut()
     {
         let status = read_string(memory.get("status"));
-        if matches!(status.as_str(), "deleted" | "pinned")
-            || story_projection_payload(memory).is_some()
-        {
+        let skip = match forget {
+            MemoryForget::Deleted => matches!(status.as_str(), "deleted" | "pinned"),
+            MemoryForget::Edited => status != "active",
+        };
+        if skip || story_projection_payload(memory).is_some() {
             continue;
         }
         let Some(sources) = automatic_memory_source_ids(memory) else {
@@ -978,13 +1029,10 @@ pub(crate) fn delete_automatic_memories_for_deleted_messages_in_collections(
         let object = memory
             .as_object_mut()
             .ok_or_else(|| AppError::invalid_input("Canonical memory row is not an object"))?;
-        object.insert("status".to_string(), Value::String("deleted".to_string()));
+        object.insert("status".to_string(), Value::String(next_status.to_string()));
         object.insert("updatedAt".to_string(), Value::String(now.clone()));
         if let Some(payload) = object.get_mut("payload").and_then(Value::as_object_mut) {
-            payload.insert(
-                "deletedReason".to_string(),
-                Value::String("source_message_deleted".to_string()),
-            );
+            payload.insert(reason_field.to_string(), Value::String(reason.to_string()));
         }
         deleted.push((read_string(memory.get("id")), status));
     }
@@ -995,22 +1043,25 @@ pub(crate) fn delete_automatic_memories_for_deleted_messages_in_collections(
         .iter()
         .map(|(id, _)| id.clone())
         .collect::<HashSet<_>>();
-    collections
-        .get_mut(index_collection_index)
-        .ok_or_else(|| AppError::new("storage_error", "Memory index collection missing"))?
-        .rows_mut()
-        .retain(|row| !deleted_ids.contains(&read_string(row.get("memoryId"))));
+    if let Some(index_collection_index) = index_collection_index {
+        collections
+            .get_mut(index_collection_index)
+            .ok_or_else(|| AppError::new("storage_error", "Memory index collection missing"))?
+            .rows_mut()
+            .retain(|row| !deleted_ids.contains(&read_string(row.get("memoryId"))));
+    }
     let edges = collections
         .get_mut(edge_collection_index)
         .ok_or_else(|| AppError::new("storage_error", "Knowledge edge collection missing"))?
         .rows_mut();
     for (memory_id, previous_status) in &deleted {
+        // A stale memory's evidence changed: its edges go the same way as for a content change.
         knowledge_edges::apply_memory_lifecycle(
             edges,
             memory_id,
-            false,
+            matches!(forget, MemoryForget::Edited),
             previous_status,
-            "deleted",
+            next_status,
             &now,
         )?;
     }

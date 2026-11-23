@@ -68,22 +68,33 @@ export function visibleTurns(messages: readonly JsonRecord[]): JsonRecord[] {
   });
 }
 
+/** The message id a snapshot key was made from (`replyKey` is `<id>#<hash>`). */
+function keyMessageId(key: string): string {
+  const cut = key.lastIndexOf("#");
+  return cut > 0 ? key.slice(0, cut) : key;
+}
+
 /**
  * The snapshot that describes the chat as it stands: the newest one whose reply is still in `messages` exactly as it
- * was processed. A regenerated, edited or deleted reply no longer matches, so the campaign falls back to the point
- * before it. `start` always matches.
+ * was processed, with no earlier processed reply changed since. A regenerated or edited reply no longer matches, so
+ * the campaign falls back to the point before it, even when later replies are untouched: they were read on top of
+ * the old text. A reply that is missing (deleted, hidden, or older than a loaded page) is skipped. `start` always
+ * matches.
  */
 export function currentProgress(state: RoleplayCampaignState, messages: readonly JsonRecord[]): CampaignProgress {
-  const keys = new Set(
+  const keysById = new Map(
     visibleTurns(messages)
       .filter((message) => message.role === "assistant")
-      .map(replyKey),
+      .map((message) => [readString(message.id).trim(), replyKey(message)] as const),
   );
-  for (let index = state.progress.length - 1; index > 0; index -= 1) {
+  let current = state.progress[0]!;
+  for (let index = 1; index < state.progress.length; index += 1) {
     const snapshot = state.progress[index]!;
-    if (keys.has(snapshot.key)) return snapshot;
+    const now = keysById.get(keyMessageId(snapshot.key));
+    if (now === snapshot.key) current = snapshot;
+    else if (now !== undefined) break;
   }
-  return state.progress[0]!;
+  return current;
 }
 
 /**
