@@ -346,6 +346,17 @@ Kept as recorded in the rebuild; each is its own small pull request after it:
 11. An unknown role shows System in the dropdown; duplicating it fails.
 12. The depth box saves on every blur and reads `3.7` as 3.
 13. Deleting a group leaves its sections pointing at it.
+14. Found by the old-vs-new fuzz (not in the recordings; the rebuild keeps them,
+    tested in `PresetSections.legacy.spec.tsx`):
+    - Duplicate keeps an empty name or identifier (`" Copy"`, `_copy_<now>`).
+    - An agent with an empty or missing `type` in the add menu creates a plain
+      Prompt Block.
+    - An agent marker with `agentType: ""` shows `{{agent::}}`.
+    - Tab in a section whose content is null or not text throws and inserts
+      nothing.
+    - A drag that starts without the last one ending can show a stale drop
+      line.
+    - Move does nothing on a section with an empty id.
 
 ## Recorded details
 
