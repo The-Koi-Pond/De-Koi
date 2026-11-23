@@ -302,7 +302,7 @@ describe("campaign prompt block", () => {
     expect(context?.attributionItems[0]?.snippet).toBeNull();
   });
 
-  it("keeps every reply small, and grounds a lost or returning player first", () => {
+  it("grounds a lost or returning player first, and leaves other replies alone", () => {
     const metadata = { roleplayCampaign: campaign() };
     const reply = { ...opening, createdAt: "2026-01-01T10:00:00.000Z" };
     const block = (latestUserInput: string, hoursLater: number) =>
@@ -316,7 +316,6 @@ describe("campaign prompt block", () => {
       })!.block;
 
     const plain = block("I climb to the lamp room.", 0.1);
-    expect(plain).toContain("one beat per reply");
     expect(plain).not.toContain("sounds lost");
     expect(plain).not.toContain("coming back after a break");
 

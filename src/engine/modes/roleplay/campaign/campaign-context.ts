@@ -23,12 +23,8 @@ const BREAK_HOURS = 6;
 const LOST_PATTERN =
   /\b(?:confus\w*|overwhelm\w*|(?:i'?m|i am|so|bit|kinda|feel(?:ing)?|getting) lost|who(?:'s| is| are| was) (?:that|this|he|she|they|these|those|all|everyone)|what(?:'s| is) (?:going on|happening)|what (?:do|should|can) i (?:do|say)|wait,? what|slow (?:it )?down|i don'?t (?:get it|understand|follow)|remind me)\b/i;
 
-/** Every reply: the plan is easier to follow one small step at a time. */
-const LOAD_LINE =
-  "Keep it easy to follow: one beat per reply, about 250 words at most unless the player asked for longer replies, and shorter when they write short. Bring in at most one new named person, place or term, and say in a few plain words who or what it is the first time. At most two characters speak. End where the player can act.";
-
 const LOST_LINE =
-  "The player sounds lost or overwhelmed. If they asked out of character, answer briefly out of character first. Then, in the fiction and in a few plain sentences: where they are, who is with them (each with a few plain words), and what they are trying to do; then one clear thing they can act on. Nothing new this reply: no new names, threads or reveals. The world keeps moving, gently.";
+  "The player sounds lost or overwhelmed. If they asked out of character, answer briefly out of character first. Then, in the fiction and in a few plain sentences: where they are, who is with them (each with a few plain words), and what they are trying to do; then one clear thing they can act on. Keep this reply short, with at most two characters speaking, and nothing new: no new names, threads or reveals. The world keeps moving, gently.";
 
 function hoursSinceLastReply(messages: readonly JsonRecord[], nowMs: number): number | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -140,7 +136,6 @@ function campaignBlock(
     pacingLine(progress.pacing, situation, progress, state),
     ...(player.breakHours !== null && player.breakHours >= BREAK_HOURS ? [breakLine(player.breakHours)] : []),
     ...(player.lost ? [LOST_LINE] : []),
-    LOAD_LINE,
     "The player's latest message wins over everything here. Never write the player's words, choices, thoughts or feelings. If they do something unexpected, play it straight with real consequences instead of steering them back.",
     "</campaign>",
   ].join("\n");
