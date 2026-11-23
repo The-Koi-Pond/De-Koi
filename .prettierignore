@@ -30,3 +30,5 @@ src/shared/components/ui/generation-parameters/test-fixtures/*.json
 src/features/catalog/agents/components/agent-editor/test-fixtures/*.json
 # Preset variables editor recordings, one line each for the same reason.
 src/features/catalog/presets/components/preset-variables/test-fixtures/*.json
+# Preset sections tab recordings, one line each for the same reason.
+src/features/catalog/presets/components/preset-sections/test-fixtures/*.json
