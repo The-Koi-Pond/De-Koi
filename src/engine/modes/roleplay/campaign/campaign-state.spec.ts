@@ -177,6 +177,43 @@ describe("campaign state", () => {
     expect(currentProgress(state1, [opening, user1]).key).toBe(START_KEY);
   });
 
+  it("rolls back to before an edited older reply, so later reads of the old text stop counting", () => {
+    const user2 = { id: "m3", role: "user", content: "I pull the boots on and head for the door." };
+    const reply2 = { id: "m4", role: "assistant", content: "The door creaks open onto the moor." };
+    const state0 = campaign();
+    const after1 = applyTick(state0, state0.progress[0]!, tick({ revealedClueIds: ["boots"] }), ctx(replyKey(reply1)));
+    const state1 = withProgress(state0, state0.progress[0]!, after1, NOW);
+    const after2 = applyTick(state1, after1, tick({ newFacts: ["wearing the boots"] }), ctx(replyKey(reply2)));
+    const state2 = withProgress(state1, after1, after2, NOW);
+    expect(currentProgress(state2, [opening, user1, reply1, user2, reply2]).key).toBe(replyKey(reply2));
+
+    // The player cuts the boots out of the older reply; the newest reply is untouched.
+    const edited1 = { ...reply1, content: "You find nothing." };
+    const chat = [opening, user1, edited1, user2, reply2];
+    expect(currentProgress(state2, chat).key).toBe(START_KEY);
+    expect(currentProgress(state2, chat).revealedClueIds).toEqual([]);
+    // The next read starts at the edited reply, and saving it drops the snapshots built on the old text.
+    const unread = unreadExchange(state2, chat);
+    expect(unread.turns.map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4"]);
+    const reread = applyTick(state2, unread.from, tick(), ctx(replyKey(reply2)));
+    expect(withProgress(state2, unread.from, reread, NOW).progress.map((p) => p.key)).toEqual([
+      START_KEY,
+      replyKey(reply2),
+    ]);
+  });
+
+  it("skips a processed reply that is missing from a partial page instead of rolling back", () => {
+    const user2 = { id: "m3", role: "user", content: "I pull the boots on and head for the door." };
+    const reply2 = { id: "m4", role: "assistant", content: "The door creaks open onto the moor." };
+    const state0 = campaign();
+    const after1 = applyTick(state0, state0.progress[0]!, tick(), ctx(replyKey(reply1)));
+    const state1 = withProgress(state0, state0.progress[0]!, after1, NOW);
+    const after2 = applyTick(state1, after1, tick(), ctx(replyKey(reply2)));
+    const state2 = withProgress(state1, after1, after2, NOW);
+    // A newest-first page that no longer reaches reply1.
+    expect(currentProgress(state2, [user2, reply2]).key).toBe(replyKey(reply2));
+  });
+
   it("reads only what came after the last processed reply, and nothing before the player speaks", () => {
     const state0 = campaign();
     expect(unreadExchange(state0, [opening]).turns).toEqual([]);
