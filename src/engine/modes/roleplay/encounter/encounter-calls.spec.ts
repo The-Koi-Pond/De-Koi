@@ -71,16 +71,15 @@ function fakeStorage(
       if (entity === "personas") return [{ id: "persona-1", name: "Mira", isActive: true }];
       return [];
     }),
-    // Like real storage: the newest `limit` messages, newest first. Equal timestamps keep their saved order.
+    // Like real storage: the newest `limit` messages, oldest first (whatever `descending` asks), equal timestamps in
+    // saved order.
     listChatMessages: vi.fn(async (_chatId: string, query: { limit: number }) =>
       Array.from({ length: 10 }, (_, index) => ({
         id: `m${index}`,
         role: index % 2 ? "assistant" : "user",
         content: `Line ${index}`,
         createdAt: "2026-01-01T00:00:00Z",
-      }))
-        .reverse()
-        .slice(0, query.limit),
+      })).slice(-query.limit),
     ),
     getWorldState: vi.fn(async () => null),
     listLorebookEntries: vi.fn(async () => []),

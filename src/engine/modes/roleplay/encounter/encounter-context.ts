@@ -6,6 +6,7 @@ import {
   boolish,
   hiddenFromAi,
   isRecord,
+  oldestFirst,
   parseArray,
   parseRecord,
   readNumber,
@@ -181,13 +182,10 @@ export async function loadEncounterHistory(
     orderBy: "createdAt",
     descending: true,
     limit,
-    fields: ["id", "role", "content", "extra"],
+    fields: ["id", "role", "content", "extra", "createdAt"],
   });
-  // The page comes newest first; reversing it (not re-sorting by createdAt) keeps equal timestamps in order.
-  return rows
-    .filter(isRecord)
-    .slice(0, limit)
-    .reverse()
+  return oldestFirst(rows.filter(isRecord))
+    .slice(-limit)
     .filter((message) => !hiddenFromAi(message) && text(message.content))
     .map((message) => {
       const role = readString(message.role);

@@ -101,7 +101,7 @@ describe("habit scan", () => {
       const messages = chatMessages(replies);
       const storage = {
         get: vi.fn(async () => ({ id: "chat-1", metadata: {} })),
-        listChatMessages: vi.fn(async () => [...messages].reverse()),
+        listChatMessages: vi.fn(async () => [...messages]),
         patchChatMetadata: vi.fn(async () => ({})),
       };
       const llm = llmReturning(
@@ -147,7 +147,7 @@ describe("habit scan", () => {
       list: vi.fn(async (entity: string) =>
         entity === "connections" ? [{ id: "cheap", name: "Cheap", provider: "openai", model: "cheap-model" }] : [],
       ),
-      listChatMessages: vi.fn(async () => [...messages].reverse()),
+      listChatMessages: vi.fn(async () => [...messages]),
       patchChatMetadata: vi.fn(async () => ({})),
     };
   }
@@ -166,7 +166,7 @@ describe("habit scan", () => {
         return null;
       }),
       list: vi.fn(async () => []),
-      listChatMessages: vi.fn(async () => [...messages].reverse()),
+      listChatMessages: vi.fn(async () => [...messages]),
       patchChatMetadata: vi.fn(async () => ({})),
     };
   }
