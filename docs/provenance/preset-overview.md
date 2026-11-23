@@ -296,6 +296,10 @@ Kept as recorded in the rebuild; each is its own small pull request after it:
 10. The name is edited in two places (header and Overview), and only one of
     them selects on focus.
 11. A whitespace-only name saves as is.
+12. **Switching presets during Save & close or Delete.** Starting Save & close
+    or Delete on one preset and opening another before it finishes closes the
+    second preset's editor when the first one finishes (found by the old-vs-new
+    fuzz; the same in both).
 
 ## Recorded details
 
