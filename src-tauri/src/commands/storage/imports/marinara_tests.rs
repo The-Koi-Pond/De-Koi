@@ -1298,7 +1298,7 @@ fn marinara_preset_imports_universal_v2_artifact() {
         .filter(|variable| variable.get("presetId").and_then(Value::as_str) == Some(preset_id))
         .collect::<Vec<_>>();
 
-    assert_eq!(sections.len(), 14);
+    assert_eq!(sections.len(), 15);
     assert_eq!(groups.len(), 1);
     assert_eq!(variables.len(), 11);
 
