@@ -8,6 +8,10 @@ vi.mock("../../../../../shared/api/storage-api", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   storageApi: (await import("./fake-preset-overview-apis")).fakeStorageApi,
 }));
+vi.mock("../../../../../shared/api/prompt-nested-api", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  promptNestedApi: (await import("./fake-preset-overview-apis")).fakePromptNestedApi,
+}));
 vi.mock("../../../../../shared/api/export-api", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../../../../shared/api/export-api")>();
   const { fakeExportPrompt } = await import("./fake-preset-overview-apis");
@@ -72,9 +76,22 @@ describe("PresetEditorShell decisions", () => {
       ["What does this preset do?", "Description"],
       ["Your name (optional)", "Author"],
     ]);
-    const icons = [...root.querySelectorAll("svg")];
-    expect(icons.length).toBeGreaterThan(10);
-    for (const icon of icons) expect(icon.getAttribute("aria-hidden"), icon.outerHTML.slice(0, 80)).toBe("true");
+    const expectIconsHidden = () => {
+      const icons = [...root.querySelectorAll("svg")];
+      expect(icons.length).toBeGreaterThan(10);
+      for (const icon of icons) expect(icon.getAttribute("aria-hidden"), icon.outerHTML.slice(0, 80)).toBe("true");
+    };
+    expectIconsHidden();
+
+    // With the unsaved bar and the save error bar showing (the warning icon and the dismiss X).
+    await harness!.run(["type", "name", "Edited"]);
+    await harness!.run(["back"]);
+    await harness!.run(["fail", "prompts.update", "disk full"]);
+    await harness!.run(["save"]);
+    expect(root.textContent).toContain("You have unsaved changes.");
+    expect(root.querySelector('[role="alert"] > svg')).not.toBeNull();
+    expect(root.querySelector('button[aria-label="Dismiss save error"] svg.lucide-x')).not.toBeNull();
+    expectIconsHidden();
   });
 
   it("2. marks the active tab, the pressed wrap format, the saved notice and the save error", async () => {

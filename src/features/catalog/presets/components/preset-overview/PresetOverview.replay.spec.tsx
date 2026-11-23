@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { fakePresetOverviewApis } from "./fake-preset-overview-apis";
 import {
+  PresetOverviewHarness,
   replayScenario,
   resolveStep,
   type ButtonSnapshot,
@@ -9,6 +11,7 @@ import {
   type Scenario,
   type Snapshot,
   type StepResult,
+  worldFor,
 } from "./preset-overview-replay-harness";
 import actionsEdit from "./test-fixtures/recorded-actions-edit.json";
 import actionsHeader from "./test-fixtures/recorded-actions-header.json";
@@ -18,6 +21,10 @@ import show from "./test-fixtures/recorded-show.json";
 vi.mock("../../../../../shared/api/storage-api", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   storageApi: (await import("./fake-preset-overview-apis")).fakeStorageApi,
+}));
+vi.mock("../../../../../shared/api/prompt-nested-api", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  promptNestedApi: (await import("./fake-preset-overview-apis")).fakePromptNestedApi,
 }));
 vi.mock("../../../../../shared/api/export-api", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../../../../shared/api/export-api")>();
@@ -135,8 +142,11 @@ function setAsideLabelled(actual: LabelledSnapshot[], expected: Snapshot, label:
     noticeShown ? [{ tag: "div", text: "Changes saved", role: "status" }] : [],
   );
   const errorButton = expected.buttons.some((button) => button["aria-label"] === "Dismiss save error");
-  expect(alert.length, `${label} save error bar`).toBe(errorButton ? 1 : 0);
-  if (alert[0]) expect(expected.text, `${label} save error text`).toContain(alert[0].text);
+  // Every recorded save error shows the fallback message (the raw error text is never shown).
+  expect(alert, `${label} save error bar`).toEqual(
+    errorButton ? [{ tag: "div", text: "Couldn't save preset. Try again.", role: "alert" }] : [],
+  );
+  if (errorButton) expect(expected.text, `${label} save error text`).toContain("Couldn't save preset. Try again.");
   return actual.filter((element) => element.role !== "status" && element.role !== "alert");
 }
 
@@ -195,4 +205,30 @@ describe("PresetEditorShell replays the recorded old editor", () => {
     },
     30_000,
   );
+});
+
+describe("the replay fakes", () => {
+  it("keeps a Sections tab reorder off the network: logged, holdable and stored on the preset", async () => {
+    const recording = show as unknown as Recording;
+    const harness = new PresetOverviewHarness(worldFor(recording, { world: {} }), "preset-1");
+    try {
+      await harness.run(["mount"]);
+      await harness.run(["tab", "Sections"]);
+      const reorder = fakePresetOverviewApis.probeProps?.onReorderSections as { mutate: (input: unknown) => void };
+      await harness.run(["hold", "reorder"]);
+      await harness.run([
+        "sectionsMutate",
+        "onReorderSections",
+        { presetId: "preset-1", sectionIds: ["s-hist", "s-main", "s-char"] },
+      ]);
+      expect(reorder).toBeDefined();
+      const reorderCall = ["reorder", { presetId: "preset-1", kind: "sections", ids: ["s-hist", "s-main", "s-char"] }];
+      expect(fakePresetOverviewApis.calls.at(-1)).toEqual(reorderCall);
+      await harness.run(["release", "reorder"]);
+      const sections = harness.snapshot().sections as { sections: string[] };
+      expect(sections.sections).toEqual(["s-hist", "s-main", "s-char"]);
+    } finally {
+      await harness.unmount();
+    }
+  });
 });

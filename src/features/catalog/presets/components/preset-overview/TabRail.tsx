@@ -13,7 +13,7 @@ const TABS: ReadonlyArray<{ id: EditorTab; label: string; icon: LucideIcon }> = 
 
 export function TabRail({ tab, onSelect }: { tab: EditorTab; onSelect: (tab: EditorTab) => void }) {
   return (
-    <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)] p-1.5 @5xl:w-44 @5xl:flex-col @5xl:overflow-x-visible @5xl:border-b-0 @5xl:border-r @5xl:p-2">
+    <nav className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-[var(--border)] bg-[var(--card)] p-1.5 @5xl:w-44 @5xl:flex-col @5xl:overflow-y-auto @5xl:border-b-0 @5xl:border-r @5xl:p-2">
       {TABS.map(({ id, label, icon: Icon }) => {
         const active = id === tab;
         return (

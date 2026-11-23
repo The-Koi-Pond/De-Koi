@@ -13,6 +13,7 @@ export type Op =
   | "chats.get"
   | `${Kind}.list`
   | `${Kind}.update`
+  | "reorder"
   | "export"
   | "connections.list";
 
@@ -32,6 +33,12 @@ const ENTITY_KIND: Record<string, Kind> = {
   "prompt-sections": "sections",
   "prompt-groups": "groups",
   "prompt-variables": "variables",
+};
+
+const ORDER_KEY: Record<Kind, string> = {
+  sections: "sectionOrder",
+  groups: "groupOrder",
+  variables: "variableOrder",
 };
 
 const copy = <T>(value: T): T => structuredClone(value);
@@ -159,6 +166,28 @@ export const fakeStorageApi = {
       world().presets = world().presets.filter((row) => row.id !== id);
     }
     return null;
+  },
+};
+
+/**
+ * Stands in for `promptNestedApi.reorder` (the recordings never reorder; this keeps a Sections tab reorder off the
+ * network): puts the preset's rows of that kind in the given order and stores the order on the preset.
+ */
+export const fakePromptNestedApi = {
+  async reorder(input: { presetId: string; kind: Kind; ids: string[] }) {
+    state.calls.push(["reorder", copy(input)]);
+    await gate("reorder");
+    const data = world();
+    const place = (row: Row) => {
+      const at = input.ids.indexOf(row.id);
+      return at < 0 ? Number.POSITIVE_INFINITY : at;
+    };
+    const rows = data[input.kind];
+    const mine = rows.filter((row) => row.presetId === input.presetId).sort((a, b) => place(a) - place(b));
+    data[input.kind] = [...rows.filter((row) => row.presetId !== input.presetId), ...mine];
+    const preset = data.presets.find((row) => row.id === input.presetId);
+    if (preset) preset[ORDER_KEY[input.kind]] = [...input.ids];
+    return copy(mine);
   },
 };
 

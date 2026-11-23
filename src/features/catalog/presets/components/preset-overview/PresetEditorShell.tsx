@@ -25,7 +25,7 @@ export function PresetEditorShell({ renderReviewTab }: PresetEditorShellProps) {
       <div className="flex flex-1 items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="shimmer h-8 w-48 rounded-xl" />
-          <div className="shimmer h-4 w-32 rounded-lg" />
+          <div className="shimmer h-4 w-32 rounded-xl" />
         </div>
       </div>
     );
@@ -39,7 +39,7 @@ export function PresetEditorShell({ renderReviewTab }: PresetEditorShellProps) {
   }
 
   return (
-    <div className="@container flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden">
       <EditorHeader editor={editor} />
       <EditorBars editor={editor} />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden @5xl:flex-row">

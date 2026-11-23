@@ -8,7 +8,7 @@ import type { PresetDraft } from "./preset-data";
 // two counts. Its parts are spaced by the content column, so it returns a fragment.
 
 const FIELD =
-  "w-full rounded-xl bg-[var(--secondary)] text-sm ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]";
+  "w-full rounded-xl bg-[var(--secondary)] text-sm text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]";
 
 const WRAP_FORMATS: ReadonlyArray<{ value: string; label: string; icon: LucideIcon }> = [
   { value: "xml", label: "XML", icon: Code2 },
@@ -44,7 +44,7 @@ function Field({ label, help, children }: { label: string; help: string; childre
 function StatCard({ count, label }: { count: number; label: string }) {
   return (
     <div className="flex flex-1 flex-col items-center rounded-xl bg-[var(--secondary)] p-3 ring-1 ring-[var(--border)]">
-      <span className="text-xl font-bold">{count}</span>
+      <span className="text-xl font-bold text-[var(--foreground)]">{count}</span>
       <span className="text-[0.625rem] text-[var(--muted-foreground)]">{label}</span>
     </div>
   );
