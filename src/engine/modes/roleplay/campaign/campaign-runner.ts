@@ -4,7 +4,7 @@
 import type { StorageGateway } from "../../../capabilities/storage";
 import type { RoleplayCampaignState } from "../../../contracts/types/roleplay-campaign";
 import { trackPostReplyWork } from "../../../generation/post-reply-work";
-import { parseRecord, readString, type JsonRecord } from "../../../generation/runtime-records";
+import { oldestFirst, parseRecord, readString, type JsonRecord } from "../../../generation/runtime-records";
 import { campaignCall, campaignRunConnection, type CampaignCapabilities } from "./campaign-calls";
 import { mergeReplan } from "./campaign-plan";
 import { REPLAN_SHAPE, replanMessages, TICK_SHAPE, tickMessages } from "./campaign-prompts";
@@ -43,7 +43,7 @@ async function loadMessages(storage: StorageGateway, chatId: string): Promise<Js
     limit: MESSAGE_PAGE,
     fields: ["id", "role", "content", "extra", "hiddenFromAI", "createdAt"],
   });
-  return [...page].reverse();
+  return oldestFirst(page);
 }
 
 function storedValue(chat: JsonRecord): unknown {

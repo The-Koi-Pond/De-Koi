@@ -7,7 +7,7 @@ import type { LlmGateway, LlmMessage } from "../capabilities/llm";
 import type { StorageGateway } from "../capabilities/storage";
 import { isOpenRouterFreeModel } from "../onboarding/openrouter-starter-model";
 import { noteHelperRun, resolveHelperRoute } from "./helper-runs";
-import { boolish, parseRecord, readString, type JsonRecord } from "./runtime-records";
+import { boolish, oldestFirst, parseRecord, readString, type JsonRecord } from "./runtime-records";
 import { generateStructured } from "./structured-generation";
 
 const HABIT_SCAN_VERSION = 2;
@@ -175,7 +175,7 @@ export async function runHabitScanIfDue(input: ScheduleHabitScanInput): Promise<
     limit: SCHEDULED_SCAN_PAGE,
     fields: ["id", "role", "content", "extra", "hiddenFromAI", "createdAt"],
   });
-  const messages = [...page].reverse();
+  const messages = oldestFirst(page);
   const previous = readHabitScan(chat.metadata);
   if (!habitScanDue(messages, previous)) return null;
   // The reply's connection is not a pick for this helper, so a habit check route wins.

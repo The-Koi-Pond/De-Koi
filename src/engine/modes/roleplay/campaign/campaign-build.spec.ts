@@ -99,7 +99,7 @@ function fakeLlm(
   } as LlmGateway & { calls: string[]; prompts: string[] };
 }
 
-function memoryStorage(options: { failMessages?: boolean } = {}) {
+function memoryStorage(options: { failMessages?: boolean; serverOrder?: boolean } = {}) {
   const rows: Record<string, Array<Record<string, any>>> = {
     connections: [{ id: "conn", provider: "openai", model: "m", enabled: true, isDefault: true }],
     personas: [],
@@ -136,13 +136,23 @@ function memoryStorage(options: { failMessages?: boolean } = {}) {
     },
     async createChatMessage(chatId: string, value: Record<string, unknown>) {
       if (options.failMessages) throw new Error("disk full");
-      const row = { id: `m${(next += 1)}`, chatId, ...value };
+      next += 1;
+      const row = {
+        id: `m${next}`,
+        chatId,
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, next)).toISOString(),
+        ...value,
+      };
       messages.push(row);
       return row;
     },
-    async listChatMessages(chatId: string, query: { descending?: boolean } = {}) {
+    async listChatMessages(chatId: string, query: { descending?: boolean; limit?: number } = {}) {
       const list = messages.filter((message) => message.chatId === chatId);
-      return query.descending ? [...list].reverse() : list;
+      // The real server (apply_message_pagination) returns the newest `limit` rows, oldest first, whatever
+      // `descending` says.
+      if (options.serverOrder) return query.limit ? list.slice(-query.limit) : list;
+      const ordered = query.descending ? [...list].reverse() : list;
+      return query.limit ? ordered.slice(0, query.limit) : ordered;
     },
     async bulkDeleteChatMessages() {
       return {};
@@ -238,6 +248,33 @@ describe("running a campaign", () => {
       facts: ["Ivo trusts the player a little."],
     });
     expect(await runCampaignTick({ storage, llm }, chatId)).toEqual({ status: "skipped", reason: "nothing_new" });
+  });
+
+  it("reads the newest exchange and keeps counting when the server lists messages oldest first", async () => {
+    const store = memoryStorage({ serverOrder: true });
+    const llm = fakeLlm({ tick: { situation: "ongoing", pacing: "hold" } });
+    const built = await buildCampaign({ storage: store.storage, llm }, INPUT);
+    const exchange = async (n: number) => {
+      await store.storage.createChatMessage(built.chatId, {
+        role: "user",
+        content: `player turn ${n}: I keep looking around the lamp room for anything out of place.`,
+      });
+      await store.storage.createChatMessage(built.chatId, { role: "assistant", content: `story reply ${n}` });
+    };
+    // Longer than one 40-message read, with every reply read as it lands.
+    for (let n = 1; n <= 30; n += 1) {
+      await exchange(n);
+      const result = await runCampaignTick({ storage: store.storage, llm }, built.chatId);
+      expect(result.status).toBe("ticked");
+      expect(llm.prompts.at(-1)).toMatch(new RegExp(`PLAYER: player turn ${n}(?![0-9])`));
+      if (n > 1) expect(llm.prompts.at(-1)).not.toMatch(new RegExp(`story reply ${n - 1}(?![0-9])`));
+    }
+    const state = readCampaign(store.rows.chats![0]!.metadata)!;
+    expect(state.progress.at(-1)?.turn).toBe(30);
+    expect(await runCampaignTick({ storage: store.storage, llm }, built.chatId)).toEqual({
+      status: "skipped",
+      reason: "nothing_new",
+    });
   });
 
   it("rewrites only unplayed situations in a replan", async () => {
