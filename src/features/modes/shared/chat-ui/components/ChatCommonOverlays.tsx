@@ -6,7 +6,7 @@ import { recordClientDiagnostic } from "../../../../../shared/lib/client-diagnos
 import type { PeekPromptData } from "../types";
 import type { SaveMomentSource } from "../lib/save-moment";
 import type { SaveMomentSummaryDraft } from "../lib/save-moment";
-import { PeekPromptModal } from "./PeekPromptModal";
+import { PeekPromptModal } from "./peek-prompt";
 import { ChatSetupResumeCard } from "./ChatSetupResumeCard";
 
 const ChatSettingsDrawer = lazy(async () => {
