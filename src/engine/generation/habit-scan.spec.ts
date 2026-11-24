@@ -72,6 +72,14 @@ describe("habit scan", () => {
     expect(request.messages.at(-1)?.content).toContain("Reply 4:\nThe generator coughs.");
   });
 
+  it("asks for no thinking, so a thinking model can't spend the whole limit before the JSON", async () => {
+    const llm = llmReturning(JSON.stringify({ habits: [] }));
+    await runHabitScan({ llm }, { messages: chatMessages(replies), mode: "roleplay" });
+
+    const request = vi.mocked(llm.complete).mock.calls[0]![0];
+    expect(request.parameters).toMatchObject({ reasoningEffort: "none", maxTokens: 1_000 });
+  });
+
   it("waits for two replies, then rescans after every new one or when its last reply is gone", () => {
     const scan = { throughMessageId: "a3" } as HabitScan;
 

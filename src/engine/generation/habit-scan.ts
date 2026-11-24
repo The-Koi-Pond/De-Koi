@@ -282,7 +282,9 @@ export async function runHabitScan(
       taskName: "habit_scan",
       connectionId: input.connectionId,
       messages: habitScanMessages(input.mode, window),
-      parameters: { temperature: 0, maxTokens: 1_000, reasoningEffort: "low" },
+      // Thinking off: a thinking model (Gemini on NanoGPT) can spend the whole limit thinking and return no JSON.
+      // A higher limit does not fix it: at high effort it thought through 4,096 tokens and was still cut off.
+      parameters: { temperature: 0, maxTokens: 1_000, reasoningEffort: "none" },
       schema: scanSchema,
       schemaDescription: SCHEMA_DESCRIPTION,
       maxRepairAttempts: 1,
