@@ -68,8 +68,15 @@ export function planProblems(request: CampaignRequest, bible: CampaignBible, dra
       }
     }
   }
-  const firstPresent = draft.situations[0]?.present.length ?? 0;
+  const first = draft.situations[0];
+  const firstPresent = first?.present.length ?? 0;
   if (characterFocus && firstPresent === 0) problems.push("The first situation has nobody in it to be close to.");
+  const leadsInFirst = bible.cast.filter((member) => member.ladder.length > 0 && first?.present.includes(member.id));
+  if (leadsInFirst.length > 1) {
+    problems.push(
+      `The first situation brings in ${leadsInFirst.map((member) => member.name).join(" and ")} at once; give each their own entrance.`,
+    );
+  }
   return problems;
 }
 

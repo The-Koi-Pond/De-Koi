@@ -98,18 +98,30 @@ function requestLines(request: CampaignRequest, context: PlannerContext, focusKn
     `Heat: ${HEAT_GUIDE[request.heat]}`,
     ...limitLines(request, context.offTable),
     `Length: ${LENGTH_WORDS[request.length]}.`,
-    persona
-      ? `The player's character: ${persona.name}. ${persona.description}`.trim()
-      : "The player's character is whoever the player plays; give them a clear role in the setting and nothing more.",
+    ...(persona
+      ? [`The player's character: ${persona.name}. ${persona.description}`.trim(), PERSONA_PRIVACY]
+      : [
+          "The player's character is whoever the player plays; give them a clear role in the setting and nothing more.",
+        ]),
     ...libraryPromptLines(context.library),
   ];
 }
 
+/** The player's card is the game master's to read, not the cast's. */
+const PERSONA_PRIVACY = [
+  "That card is for you, not for the cast. You may shape the campaign around who the player is,",
+  "but in the fiction people know only what they could: how the player looks and carries themselves, and what they say and do in play.",
+  "Nobody senses, names or plays to the card's inner life (longings, fears, secrets, history) before the player shows it in play;",
+  "if the world is going to tempt it, it does so through things that would happen to anyone in the player's place.",
+].join(" ");
+
 const CRAFT = [
   "Craft rules:",
   "- Every word of the ask is a wish. If it says sad, horny, heartwarming and weird, all four carry weight in the plan, not just one.",
-  "- Specific beats generic. Give people, places and creatures concrete physical detail, habits and contradictions. Avoid stock fantasy names (Elara, Kael, Lyra, Seraphina, Thorne, Vex and the like) and stock phrases.",
+  "- Specific beats generic. Give people, places and creatures concrete physical detail, habits and contradictions. Avoid stock phrases.",
+  "- Names are a deeper cut: less expected names that still fit the setting. No stock names (Elara, Kael, Lyra, Seraphina, Thorne, Vex, Vance and the like), and no two people, places or groups in one campaign share a name.",
   "- Every cast member wants something that pulls against someone else, fears something, and hides something that matters to the plot.",
+  "- Every cast member is more than their premise: an ordinary life, opinions and habits that have nothing to do with the ask. The ask's twist shows in what they do over time; nobody announces their own nature or the premise.",
   "- Never decide the player's feelings, choices, history or body beyond what the ask says. The player's choices drive everything.",
   "- Plan situations, not scripts: what is happening and what is at stake, never what the player will do.",
 ].join("\n");
@@ -123,11 +135,26 @@ export const BIBLE_SHAPE = `{
   "truth": "what is really going on, for the GM only (max 150 words)",
   "keyTruths": [{ "id": "short-id", "text": "one thing the player can discover" }],
   "tableRules": "max 120 words, written to the narrator, specific to THIS campaign: tone, how consequences work here, how intimacy is handled, what the narrator never does",
-  "cast": [{ "id": "short-id", "name": "", "role": "", "want": "", "fear": "", "secret": "", "towardPlayer": "how they treat the player at first", "ladder": [{ "looksLike": "this stage of closeness in play", "opensNext": "what has to happen for the next stage" }] }],
+  "cast": [{ "id": "short-id", "name": "", "role": "", "want": "", "fear": "", "secret": "", "towardPlayer": "how they treat the player at first, knowing only what they would really know of them in the fiction", "ladder": [{ "looksLike": "this stage of closeness in play", "opensNext": "what has to happen for the next stage" }] }],
   "endings": [{ "id": "short-id", "condition": "when it happens, in terms of what the player did", "tone": "" }]
 }`;
 
-export function bibleMessages(request: CampaignRequest, context: PlannerContext, focusKnown: boolean): LlmMessage[] {
+/** Letters new cast names start with, drawn fresh for each campaign: the model alone reaches for the same names every time. */
+const NAME_LETTERS = "ABCDEFGHJKLMNOPRSTVW";
+
+function nameLetters(random: () => number = Math.random, count = 4): string[] {
+  const pool = [...NAME_LETTERS];
+  const picked: string[] = [];
+  while (picked.length < count && pool.length > 0) picked.push(pool.splice(Math.floor(random() * pool.length), 1)[0]!);
+  return picked;
+}
+
+export function bibleMessages(
+  request: CampaignRequest,
+  context: PlannerContext,
+  focusKnown: boolean,
+  letters: readonly string[] = nameLetters(),
+): LlmMessage[] {
   return [
     {
       role: "system",
@@ -136,6 +163,7 @@ export function bibleMessages(request: CampaignRequest, context: PlannerContext,
         AUDIENCE,
         CRAFT,
         "Step 1 of 3: the campaign bible.",
+        `- Each new cast member's first name starts with one of these letters, a different letter for each where there are enough: ${letters.join(", ")}. The player's own characters keep their names.`,
         "- 2 to 5 cast members (more only if the ask needs a crowd). Characters the relationship focus is about get a ladder of 3-5 stages; others get an empty ladder.",
         "- 1 to 3 key truths the player can discover.",
         "- 2 to 4 endings that differ in what they mean, each reached by the player's own choices. No ending is just 'you lose'.",
@@ -164,8 +192,11 @@ export const SITUATIONS_SHAPE = `{
 function situationRules(request: CampaignRequest, count: number): string {
   return [
     `Step 2 of 3: about ${count} situations in 2-3 acts, in play order, and the clues.`,
-    "- The first situation starts with the player already in it, and a real choice arrives within the first three replies.",
-    "- The ask's main draw (the creatures, the relationship, the heat, the tone it names) is on stage in the first situation and in most situations after it. Never save what the player asked for for later; build the mystery and the stakes around it.",
+    "- The first situation lets the player settle in: their role, their place, the people and routine around them, with something real to do and a small choice within the first few replies. One quiet detail hints at what the ask promises without explaining it. Nobody announces the premise.",
+    "- Bring the cast in one at a time, each main character with an entrance of their own; the ask's main characters do not all arrive in the first situation.",
+    "- The ask's main draw (the creatures, the relationship, the heat, the tone it names) arrives by the second or third situation and is on stage in most situations after it. Never stall what the player asked for.",
+    "- Never be obvious. From the opening situations a player should not be able to guess the plot, who matters, or how the ask will play out. If they could, change it.",
+    "- happening says what is going on, not lines of dialogue. Characters show who they are by what they do.",
     "- Keep each situation tight: it should settle in about three to six replies of play.",
     "- Each situation has 2-4 distinct exits, each with a consequence, and a pressure clock of 2-4 steps that gets worse if the player does nothing.",
     "- A dilemma costs something on every side. No free right answer.",
@@ -216,7 +247,9 @@ export function situationMessages(
 
 const REVIEW_CHECKLIST = [
   "Review it like an editor of published adventures, then fix it:",
-  "- Are the first ten minutes fun? Is the player in the middle of something with a choice right away?",
+  "- Are the first ten minutes fun? Does the player have something to do and room to settle into their role, without the premise or the whole cast arriving at once?",
+  "- Is anything obvious? Could the player guess the plot, who matters, or what comes next from the first situations?",
+  "- Does the ask's main draw arrive by the second or third situation and stay on stage after?",
   "- Does the middle sag? Does each act change what the player knows or feels?",
   "- Does anything depend on the player doing one specific thing?",
   "- Is every part of the ask carrying weight?",
@@ -290,7 +323,7 @@ export function contentMessages(
         "Step 3 of 3:",
         "- narrator: a narrator card. Voice and style for this campaign and the sensory feel of the setting. Never the truth, a secret, a clue's meaning, or anything that happens later.",
         "- lorebook: 6-16 short entries of world facts that anyone there would know: places, groups, customs, and each new cast member's public face (look, manner, voice, what people say about them). Keys are names and words that should bring the entry up. No secrets, no plot, no rules, no instructions. Skip the player's own characters and anything their own lorebooks already cover: those come with the chat.",
-        "- opening: the first message of play, 250-450 words, in second person and present tense. Drop the player into the first situation mid-moment with something concrete to react to. End on a moment that invites a response, not a question to the player. Never write the player's words, choices, thoughts or feelings.",
+        "- opening: the first message of play, 250-450 words, in second person and present tense. Open on the player in their role and place, in a concrete moment of the first situation with something to react to. Bring in only who the first situation lists. Let its strange detail be noticed, not explained, and let nobody announce their own nature or the premise. End on a moment that invites a response, not a question to the player. Never write the player's words, choices, thoughts or feelings.",
         "Write so it reads easily on the first pass: plain, concrete sentences in a natural order, one vivid detail where it counts instead of an image in every line, no riddles, no stacked metaphors, no sentence fragments for effect. The player's own characters sound exactly like their cards.",
         "Avoid stock phrases and AI tells: no 'a mix of', no 'the air thick with', no 'something shifts', no 'not X but Y' habit.",
         "Respond with only one JSON object in this exact shape:",

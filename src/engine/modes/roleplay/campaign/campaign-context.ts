@@ -136,6 +136,7 @@ function campaignBlock(
     pacingLine(progress.pacing, situation, progress, state),
     ...(player.breakHours !== null && player.breakHours >= BREAK_HOURS ? [breakLine(player.breakHours)] : []),
     ...(player.lost ? [LOST_LINE] : []),
+    "Characters know the player only from what they have seen, heard or been told in play; the player's card is for you, not for them.",
     "The player's latest message wins over everything here. Never write the player's words, choices, thoughts or feelings. If they do something unexpected, play it straight with real consequences instead of steering them back.",
     "</campaign>",
   ].join("\n");
