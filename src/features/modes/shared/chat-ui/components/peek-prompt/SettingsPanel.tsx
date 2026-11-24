@@ -27,11 +27,11 @@ export function SettingsPanel({
   total: number;
 }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 px-4 py-3">
-      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.6875rem]">
+    <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.6875rem]">
         {info?.model && (
           <span className="font-medium">
-            {info.provider && <span className={`font-normal ${MUTED}`}>{info.provider} / </span>}
+            {info.provider ? <span className={`font-normal ${MUTED}`}>{info.provider} / </span> : null}
             {info.model}
           </span>
         )}

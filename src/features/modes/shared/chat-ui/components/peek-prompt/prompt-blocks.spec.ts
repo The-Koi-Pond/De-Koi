@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPromptBlocks, splitTaggedSections } from "./prompt-blocks";
+import { buildPromptBlocks, shownMessages, splitTaggedSections } from "./prompt-blocks";
 
 const split = (text: string) =>
   splitTaggedSections(text, "System", "system").map(({ label, content }) => [label, content]);
@@ -94,5 +94,84 @@ describe("buildPromptBlocks", () => {
       },
       { kind: "section", label: "last_message", role: "user", content: "Now?" },
     ]);
+  });
+
+  describe("older snapshots (pinned old behavior)", () => {
+    type Message = Parameters<typeof buildPromptBlocks>[0][number];
+    const summary = (messages: Message[]) =>
+      buildPromptBlocks(messages).map((block) =>
+        block.kind === "history"
+          ? ["history", block.entries.map((entry) => entry.content)]
+          : [block.label, block.content],
+      );
+
+    it("ends an unclosed history right before a later last message, even when that is the start itself", () => {
+      expect(
+        summary([
+          { role: "system", content: "Rules." },
+          { role: "assistant", content: "## Chat History\nhello" },
+          { role: "user", content: "## Last Message\nhi" },
+        ]),
+      ).toEqual([
+        ["system", "Rules."],
+        ["history", ["hello"]],
+        ["last_message", "hi"],
+      ]);
+      expect(
+        summary([
+          { role: "assistant", content: "<chat_history>\nHello" },
+          { role: "user", content: "<last_message>\nHi\n</last_message>" },
+        ]),
+      ).toEqual([
+        ["history", ["Hello"]],
+        ["last_message", "Hi"],
+      ]);
+    });
+
+    it("reads a `## Chat History` heading in any case and removes it in any case", () => {
+      expect(
+        summary([
+          { role: "user", content: "## chat history\nhello" },
+          { role: "assistant", content: "there" },
+        ]),
+      ).toEqual([["history", ["hello", "there"]]]);
+    });
+
+    it("removes only the literal heading and at most one newline after it", () => {
+      expect(summary([{ role: "user", content: "## Last Message:\n<last_message>\nhi" }])).toEqual([
+        ["last_message", ":\n<last_message>\nhi"],
+      ]);
+      expect(summary([{ role: "user", content: "## Last message\n\nhi" }])).toEqual([["last_message", "hi"]]);
+      expect(
+        summary([
+          { role: "user", content: "<chat_history>\nfirst" },
+          { role: "user", content: "## Chat History (recent)\nhello" },
+          { role: "assistant", content: "</chat_history>" },
+        ]),
+      ).toEqual([["history", ["first", "(recent)\nhello"]]]);
+    });
+  });
+
+  it("finds `<last_message>` tags in the original text, so length-changing case folds don't shift them", () => {
+    const blocks = buildPromptBlocks([
+      {
+        role: "user",
+        content: "Trip to İstanbul\n<last_message>\nWhere next?\n</last_message>",
+        contextKind: "prompt",
+      },
+    ]);
+    expect(blocks.map((block) => (block.kind === "section" ? block.content : null))).toEqual([
+      "Trip to İstanbul",
+      "Where next?",
+    ]);
+  });
+});
+
+describe("shownMessages", () => {
+  it("uses preview messages whenever they have a length, whatever their type", () => {
+    const messages = [{ role: "user", content: "a" }];
+    expect(shownMessages({ messages, previewMessages: [] })).toBe(messages);
+    expect(shownMessages({ messages, previewMessages: undefined })).toBe(messages);
+    expect(shownMessages({ messages, previewMessages: "abc" as never })).toBe("abc");
   });
 });

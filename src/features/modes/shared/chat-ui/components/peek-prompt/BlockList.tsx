@@ -14,7 +14,8 @@ import {
 import type { HistoryBlock, HistoryEntry, PromptBlock, SectionBlock } from "./prompt-blocks";
 
 const MUTED = "text-[var(--muted-foreground)]";
-const PRE = "whitespace-pre-wrap break-words font-mono leading-relaxed text-[var(--foreground)]/80";
+// Size classes go before `leading-relaxed`: tailwind-merge drops a line height that comes before a font size.
+const PRE = "whitespace-pre-wrap break-words leading-relaxed text-[var(--foreground)]/80";
 const PREVIEW_CHARS = 80;
 
 function Chevron({ open, className }: { open: boolean; className: string }) {
@@ -74,7 +75,7 @@ function SectionView({ block }: { block: SectionBlock }) {
       }
     >
       <div className="border-t border-[var(--border)]/50 px-3 py-2">
-        <pre className={cn(PRE, "text-xs")}>{block.content}</pre>
+        <pre className={cn("text-xs", PRE)}>{block.content}</pre>
       </div>
     </BlockFrame>
   );
@@ -110,7 +111,7 @@ function EntryView({ entry }: { entry: HistoryEntry }) {
       </button>
       {open && (
         <div className="border-t border-[var(--border)]/30 px-2.5 py-1.5">
-          <pre className={cn(PRE, "text-[0.6875rem]")}>{entry.content}</pre>
+          <pre className={cn("text-[0.6875rem]", PRE)}>{entry.content}</pre>
         </div>
       )}
     </div>

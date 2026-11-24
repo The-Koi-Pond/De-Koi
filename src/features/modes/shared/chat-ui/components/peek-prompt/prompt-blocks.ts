@@ -11,12 +11,17 @@ export type PromptBlock = SectionBlock | HistoryBlock;
 // matching `</name>`, then a newline or the end. The newline after the closing tag belongs to the section.
 const TAGGED_SECTION = /(^|\n)<([A-Za-z_][A-Za-z0-9_-]*)>\n[\s\S]*?\n<\/\2>(?:\n|$)/gi;
 
-const LAST_MESSAGE_OPEN = "<last_message>";
-const LAST_MESSAGE_CLOSE = "</last_message>";
+// Tags are found in the original text with case-insensitive patterns, never in a lower-cased copy: lower-casing can
+// change the string's length (`İ` becomes two characters) and shift every index after it.
+const LAST_MESSAGE_OPEN = /<last_message>/i;
+const LAST_MESSAGE_CLOSE = /<\/last_message>/i;
 const LAST_MESSAGE_HEADING = /^## last message\n/i;
-const CHAT_HISTORY_OPEN = "<chat_history>";
-const CHAT_HISTORY_CLOSE = "</chat_history>";
-const CHAT_HISTORY_HEADING = /^## Chat History\n/;
+const CHAT_HISTORY_OPEN = /<chat_history>/i;
+const CHAT_HISTORY_CLOSE = /<\/chat_history>/i;
+const CHAT_HISTORY_HEADING = /^## chat history\n/i;
+// Heading removal takes the literal heading and at most one newline after it, not the rest of the line.
+const LAST_MESSAGE_HEADING_PREFIX = /^## last message\n?/i;
+const CHAT_HISTORY_HEADING_PREFIX = /^## chat history\n?/i;
 
 const section = (label: string, role: string, content: string): SectionBlock => ({
   kind: "section",
@@ -41,19 +46,14 @@ export function splitTaggedSections(text: string, fallbackLabel: string, role: s
   return blocks.length > 0 ? blocks : [section(fallbackLabel, role, text)];
 }
 
-function hasLastMessageOpen(content: string) {
-  return content.toLowerCase().includes(LAST_MESSAGE_OPEN);
-}
-
 function isLastMessage(content: string) {
-  return hasLastMessageOpen(content) || LAST_MESSAGE_HEADING.test(content);
+  return LAST_MESSAGE_OPEN.test(content) || LAST_MESSAGE_HEADING.test(content);
 }
 
 /** Steps 2 and 3 of a prompt message: a `<last_message>` pair, or a lone opening tag / `## Last Message` heading. */
 function lastMessageBlocks(content: string, fallbackLabel: string, role: string): SectionBlock[] | null {
-  const lower = content.toLowerCase();
-  const open = lower.indexOf(LAST_MESSAGE_OPEN);
-  const close = lower.indexOf(LAST_MESSAGE_CLOSE);
+  const open = content.search(LAST_MESSAGE_OPEN);
+  const close = content.search(LAST_MESSAGE_CLOSE);
   if (open >= 0 && close >= 0) {
     const blocks: SectionBlock[] = [];
     const before = content.slice(0, open).trim();
@@ -65,7 +65,7 @@ function lastMessageBlocks(content: string, fallbackLabel: string, role: string)
     return blocks;
   }
   if (isLastMessage(content)) {
-    return [section("last_message", role, content.replace(/^## last message[^\n]*\n?/i, "").trim())];
+    return [section("last_message", role, content.replace(LAST_MESSAGE_HEADING_PREFIX, "").trim())];
   }
   return null;
 }
@@ -104,14 +104,14 @@ function blocksWithContextKinds(messages: PromptMessage[]): PromptBlock[] {
 }
 
 function isHistoryStart(content: string) {
-  return content.toLowerCase().includes(CHAT_HISTORY_OPEN) || CHAT_HISTORY_HEADING.test(content);
+  return CHAT_HISTORY_OPEN.test(content) || CHAT_HISTORY_HEADING.test(content);
 }
 
 function cleanHistoryEntry(content: string) {
   return content
     .replace(/^<chat_history>\n?/i, "")
     .replace(/\n?<\/chat_history>\s*$/i, "")
-    .replace(/^## Chat History[^\n]*\n?/, "")
+    .replace(CHAT_HISTORY_HEADING_PREFIX, "")
     .trim();
 }
 
@@ -120,10 +120,15 @@ function findLastIndex<T>(list: T[], test: (item: T) => boolean) {
   return -1;
 }
 
+/**
+ * The last message of the history: the last `</chat_history>`; else the message before the last message when the
+ * last message comes after the start (that can be the start itself); else the run of user/assistant messages right
+ * after the start.
+ */
 function historyEnd(messages: PromptMessage[], start: number, lastMessage: number) {
-  const end = findLastIndex(messages, (message) => message.content.toLowerCase().includes(CHAT_HISTORY_CLOSE));
+  const end = findLastIndex(messages, (message) => CHAT_HISTORY_CLOSE.test(message.content));
   if (end >= 0) return end;
-  if (lastMessage - 1 > start) return lastMessage - 1;
+  if (lastMessage > start) return lastMessage - 1;
   let last = start;
   for (let i = start + 1; i < messages.length; i++) {
     const role = messages[i]!.role;
@@ -160,9 +165,9 @@ function blocksWithoutContextKinds(messages: PromptMessage[]): PromptBlock[] {
   return blocks;
 }
 
-/** The messages the viewer shows: a non-empty preview list wins over the request messages. */
+/** The messages the viewer shows: preview messages win whenever they have a length (as the old viewer read them). */
 export function shownMessages(data: Pick<PeekPromptData, "messages" | "previewMessages">): PromptMessage[] {
-  return Array.isArray(data.previewMessages) && data.previewMessages.length > 0 ? data.previewMessages : data.messages;
+  return data.previewMessages?.length ? data.previewMessages : data.messages;
 }
 
 export function buildPromptBlocks(messages: PromptMessage[]): PromptBlock[] {

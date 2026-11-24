@@ -1,17 +1,22 @@
+import type { ReactNode } from "react";
+
 import type { PeekPromptData } from "../../types";
 import { formatCount } from "./format";
 
-export type SettingPill = { label: string; value: string };
+export type SettingPill = { label: string; value: ReactNode };
 
 type GenerationInfo = NonNullable<PeekPromptData["generationInfo"]>;
 type Values = Record<string, unknown>;
-type Rule = { label: string; key: string; show: (value: unknown) => boolean; value?: (value: unknown) => string };
+type Rule = { label: string; key: string; show: (value: unknown) => boolean; value?: (value: unknown) => ReactNode };
 
 const set = (value: unknown) => value != null;
 const notDefault = (fallback: unknown) => (value: unknown) => value != null && value !== fallback;
 const truthy = (value: unknown) => Boolean(value);
 const on = () => "On";
 const tokens = (value: unknown) => formatCount(value as number);
+// The generation info's text settings render as the raw React child, as before: a list renders joined, `true` renders
+// nothing and an object throws while rendering.
+const raw = (value: unknown) => value as ReactNode;
 
 const GENERATION_INFO_RULES: Rule[] = [
   { label: "Temperature", key: "temperature", show: set },
@@ -21,9 +26,9 @@ const GENERATION_INFO_RULES: Rule[] = [
   { label: "Freq Penalty", key: "frequencyPenalty", show: notDefault(0) },
   { label: "Pres Penalty", key: "presencePenalty", show: notDefault(0) },
   { label: "Thinking", key: "showThoughts", show: truthy, value: on },
-  { label: "Reasoning", key: "reasoningEffort", show: truthy },
-  { label: "Verbosity", key: "verbosity", show: truthy },
-  { label: "Service Tier", key: "serviceTier", show: truthy },
+  { label: "Reasoning", key: "reasoningEffort", show: truthy, value: raw },
+  { label: "Verbosity", key: "verbosity", show: truthy, value: raw },
+  { label: "Service Tier", key: "serviceTier", show: truthy, value: raw },
   { label: "Assistant Prefill", key: "assistantPrefill", show: truthy, value: on },
 ];
 

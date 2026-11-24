@@ -17,7 +17,7 @@ import { presetLabel, settingPills } from "./settings";
 const MUTED = "text-[var(--muted-foreground)]";
 
 function sourceBadge(data: PeekPromptData) {
-  if (data.exact === true) {
+  if (data.exact) {
     return { label: "Exact Text Model Request", tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" };
   }
   const label =
@@ -96,14 +96,11 @@ export function PeekPromptModal({ data, onClose }: { data: PeekPromptData; onClo
   const backdrop = useBackdropClose(onClose);
 
   const loading = data.loading === true;
-  const error = loading ? "" : data.error || "";
-  const blocks = loading ? [] : buildPromptBlocks(shownMessages(data));
-  const total = loading
-    ? 0
-    : data.budget
-      ? data.budget.estimatedPromptTokens
-      : estimateTokens(data.messages.map((message) => message.content).join(""));
-  const badge = loading || error ? null : sourceBadge(data);
+  // Computed even while loading, so malformed data throws in every state.
+  const blocks = buildPromptBlocks(shownMessages(data));
+  const total =
+    data.budget?.estimatedPromptTokens ?? estimateTokens(data.messages.map((message) => message.content).join(""));
+  const badge = loading || data.error ? null : sourceBadge(data);
 
   return (
     <div
@@ -114,7 +111,8 @@ export function PeekPromptModal({ data, onClose }: { data: PeekPromptData; onClo
         role="dialog"
         aria-modal="true"
         aria-label="Assembled prompt"
-        className="mx-4 flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+        className="mx-4 flex max-h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -145,24 +143,25 @@ export function PeekPromptModal({ data, onClose }: { data: PeekPromptData; onClo
           </button>
         </div>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
-          {loading ? (
+          {loading && (
             <div
               role="status"
               aria-label="Assembling prompt"
               className={cn("flex min-h-48 items-center justify-center", MUTED)}
             >
-              <LoaderCircle aria-hidden="true" className="h-7 w-7 animate-spin" />
+              <LoaderCircle aria-hidden="true" className="h-6 w-6 animate-spin" />
             </div>
-          ) : error ? (
+          )}
+          {/* `data.error` is the JSX condition itself, as before: a falsy non-string such as 0 renders as text. */}
+          {!loading && data.error && (
             <div
               role="alert"
               className="rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs leading-normal text-red-300/90"
             >
-              {error}
+              {data.error}
             </div>
-          ) : (
-            <PromptContent data={data} blocks={blocks} total={total} presets={presets} />
           )}
+          {!loading && !data.error && <PromptContent data={data} blocks={blocks} total={total} presets={presets} />}
         </div>
       </div>
     </div>

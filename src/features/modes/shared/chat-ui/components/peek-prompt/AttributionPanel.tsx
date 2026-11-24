@@ -39,8 +39,8 @@ export function AttributionPanel({ view }: { view: PromptAttributionViewModel })
             </div>
             <div className="space-y-1.5">
               {group.items.map((item, i) => (
-                <div key={i} className="grid gap-1 text-[0.6875rem]">
-                  <div className="flex flex-wrap items-center gap-2">
+                <div key={i} className="grid min-w-0 gap-1 text-[0.6875rem]">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <span className="font-medium">{item.label}</span>
                     <span
                       className={cn("rounded bg-[var(--accent)]/60 px-1.5 py-0.5 text-[0.5625rem] uppercase", MUTED)}

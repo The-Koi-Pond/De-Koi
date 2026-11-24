@@ -90,15 +90,15 @@ export function BudgetPanel({ budget }: { budget: PromptBudgetEstimate }) {
         </div>
       )}
       <div className="space-y-1.5">
-        {budget.sections.map((section, i) => {
+        {budget.sections.map((section) => {
           const tag = trimRiskTag(section.trimRisk);
           return (
-            <div key={i} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[0.6875rem]">
+            <div key={section.kind} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[0.6875rem]">
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="truncate font-medium">{section.label}</span>
                   {tag && (
-                    <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.5625rem] uppercase text-amber-200">
+                    <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.5625rem] text-amber-200">
                       {tag}
                     </span>
                   )}
