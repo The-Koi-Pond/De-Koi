@@ -103,7 +103,8 @@ the latest prop. Nothing else is called.
 An estimate is `ceil(length / 4)` of the text (JavaScript string length). Every
 number is shown with `toLocaleString()` (tests run in en-US: `12,345`; a
 fraction keeps its decimals, `1,234.6`). The **total** T is
-`budget.estimatedPromptTokens` when there is a budget, else the estimate of all
+`budget.estimatedPromptTokens` when there is a budget and that value isn't null,
+else the estimate of all
 `messages` contents joined with nothing between them. It always uses
 `messages`, even when the blocks come from `previewMessages`.
 
@@ -118,8 +119,8 @@ fraction keeps its decimals, `1,234.6`). The **total** T is
 
 ## Blocks
 
-The shown messages are `previewMessages` when it's a non-empty list, else
-`messages`. A **section block** has a label, a role and content; a **chat
+The shown messages are `previewMessages` when it has a non-zero `length`, else
+`messages`. Blocks and the total are worked out even while loading. A **section block** has a label, a role and content; a **chat
 history block** has entries (role and content).
 
 ### Splitting a message into sections
@@ -153,13 +154,16 @@ A prompt message is handled like this:
    labelled `Trackers` with the trimmed content.
 2. Content containing both `<last_message>` and `</last_message>` (any case):
    the text before the first opening tag (trimmed) is split with the fallback
-   label; the text from after the first `>` at the opening tag up to the first
-   closing tag (trimmed) becomes a `last_message` block when not blank; the text
-   after the first `>` at the closing tag (trimmed) is split with the fallback
-   label.
+   label when it isn't blank; the text from after the first `>` at the opening
+   tag up to the first closing tag (trimmed) becomes a `last_message` block when
+   not blank; the text after the first `>` at the closing tag (trimmed) is split
+   with the fallback label when it isn't blank. Positions are found in the
+   original text (case-insensitive matching that never changes the text's
+   length, so `İ` before a tag doesn't shift the cut).
 3. Content containing `<last_message>` only, or starting with `## Last Message`
    and a newline (any case): one `last_message` block, content trimmed after
-   removing a leading `## Last Message` line.
+   removing a leading `## Last Message` (any case) and at most one newline
+   right after it (the rest of that line stays).
 4. Otherwise: split with the fallback label.
 
 The fallback label is the message's `displayName` when not empty, else its role.
@@ -176,19 +180,22 @@ adds nothing. Every other message is a prompt message.
 The chat history is found across messages:
 
 - **start**: the first message containing `<chat_history>` or starting with
-  `## Chat History` and a newline;
-- **end**: the last message containing `</chat_history>`;
+  `## Chat History` and a newline (both any case);
+- **end**: the last message containing `</chat_history>` (any case);
 - **last message**: the last message containing `<last_message>` or starting
   with `## Last Message` and a newline.
 
-With a start but no end, the end is the message before the last message when
-that comes after the start; otherwise the end is the last of the user and
-assistant messages that directly follow the start (or the start itself).
+With a start but no end: when there is a last message and it comes after the
+start, the end is the message just before it (so when the last message directly
+follows the start, the history is the start message alone); otherwise the end is
+the last of the user and assistant messages that directly follow the start (or
+the start itself).
 
 The messages from start to end become one chat history block; each entry has a
 leading `<chat_history>` (and the newline after it), a trailing `</chat_history>`
 (with the newline before it and any whitespace after it) and a leading
-`## Chat History` line removed, then is trimmed; blank ones are skipped, and an
+`## Chat History` with at most one newline after it removed (all any case),
+then is trimmed; blank ones are skipped, and an
 empty block is left out. The last message is handled like steps 2 and 3 of a
 prompt message, but its split parts use the role as fallback label (never
 `displayName`). Every other message is a prompt message. An end before the start
@@ -214,8 +221,11 @@ doesn't fit) and `~<n>` (no word) on the right. An opened entry shows its
 content as preformatted text.
 
 Open and closed states belong to the position in the list: when the data
-changes while the viewer stays open, the block at the same position keeps its
-state; they reset when the blocks are hidden (loading, error).
+changes while the viewer stays open, a block keeps its state while a block of
+the same kind (section or chat history) stays at its position. A position that
+drops off a shorter list, or whose kind changes, starts closed again; entries
+work the same way inside their chat history block, and they reset when it
+closes. Everything resets when the blocks are hidden (loading, error).
 
 ## Budget panel
 
@@ -255,7 +265,10 @@ or when there is at least one pill. A first line holds, in order:
 
 **Pills** (label and value) come from `generationInfo` when it's truthy, else
 from `parameters` when that's truthy (read as a record, whatever its type).
-Values are `String(value)` except Max Output Tokens, which is formatted.
+Values are `String(value)`, except Max Output Tokens (formatted) and, from
+`generationInfo`, Reasoning, Verbosity and Service Tier, which are shown as they
+are (a list shows its items run together, `true` shows nothing, an object
+throws).
 
 - From `generationInfo`, in order: Temperature (not null), Max Output Tokens
   (not null), Top P (not null and not 1), Top K (not null and not 0), Freq
@@ -381,6 +394,15 @@ show each one):
 - **Focus** (real Chrome): opening leaves focus on the Peek prompt button, Tab
   moves through the chat behind the dialog, and after closing focus isn't put
   back anywhere on purpose.
+
+- **Odd types** (found by the old-vs-new fuzz): `exact` and `provider` count
+  when truthy (`exact: 1` shows the green badge, `provider: 0` adds no prefix);
+  `error: 0` shows a stray `0` above the normal content; a text
+  `previewMessages` is used as the list and throws; budget section rows are
+  keyed by kind, so duplicate kinds can leave stale rows when the data changes
+  while open.
+- **Clicks inside the dialog** stop at the dialog (they don't reach the chat
+  behind it).
 
 ## Tests
 

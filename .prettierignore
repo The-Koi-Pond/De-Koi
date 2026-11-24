@@ -36,3 +36,5 @@ src/features/catalog/presets/components/preset-sections/test-fixtures/*.json
 src/features/catalog/presets/components/preset-overview/test-fixtures/*.json
 # Preset AI Review tab recordings, one line each for the same reason.
 src/features/catalog/presets/components/preset-review/test-fixtures/*.json
+# Peek Prompt viewer recordings, one line each for the same reason.
+src/features/modes/shared/chat-ui/components/peek-prompt/test-fixtures/*.json
