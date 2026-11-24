@@ -14,7 +14,7 @@ export function AttributionPanel({ view }: { view: PromptAttributionViewModel })
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 px-4 py-3">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-[0.6875rem] font-bold uppercase">Context Attribution</span>
+        <span className="text-[0.6875rem] font-bold uppercase text-[var(--foreground)]">Context Attribution</span>
         <span
           className={cn(
             "rounded-md border px-2 py-0.5 text-[0.5625rem] font-bold uppercase",
@@ -41,7 +41,7 @@ export function AttributionPanel({ view }: { view: PromptAttributionViewModel })
               {group.items.map((item, i) => (
                 <div key={i} className="grid min-w-0 gap-1 text-[0.6875rem]">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="font-medium">{item.label}</span>
+                    <span className="font-medium text-[var(--foreground)]">{item.label}</span>
                     <span
                       className={cn("rounded bg-[var(--accent)]/60 px-1.5 py-0.5 text-[0.5625rem] uppercase", MUTED)}
                     >

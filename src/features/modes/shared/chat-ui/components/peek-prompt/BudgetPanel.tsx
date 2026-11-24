@@ -34,7 +34,7 @@ function Tile({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="rounded-md bg-[var(--background)]/45 px-3 py-2">
       <div className={MUTED}>{label}</div>
-      <div className="font-semibold">{value == null ? "Unknown" : formatCount(value)}</div>
+      <div className="font-semibold text-[var(--foreground)]">{value == null ? "Unknown" : formatCount(value)}</div>
     </div>
   );
 }
@@ -54,7 +54,7 @@ export function BudgetPanel({ budget }: { budget: PromptBudgetEstimate }) {
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 px-4 py-3">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="flex items-center gap-1.5 text-xs font-semibold">
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)]">
           <Gauge aria-hidden="true" className="h-3.5 w-3.5" />
           Prompt Budget
         </span>
@@ -96,7 +96,7 @@ export function BudgetPanel({ budget }: { budget: PromptBudgetEstimate }) {
             <div key={section.kind} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[0.6875rem]">
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate font-medium">{section.label}</span>
+                  <span className="truncate font-medium text-[var(--foreground)]">{section.label}</span>
                   {tag && (
                     <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.5625rem] text-amber-200">
                       {tag}

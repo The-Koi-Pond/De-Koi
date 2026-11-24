@@ -30,13 +30,13 @@ export function SettingsPanel({
     <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/30 px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.6875rem]">
         {info?.model && (
-          <span className="font-medium">
+          <span className="font-medium text-[var(--foreground)]">
             {info.provider ? <span className={`font-normal ${MUTED}`}>{info.provider} / </span> : null}
             {info.model}
           </span>
         )}
         {preset && (
-          <span className="font-medium" title={presetId ?? undefined}>
+          <span className="font-medium text-[var(--foreground)]" title={presetId ?? undefined}>
             <span className={`font-normal ${MUTED}`}>Preset / </span>
             {preset}
           </span>
@@ -48,10 +48,10 @@ export function SettingsPanel({
           {pills.map((pill) => (
             <span
               key={pill.label}
-              className="flex items-center gap-1 rounded-md bg-[var(--accent)]/50 px-2 py-0.5 text-[0.625rem]"
+              className="inline-flex items-center gap-1 rounded-md bg-[var(--accent)]/50 px-2 py-0.5 text-[0.625rem]"
             >
               <span className={MUTED}>{pill.label}</span>
-              <span className="font-medium">{pill.value}</span>
+              <span className="font-medium text-[var(--foreground)]">{pill.value}</span>
             </span>
           ))}
         </div>
