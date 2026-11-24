@@ -7,18 +7,22 @@ const HAND_OVER_MS = 600;
 
 /**
  * The full-screen prompt editor (docs/provenance/preset-sections.md, "Expanded editor"). It saves nothing itself: it
- * hands its text to the content editor 600 ms after the last change, and at once when it closes.
+ * hands its text to the content editor 600 ms after the last change, and at once when it closes. Every change is also
+ * reported as a draft, so the content editor can save it if the dialog goes away without closing.
  */
 export function ExpandedEditorDialog({
   name,
   value,
   onChange,
+  onDraft,
   onClose,
 }: {
   name: unknown;
   /** The content editor's current text. */
   value: unknown;
   onChange: (text: unknown) => void;
+  /** Every change, at once. */
+  onDraft: (text: unknown) => void;
   onClose: () => void;
 }) {
   // Filled once when the dialog opens.
@@ -36,6 +40,7 @@ export function ExpandedEditorDialog({
 
   const change = (next: unknown) => {
     setText(next);
+    onDraft(next);
     clearTimeout(handOver.current);
     handOver.current = setTimeout(() => onChange(next), HAND_OVER_MS);
   };

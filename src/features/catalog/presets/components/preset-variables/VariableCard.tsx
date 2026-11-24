@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, GripVertical, Hash, Trash2 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { showConfirmDialog } from "../../../../../shared/lib/app-dialogs";
 import { cn } from "../../../../../shared/lib/utils";
 import type { CardDrag } from "./use-card-drag";
@@ -55,14 +55,23 @@ export function VariableCard({
   const labelName = nameForLabels(view.name);
   const pill = view.multiSelect ? (view.randomPick ? "random" : "multi") : view.isBoolean ? "boolean" : null;
 
+  // A second Delete while this variable's confirm is open or its delete runs does nothing (spec follow-up 10).
+  const confirming = useRef(false);
+  const deletingThis = onDeleteVariable.isPending && onDeleteVariable.variables?.variableId === variable.id;
   const confirmDelete = async () => {
-    const confirmed = await showConfirmDialog({
-      title: "Delete Variable",
-      message: `Delete variable "${view.name}"?`,
-      confirmLabel: "Delete",
-      tone: "destructive",
-    });
-    if (confirmed) onDeleteVariable.mutate({ presetId, variableId: variable.id });
+    if (confirming.current || deletingThis) return;
+    confirming.current = true;
+    try {
+      const confirmed = await showConfirmDialog({
+        title: "Delete Variable",
+        message: `Delete variable "${view.name}"?`,
+        confirmLabel: "Delete",
+        tone: "destructive",
+      });
+      if (confirmed) onDeleteVariable.mutate({ presetId, variableId: variable.id });
+    } finally {
+      confirming.current = false;
+    }
   };
 
   return (

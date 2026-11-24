@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { reviewPromptPreset } from "../../../../../engine/generation/prompt-reviewer";
 import { connectionsUtilityApi } from "../../../../../shared/api/integration-utility-api";
 import { llmApi } from "../../../../../shared/api/llm-api";
@@ -43,18 +43,27 @@ export interface PromptReview {
   output: string;
   error: string;
   start: (connectionId: string) => Promise<void>;
+  /** Stops the running review: its request is aborted, the output so far stays and no error shows. */
+  stop: () => void;
 }
 
 /**
- * Streams a review of the preset through the chosen connection. Nothing cancels it: after the tab unmounts the stream
- * runs on and its events change nothing (spec follow-up 1).
+ * Streams a review of the preset through the chosen connection. The review's request is aborted when it is stopped
+ * and when the tab unmounts (leaving the tab, switching presets, closing the editor), so a paid request doesn't run on
+ * for a result nobody sees (spec follow-up 1).
  */
 export function usePromptReview(presetId: string): PromptReview {
   const [reviewing, setReviewing] = useState(false);
   const [output, setOutput] = useState("");
   const [error, setError] = useState("");
+  const running = useRef<AbortController | null>(null);
+
+  useEffect(() => () => running.current?.abort(), []);
 
   const start = async (connectionId: string) => {
+    running.current?.abort();
+    const controller = new AbortController();
+    running.current = controller;
     setReviewing(true);
     setOutput("");
     setError("");
@@ -62,19 +71,34 @@ export function usePromptReview(presetId: string): PromptReview {
       const events = reviewPromptPreset(
         { storage: storageApi, llm: llmApi },
         { presetId, connectionId, streaming: true, focusAreas: [...FOCUS_AREAS] },
+        controller.signal,
       );
       for await (const event of events) {
+        // A stopped review shows nothing more, even from a stream that doesn't watch the signal.
+        if (controller.signal.aborted) break;
         // Event data is shown as it comes, whatever its type (spec, "Recorded details"). Like the recorded tab, `type`
         // is read first and `data` only for tokens and errors; a token's data is read when the output updates.
         if (event.type === "token") setOutput((shown) => shown + String((event.data as unknown) ?? ""));
         else if (event.type === "error") setError(String((event.data as unknown) ?? "Review failed"));
       }
     } catch (reason) {
-      setError(toUserMessage(reason, { fallback: "Review failed. Try again." }));
+      // Stopping makes the stream throw an AbortError; that isn't a failure.
+      if (!controller.signal.aborted) setError(toUserMessage(reason, { fallback: "Review failed. Try again." }));
     } finally {
-      setReviewing(false);
+      if (running.current === controller) {
+        running.current = null;
+        setReviewing(false);
+      }
     }
   };
 
-  return { reviewing, output, error, start };
+  const stop = () => {
+    const controller = running.current;
+    if (!controller) return;
+    running.current = null;
+    controller.abort();
+    setReviewing(false);
+  };
+
+  return { reviewing, output, error, start, stop };
 }

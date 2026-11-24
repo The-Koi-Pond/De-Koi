@@ -68,17 +68,41 @@ export function usePresetEditor() {
   const data = presetQuery.data;
   const [tab, setTab] = useState<EditorTab>("overview");
   const [draft, setDraft] = useState<PresetDraft>(EMPTY_DRAFT);
-  // The `data` object the draft was last set from. A refresh with the same content keeps the same object (the query
-  // shares structure), so only new content, a first load or another preset resets the draft.
-  const [draftSource, setDraftSource] = useState<PresetFullData | undefined>(undefined);
-  if (data !== draftSource) {
-    setDraftSource(data);
-    if (data) setDraft(draftFromPreset(data.preset));
-  }
   const [dirty, setDirty] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedVisible, setSavedVisible] = useState(false);
+  // Set from the Delete click until the delete settles (or another preset opens), so a second click neither asks again
+  // nor deletes twice (spec follow-up 7).
+  const deleting = useRef(false);
+  // Per field, how many edits were typed since it last matched storage; a field listed here is "edited". Refs, so a
+  // save that lands can compare against the counts it started with. `generation` changes with the preset.
+  const edits = useRef<Partial<Record<keyof PresetDraft, number>>>({});
+  const generation = useRef(0);
+  // The `data` object the draft was last synced with. A refresh with the same content keeps the same object (the query
+  // shares structure), so only new content, a first load or another preset is synced.
+  const [draftSource, setDraftSource] = useState<PresetFullData | undefined>(undefined);
+  if (data !== draftSource) {
+    setDraftSource(data);
+    if (data) {
+      const stored = draftFromPreset(data.preset);
+      if (draftSource && draftSource.preset.id === data.preset.id) {
+        // New content for the same preset (a save landing, a Sections or variables save, an outside update): edited
+        // fields keep the typing, the rest take the stored values (spec follow-ups 1 and 2).
+        const edited = Object.keys(edits.current) as Array<keyof PresetDraft>;
+        setDraft((current) => keepEdits(current, edited, stored));
+      } else {
+        // A first load or another preset starts clean (spec follow-up 5).
+        edits.current = {};
+        generation.current += 1;
+        deleting.current = false;
+        setDraft(stored);
+        setDirty(false);
+        setLeaving(false);
+        setSaveError(null);
+      }
+    }
+  }
 
   useEffect(() => {
     setEditorDirty(dirty);
@@ -92,8 +116,10 @@ export function usePresetEditor() {
     };
   }, []);
 
-  /** Shows "Changes saved"; every save starts its own timer that hides it. */
+  /** Shows "Changes saved" for 1.5 s from the latest save (spec follow-up 9). */
   function flashSaved() {
+    for (const timer of noticeTimers.current) clearTimeout(timer);
+    noticeTimers.current.clear();
     setSavedVisible(true);
     const timer = setTimeout(() => {
       noticeTimers.current.delete(timer);
@@ -110,12 +136,16 @@ export function usePresetEditor() {
   function edit(patch: Partial<PresetDraft>) {
     setDraft((current) => ({ ...current, ...patch }));
     setDirty(true);
+    for (const key of Object.keys(patch) as Array<keyof PresetDraft>)
+      edits.current[key] = (edits.current[key] ?? 0) + 1;
   }
 
   /** Saves the draft; true when it worked. */
   async function save(): Promise<boolean> {
     if (!presetDetailId) return false;
     setSaveError(null);
+    const editsAtStart = { ...edits.current };
+    const generationAtStart = generation.current;
     try {
       await updatePreset.mutateAsync({
         id: presetDetailId,
@@ -125,11 +155,22 @@ export function usePresetEditor() {
         author: draft.author,
         parameters: draft.parameters,
       });
-      setDirty(false);
+      // Fields not typed in since the save started are stored now; fields typed in during it stay edited. A save that
+      // lands after another preset opened leaves that preset's state alone.
+      if (generation.current === generationAtStart) {
+        for (const key of Object.keys(editsAtStart) as Array<keyof PresetDraft>) {
+          if (edits.current[key] === editsAtStart[key]) delete edits.current[key];
+        }
+        if (Object.keys(edits.current).length === 0) {
+          setDirty(false);
+          // The unsaved bar goes with the unsaved changes (spec follow-up 6).
+          setLeaving(false);
+        }
+      }
       flashSaved();
       return true;
     } catch (error) {
-      setSaveError(toUserMessage(error, { fallback: SAVE_FALLBACK }));
+      if (generation.current === generationAtStart) setSaveError(toUserMessage(error, { fallback: SAVE_FALLBACK }));
       return false;
     }
   }
@@ -153,16 +194,25 @@ export function usePresetEditor() {
   }
 
   async function remove() {
-    if (!presetDetailId) return;
+    if (!presetDetailId || deleting.current) return;
     const id = presetDetailId;
+    deleting.current = true;
     const confirmed = await showConfirmDialog({
       title: "Delete Preset",
       message: "Delete this preset?",
       confirmLabel: "Delete",
       tone: "destructive",
     });
-    if (!confirmed) return;
-    deletePreset.mutate(id, { onSuccess: () => closePresetDetail() });
+    if (!confirmed) {
+      deleting.current = false;
+      return;
+    }
+    deletePreset.mutate(id, {
+      onSuccess: () => closePresetDetail(),
+      onSettled: () => {
+        deleting.current = false;
+      },
+    });
   }
 
   return {
@@ -197,3 +247,10 @@ export function usePresetEditor() {
 }
 
 export type PresetEditorModel = ReturnType<typeof usePresetEditor>;
+
+/** The draft after a refresh: edited fields keep the draft, the rest take the stored values. */
+function keepEdits(draft: PresetDraft, edited: ReadonlyArray<keyof PresetDraft>, stored: PresetDraft): PresetDraft {
+  const next = { ...stored };
+  for (const key of edited) next[key] = draft[key];
+  return next;
+}

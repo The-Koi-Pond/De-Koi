@@ -1,4 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+  intendedStepsFor,
+  mapRecorded,
+  replaceText,
+  withIntendedChanges,
+  type IntendedChange,
+} from "../replay-intended-changes";
 import { fakePresetOverviewApis } from "./fake-preset-overview-apis";
 import {
   PresetOverviewHarness,
@@ -184,8 +191,119 @@ function compareStep(actual: StepResult, expected: StepResult, label: string) {
   ).toEqual(expectedCalls.map((call) => JSON.stringify(call)));
 }
 
+// ── Intended changes ───────────────────────────────────────────────────────────
+// The fixes after the rebuild (docs/provenance/preset-overview.md, "Follow-ups after the rebuild") change these
+// recorded steps on purpose. Each entry lists the values the fixed editor shows instead; the rest must match.
+
+const BAR_BUTTONS = new Set(["Keep editing", "Discard", "Save & close"]);
+const withoutBarButtons = mapRecorded<ButtonSnapshot[]>((buttons) => buttons.filter((b) => !BAR_BUTTONS.has(b.text)));
+const withoutBarText = replaceText("You have unsaved changes.Keep editingDiscardSave & close", "");
+
+const INTENDED: Readonly<Record<string, IntendedChange>> = {
+  // A refresh with new content keeps the typed fields (name and author here; the description takes the new value).
+  "edit:refresh-while-dirty": {
+    followUps: "1",
+    steps: {
+      3: [
+        [["fields", 0, "value"], "Unsaved"],
+        [["fields", 1, "value"], "Unsaved"],
+        [["fields", 3, "value"], "Unsaved author"],
+      ],
+    },
+  },
+  // The field being typed in keeps its text and the cursor stays where it was.
+  "edit:refresh-while-focused": {
+    followUps: "1",
+    steps: {
+      3: [
+        [["focus", "sel", 0], 6],
+        [["focus", "sel", 1], 6],
+        [["fields", 0, "value"], "Typing"],
+        [["fields", 1, "value"], "Typing"],
+      ],
+    },
+  },
+  // A Sections tab save keeps the typed name and the chosen wrap format (which the Sections tab is given too).
+  "edit:sections-save-while-dirty": {
+    followUps: "1",
+    steps: {
+      4: [
+        [["fields", 0, "value"], "Unsaved"],
+        [["sections", "wrapFormat"], "none"],
+      ],
+      5: [
+        [
+          ["text"],
+          replaceText(
+            "Sections wrapped in <xml_tags>. Groups become parent tags.",
+            "No automatic wrapping. Section content is sent as-is.",
+          ),
+        ],
+        [["fields", 0, "value"], "Unsaved"],
+        [["fields", 1, "value"], "Unsaved"],
+        [["wrap", 0], "NONE"],
+      ],
+    },
+  },
+  // Opening another preset starts it clean.
+  "edit:switch-preset-dirty": {
+    followUps: "5",
+    steps: { 3: [[["ui", "editorDirty"], false]], 4: [[["ui", "editorDirty"], false]] },
+  },
+  "edit:switch-preset-held": { followUps: "5", steps: { 4: [[["ui", "editorDirty"], false]] } },
+  "edit:switch-preset-back": {
+    followUps: "5",
+    steps: { 2: [[["ui", "editorDirty"], false]], 3: [[["ui", "editorDirty"], false]] },
+  },
+  // The second save's notice stays its full 1.5 s.
+  "save:twice-toast": { followUps: "9", steps: { 5: [[["text"], replaceText("Save", "SaveChanges saved")]] } },
+  // A save that leaves the draft clean takes the unsaved bar away (Back was clicked while it ran).
+  "save:held": {
+    followUps: "6",
+    steps: {
+      6: [
+        [["text"], withoutBarText],
+        [["buttons"], withoutBarButtons],
+      ],
+      7: [
+        [["text"], withoutBarText],
+        [["buttons"], withoutBarButtons],
+      ],
+    },
+  },
+  "back:warning-then-save": {
+    followUps: "6",
+    steps: {
+      3: [
+        [["text"], withoutBarText],
+        [["buttons"], withoutBarButtons],
+      ],
+    },
+  },
+  // Typing during a running save survives the save landing, and the draft stays unsaved.
+  "save:held-edit-during": {
+    followUps: "2",
+    steps: {
+      5: [
+        [["ui", "editorDirty"], true],
+        [["fields", 0, "value"], "Second"],
+        [["fields", 1, "value"], "Second"],
+      ],
+    },
+  },
+  // A second Delete while the first runs neither asks again nor deletes again (so one refresh, not two).
+  "delete:held": {
+    followUps: "7",
+    steps: {
+      3: [[["calls"], []]],
+      4: [[["calls"], [["storage.get", "prompts", "preset-1", null]]]],
+    },
+  },
+};
+
 describe("PresetEditorShell replays the recorded old editor", () => {
   it("covers every recorded scenario and step", () => {
+    expect(Object.keys(INTENDED).filter((id) => !scenarios.some(({ scenario }) => scenario.id === id))).toEqual([]);
     expect(scenarios).toHaveLength(164);
     expect(scenarios.reduce((sum, { scenario }) => sum + scenario.steps.length, 0)).toBe(564);
   });
@@ -195,13 +313,11 @@ describe("PresetEditorShell replays the recorded old editor", () => {
     async (_name, recording: Recording, scenario: Scenario) => {
       const { results, unhandledAfterUnmount } = await replayScenario(recording, scenario);
       expect(results).toHaveLength(scenario.steps.length);
+      const intended = intendedStepsFor(INTENDED, scenario.id, scenario.steps.length);
       results.forEach((result, index) => {
         const recorded = scenario.steps[index]!;
-        compareStep(
-          result,
-          resolveStep(recording, recorded),
-          `${scenario.id} step ${index} ${JSON.stringify(recorded.step)}`,
-        );
+        const label = `${scenario.id} step ${index} ${JSON.stringify(recorded.step)}`;
+        compareStep(result, withIntendedChanges(resolveStep(recording, recorded), intended[index], label), label);
       });
       expect(unhandledAfterUnmount).toEqual(scenario.steps.at(-1)?.unhandledAfterUnmount ?? []);
     },

@@ -271,7 +271,9 @@ Typing hands the text to the content editor 600 ms after the last change; the
 content editor then saves it 800 ms later as above. Closing (X, Done, the
 backdrop, or Escape anywhere) hands over unsaved text at once and closes; the
 content editor then saves its current text at once if it differs from the
-stored content, and the 800 ms timer saves the handed-over text. Several
+stored content, and the 800 ms timer saves the handed-over text (**changed by #1821**, follow-up 10: closing
+no longer saves the current text at once; the handed-over text is saved once, by its timer, or when the content
+editor goes away). Several
 expanded editors can be open at once (from different sections); Escape closes
 all of them. The recordings decide the exact calls.
 
@@ -325,7 +327,9 @@ purpose (accessibility only):
 
 ## Follow-ups after the rebuild
 
-Kept as recorded in the rebuild; each is its own small pull request after it:
+Kept as recorded in the rebuild; each is its own small pull request after it. Items marked **Fixed** changed
+recorded behavior on purpose: the replay spec keeps the recordings as they are and lists every step a fix changes
+(`INTENDED` in the replay spec), and the fix's new step sequences are in the module's `fixes` spec.
 
 1. **Delete** removes a section at once, with no confirmation or undo.
 2. A failed save shows only the shared failure toast (an empty name is put
@@ -337,10 +341,13 @@ Kept as recorded in the rebuild; each is its own small pull request after it:
 5. A marker without a usable marker config shows no content and no note.
 6. Dragging works only with a mouse (the arrow buttons cover keyboard use).
 7. The add menu doesn't close on Escape.
-8. Enter in the name input saves twice.
+8. **Fixed in #1821** (Enter blurs, and the blur saves once). Was: Enter in the name input saves twice.
 9. A section without a name breaks the name input's blur; duplicating it
    toasts `Duplicated "undefined"`.
-10. Pending content edits are lost when a card collapses, or when the section
+10. **Fixed in #1821.** Text not saved yet (inline or in the expanded editor) is saved when the content
+    editor goes away (the card collapses, the tab or the editor closes); a deleted section gets no save;
+    closing the expanded editor saves once. (An 800 ms timer that fires while a delete is still running still
+    saves, as recorded.) Was: pending content edits are lost when a card collapses, or when the section
     is deleted or collapsed with the expanded editor open; closing the expanded
     editor after a hand-over saves twice.
 11. An unknown role shows System in the dropdown; duplicating it fails.
@@ -364,7 +371,7 @@ Found while recording the old tab; the rebuild keeps them (the recordings show
 each one):
 
 - **Name input.** Enter saves twice (Enter saves, then the blur it causes saves
-  again, before the refresh). A trimmed name equal to the stored one sends
+  again, before the refresh; **changed by #1821**, follow-up 8: once). A trimmed name equal to the stored one sends
   nothing and puts the stored text back. On a row with no `name`, blur throws
   (in the event handler) and saves nothing.
 - **Expanded editor timing.** Opening it flushes a pending inline edit (it
@@ -372,7 +379,10 @@ each one):
   at once). If a 600 ms hand-over already happened and more was typed, closing
   saves the handed-over text and then the newer text 800 ms later. Collapsing
   the card or deleting the section while it is open loses the pending text.
-- **Collapsing a card** with a pending content edit loses it (nothing saved).
+  (**Changed by #1821**, follow-up 10: closing saves once; collapsing saves the
+  pending text; deleting still drops it.)
+- **Collapsing a card** with a pending content edit loses it (nothing saved;
+  **changed by #1821**, follow-up 10: it is saved).
 - **Quick edits to two fields** go out as separate updates, in the order they
   finish; none were lost.
 - **Group rename.** Escape closes the input without saving. Closing the groups

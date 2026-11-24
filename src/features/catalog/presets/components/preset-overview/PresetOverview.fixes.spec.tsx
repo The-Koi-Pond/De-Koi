@@ -1,0 +1,259 @@
+import { act } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { useUIStore } from "../../../../../shared/stores/ui.store";
+import { fakePresetOverviewApis } from "./fake-preset-overview-apis";
+import { PresetOverviewHarness, worldFor, type Recording, type Step } from "./preset-overview-replay-harness";
+import show from "./test-fixtures/recorded-show.json";
+
+// The follow-up fixes after the rebuild (docs/provenance/preset-overview.md, "Follow-ups after the rebuild"), as new
+// step sequences on the recorder's default world. Most failed on the rebuild as merged; the rest guard edges the fix
+// round found (marked "guard").
+
+vi.mock("../../../../../shared/api/storage-api", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  storageApi: (await import("./fake-preset-overview-apis")).fakeStorageApi,
+}));
+vi.mock("../../../../../shared/api/prompt-nested-api", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  promptNestedApi: (await import("./fake-preset-overview-apis")).fakePromptNestedApi,
+}));
+vi.mock("../../../../../shared/api/export-api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../../../../shared/api/export-api")>();
+  const { fakeExportPrompt } = await import("./fake-preset-overview-apis");
+  return { ...original, exportApi: { ...original.exportApi, prompt: fakeExportPrompt } };
+});
+vi.mock("../../../../../shared/api/download-payload", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  triggerDownload: (await import("./fake-preset-overview-apis")).fakeTriggerDownload,
+}));
+vi.mock("../../../../../shared/api/integration-utility-api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../../../../shared/api/integration-utility-api")>();
+  const { fakeConnectionsList } = await import("./fake-preset-overview-apis");
+  return { ...original, connectionsUtilityApi: { ...original.connectionsUtilityApi, list: fakeConnectionsList } };
+});
+vi.mock("../../../../../engine/generation/prompt-reviewer", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  reviewPromptPreset: (await import("./fake-preset-overview-apis")).fakeReviewPromptPreset,
+}));
+// Lets a test hold the confirm dialog open (the fake answers at once); the fake still logs the call.
+const confirmGate = vi.hoisted(() => ({ hold: false, answer: null as ((confirmed: boolean) => void) | null }));
+vi.mock("../../../../../shared/lib/app-dialogs", async (importOriginal) => {
+  const { fakeConfirmDialog } = await import("./fake-preset-overview-apis");
+  return {
+    ...(await importOriginal<object>()),
+    showConfirmDialog: async (options: unknown) => {
+      const answer = await fakeConfirmDialog(options);
+      if (!confirmGate.hold) return answer;
+      return new Promise<boolean>((resolve) => {
+        confirmGate.answer = resolve;
+      });
+    },
+  };
+});
+vi.mock("sonner", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  toast: (await import("./fake-preset-overview-apis")).fakeToast,
+}));
+vi.mock("../preset-sections", () =>
+  import("./fake-preset-overview-apis").then(({ ProbeSectionsTab }) => ({ PresetSectionsTab: ProbeSectionsTab })),
+);
+
+const recording = show as unknown as Recording;
+let harness: PresetOverviewHarness | null = null;
+
+async function mountEditor(): Promise<HTMLElement> {
+  harness = new PresetOverviewHarness(worldFor(recording, { world: {} }), "preset-1");
+  await harness.run(["mount"]);
+  return harness.element;
+}
+
+afterEach(async () => {
+  confirmGate.hold = false;
+  confirmGate.answer = null;
+  await harness?.unmount();
+  harness = null;
+});
+
+/** Runs a step and returns the calls it made, as the recorder writes them. */
+async function run(...step: Step) {
+  const result = await harness!.record(step);
+  return result.calls as unknown[][];
+}
+
+const field = (root: HTMLElement, name: string) =>
+  root.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[aria-label="${name}"]`)!.value;
+const updates = (calls: unknown[][]) => calls.filter((call) => call[0] === "storage.update" && call[1] === "prompts");
+const dirty = () => useUIStore.getState().editorDirty;
+const storedPreset = (id: string) => fakePresetOverviewApis.stored().presets.find((preset) => preset.id === id)!;
+/** The confirm and delete calls among `calls` (a delete also refreshes the preset list). */
+const deleteFlow = (calls: unknown[][]) =>
+  calls.map((call) => call[0]).filter((name) => name === "confirm" || name === "storage.delete");
+
+describe("PresetEditorShell follow-up fixes", () => {
+  it("1. a refresh keeps unsaved Overview edits, takes new stored values for the rest, and Save sends both", async () => {
+    const root = await mountEditor();
+    await run("type", "name", "Typed name");
+    await run("refresh", { description: "Changed elsewhere", author: "Someone else" });
+    expect(field(root, "Name")).toBe("Typed name");
+    expect(field(root, "Preset name")).toBe("Typed name");
+    expect(field(root, "Description")).toBe("Changed elsewhere");
+    expect(field(root, "Author")).toBe("Someone else");
+    expect(dirty()).toBe(true);
+
+    // A Sections tab save refreshes the preset too.
+    await run("wrap", "markdown");
+    await run("tab", "Sections");
+    await run("sectionsMutate", "onUpdateSection", { presetId: "preset-1", sectionId: "s-main", enabled: false });
+    await run("tab", "Overview");
+    expect(field(root, "Name")).toBe("Typed name");
+    expect(root.querySelector('button[aria-pressed="true"]')?.textContent).toBe("MARKDOWN");
+
+    const [update] = updates(await run("save"));
+    expect(update?.[3]).toMatchObject({
+      name: "Typed name",
+      description: "Changed elsewhere",
+      wrapFormat: "markdown",
+      author: "Someone else",
+    });
+    expect(dirty()).toBe(false);
+  });
+
+  it("1. guard: a refresh while clean still shows the new stored values", async () => {
+    const root = await mountEditor();
+    await run("refresh", { name: "Renamed elsewhere" });
+    expect(field(root, "Name")).toBe("Renamed elsewhere");
+    expect(dirty()).toBe(false);
+  });
+
+  it("2. typing during a running save survives the save landing and stays unsaved until saved", async () => {
+    const root = await mountEditor();
+    await run("type", "name", "First");
+    await run("hold", "prompts.update");
+    const [held] = updates(await run("save"));
+    expect(held?.[3]).toMatchObject({ name: "First" });
+    await run("type", "name", "Second");
+    await run("type", "author", "New author");
+    await run("release", "prompts.update");
+    expect(field(root, "Name")).toBe("Second");
+    expect(field(root, "Author")).toBe("New author");
+    expect(dirty()).toBe(true);
+    expect(root.textContent).toContain("Changes saved");
+
+    // Back asks before leaving, and a second save stores the later typing.
+    await run("back");
+    expect(root.textContent).toContain("You have unsaved changes.");
+    const [second] = updates(await run("save"));
+    expect(second?.[3]).toMatchObject({ name: "Second", author: "New author" });
+    expect(dirty()).toBe(false);
+    expect(root.textContent).not.toContain("You have unsaved changes.");
+  });
+
+  it("5. opening another preset starts it clean", async () => {
+    await mountEditor();
+    await run("type", "name", "Unsaved");
+    expect(dirty()).toBe(true);
+    await run("switchPreset", "preset-2");
+    expect(useUIStore.getState().presetDetailId).toBe("preset-2");
+    expect(dirty()).toBe(false);
+  });
+
+  it("6. a header Save that leaves the draft clean takes the unsaved bar away", async () => {
+    const root = await mountEditor();
+    await run("type", "name", "Edited");
+    await run("back");
+    expect(root.textContent).toContain("You have unsaved changes.");
+    await run("save");
+    expect(root.textContent).not.toContain("You have unsaved changes.");
+    expect(root.textContent).toContain("Changes saved");
+  });
+
+  it("7. a second Delete while the first runs neither asks again nor deletes twice; a failed delete can be retried", async () => {
+    await mountEditor();
+    await run("hold", "prompts.delete");
+    const first = await run("delete");
+    expect(deleteFlow(first)).toEqual(["confirm", "storage.delete"]);
+    expect(await run("delete")).toEqual([]);
+    await run("fail", "prompts.delete", "disk full");
+    await run("release", "prompts.delete");
+    const retry = await run("delete");
+    expect(deleteFlow(retry)).toEqual(["confirm", "storage.delete"]);
+  });
+
+  it("9. the saved notice shows for 1.5 s after the latest save", async () => {
+    const root = await mountEditor();
+    await run("save");
+    await run("wait", 1000);
+    await run("save");
+    await run("wait", 1000);
+    expect(root.querySelector('[role="status"]')?.textContent).toBe("Changes saved");
+    await run("wait", 500);
+    expect(root.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("1, 2. guard: an outside change during a save; once the draft is clean it shows what is stored", async () => {
+    const root = await mountEditor();
+    await run("type", "name", "Saved name");
+    await run("hold", "prompts.update");
+    await run("save");
+    await run("refresh", { description: "Changed elsewhere mid-save" });
+    expect(field(root, "Description")).toBe("Changed elsewhere mid-save");
+    await run("release", "prompts.update");
+    expect(dirty()).toBe(false);
+    expect(field(root, "Name")).toBe("Saved name");
+    expect(field(root, "Description")).toBe(storedPreset("preset-1").description);
+  });
+
+  it("1, 2. guard: typing a field back to its stored value during a save keeps it unsaved", async () => {
+    const root = await mountEditor();
+    const original = field(root, "Name");
+    await run("type", "name", "Changed");
+    await run("hold", "prompts.update");
+    await run("save");
+    await run("type", "name", original);
+    await run("release", "prompts.update");
+    expect(field(root, "Name")).toBe(original);
+    expect(dirty()).toBe(true);
+  });
+
+  it("5. guard: a save that lands after another preset opened leaves that preset alone", async () => {
+    const root = await mountEditor();
+    await run("type", "name", "A typed");
+    await run("hold", "prompts.update");
+    await run("save");
+    await run("switchPreset", "preset-2");
+    await run("release", "prompts.update");
+    expect(dirty()).toBe(false);
+    await run("refresh", { name: "B renamed elsewhere" });
+    expect(field(root, "Name")).toBe("B renamed elsewhere");
+  });
+
+  it("5. guard: a save failing after another preset opened shows no error there", async () => {
+    const root = await mountEditor();
+    await run("type", "name", "A typed");
+    await run("hold", "prompts.update");
+    await run("fail", "prompts.update", "disk full");
+    await run("save");
+    await run("switchPreset", "preset-2");
+    await run("release", "prompts.update");
+    expect(root.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("7. guard: a delete running on one preset doesn't block Delete on the next one", async () => {
+    await mountEditor();
+    await run("hold", "prompts.delete");
+    await run("delete");
+    await run("switchPreset", "preset-2");
+    expect(deleteFlow(await run("delete"))).toEqual(["confirm", "storage.delete"]);
+  });
+
+  it("7. a second Delete while the confirm is still open neither asks again nor deletes twice", async () => {
+    await mountEditor();
+    confirmGate.hold = true;
+    expect(deleteFlow(await run("delete"))).toEqual(["confirm"]);
+    expect(await run("delete")).toEqual([]);
+    confirmGate.hold = false;
+    await act(async () => confirmGate.answer!(true));
+    await harness!.run(["wait", 0]);
+    expect(deleteFlow(fakePresetOverviewApis.calls as unknown[][])).toEqual(["confirm", "storage.delete"]);
+  });
+});

@@ -1,5 +1,7 @@
+import { mapRecorded, replaceText, withIntendedChanges, type Change } from "../replay-intended-changes";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  ButtonSnapshot,
   LabelledSnapshot,
   Recording,
   Scenario,
@@ -88,7 +90,7 @@ function setAsideFieldNames(actual: Snapshot["fields"], expected: Snapshot["fiel
   });
 }
 
-const BUTTON_LABELS = ["Start Review", "Reviewing…"];
+const BUTTON_LABELS = ["Start Review", "Reviewing…Stop", "Reviewing…"];
 const noSpace = (text: string) => text.replace(/\s+/g, "");
 
 /** The recorded page text after the Start button: the error box's text, then the output's. */
@@ -117,6 +119,35 @@ function setAsideLiveRegions(actual: LabelledSnapshot[], expected: Snapshot, lab
   const shown = [...alerts, ...live].map((box) => box.text).join("");
   expect(noSpace(shown), `${label} error and output text`).toBe(noSpace(textAfterStart(expected.text)));
   return actual.filter((element) => element.role !== "alert" && !("aria-live" in element));
+}
+
+// ── Intended changes ───────────────────────────────────────────────────────────
+// Follow-up 1 (docs/provenance/preset-review.md, "Follow-ups after the rebuild"): a review can be stopped and is
+// aborted when the tab goes away. That changes every recorded step the same way, so the changes are derived from the
+// recording instead of listed: the reviewer (and, through it, the model stream) is given an abort signal, and while
+// the tab shows "Reviewing…" a Stop button follows it.
+
+function intendedChanges(expected: StepResult): Change[] {
+  const changes: Change[] = [];
+  expected.calls.forEach((call, index) => {
+    const [name, , , extra] = call as unknown[];
+    if (name === "review" && extra === 0) changes.push([["calls", index, 3], 1]);
+    if (name === "llm.stream" && (call as unknown[])[2] === null) changes.push([["calls", index, 2], "signal"]);
+  });
+  if ("error" in expected) return changes;
+  const reviewingAt = expected.buttons.findIndex((button) => button.text === "Reviewing…");
+  if (reviewingAt >= 0) {
+    changes.push([["text"], replaceText("Reviewing…", "Reviewing…Stop")]);
+    changes.push([
+      ["buttons"],
+      mapRecorded<ButtonSnapshot[]>((buttons) => [
+        ...buttons.slice(0, reviewingAt + 1),
+        { text: "Stop" },
+        ...buttons.slice(reviewingAt + 1),
+      ]),
+    ]);
+  }
+  return changes;
 }
 
 /** Render errors match by count and by the property being read (README, "Render errors"). */
@@ -166,11 +197,9 @@ describe("PresetReviewTab replays the recorded old tab", () => {
       expect(results).toHaveLength(scenario.steps.length);
       results.forEach((result, index) => {
         const recorded = scenario.steps[index]!;
-        compareStep(
-          result,
-          resolveStep(recording, recorded),
-          `${scenario.id} step ${index} ${JSON.stringify(recorded.step)}`,
-        );
+        const label = `${scenario.id} step ${index} ${JSON.stringify(recorded.step)}`;
+        const expected = resolveStep(recording, recorded);
+        compareStep(result, withIntendedChanges(expected, intendedChanges(expected), label), label);
       });
       expect(unhandledAfterUnmount).toEqual(scenario.steps.at(-1)?.unhandledAfterUnmount ?? []);
     },

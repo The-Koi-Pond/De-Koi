@@ -119,7 +119,8 @@ Clicking the enabled button:
 5. In the end the tab stops reviewing.
 
 Nothing cancels a running review: leaving the tab, switching presets or
-closing the editor lets the stream run on with nothing shown.
+closing the editor lets the stream run on with nothing shown. (**Changed by #1821**, follow-up
+1: Stop and the tab unmounting abort the review's request.)
 
 ## Layout
 
@@ -140,9 +141,13 @@ The rebuild keeps every call and visible text. These change on purpose
 
 ## Follow-ups after the rebuild
 
-Kept as recorded in the rebuild; each is its own small pull request after it:
+Kept as recorded in the rebuild; each is its own small pull request after it. Items marked **Fixed** changed
+recorded behavior on purpose: the replay spec keeps the recordings as they are and derives the change from them
+(every step changes the same way: the reviewer and the model stream get an abort signal, and a Stop button follows
+"Reviewing…"), and the fix's new step sequences are in the module's `fixes` spec.
 
-1. **No cancel.** A running review can't be stopped, and leaving the tab,
+1. **Fixed in #1821.** The review gets an abort signal: a Stop button (shown while reviewing) and the
+   tab unmounting abort its request; the output so far stays and no error shows. Was: **No cancel.** A running review can't be stopped, and leaving the tab,
    switching presets or closing the editor doesn't stop it (the paid request
    runs on and its result is lost).
 2. **Raw output.** The tab shows the raw streamed text, not the reviewer's
@@ -182,8 +187,9 @@ each one):
   review ends.
 - **Unmount.** Leaving the tab while reviewing shows a fresh tab when you come
   back (connections listed again, nothing chosen, no output); the old stream's
-  later events change nothing. Switching presets unmounts the tab too (the
-  shell shows its loading state).
+  later events change nothing (**changed by #1821**, follow-up 1: unmounting
+  aborts the review). Switching presets unmounts the tab too (the shell shows
+  its loading state).
 - **Connections.** Listed again on every mount. A held list shows only the
   placeholder; choosing works once it arrives. Options for nameless rows are
   empty, numeric ids become text values.

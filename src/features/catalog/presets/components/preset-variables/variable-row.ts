@@ -14,7 +14,7 @@ export interface PresetVariablesEditorProps {
   variables: ChoiceBlockRow[];
   onCreateVariable: Pick<ReturnType<typeof useCreateVariable>, "mutate">;
   onUpdateVariable: Pick<ReturnType<typeof useUpdateVariable>, "mutate">;
-  onDeleteVariable: Pick<ReturnType<typeof useDeleteVariable>, "mutate">;
+  onDeleteVariable: Pick<ReturnType<typeof useDeleteVariable>, "mutate" | "isPending" | "variables">;
   onReorderVariables: Pick<ReturnType<typeof useReorderVariables>, "mutate" | "isPending">;
 }
 

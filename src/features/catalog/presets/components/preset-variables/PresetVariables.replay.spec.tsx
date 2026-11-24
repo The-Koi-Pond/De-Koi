@@ -1,3 +1,4 @@
+import { intendedStepsFor, withIntendedChanges, type IntendedChange } from "../replay-intended-changes";
 import { describe, expect, it, vi } from "vitest";
 import {
   replayScenario,
@@ -195,8 +196,30 @@ function compareStep(actual: StepResult, expected: StepResult, label: string) {
   ).toEqual(expectedCalls.map((call) => JSON.stringify(call)));
 }
 
+// ── Intended changes ───────────────────────────────────────────────────────────
+// Follow-up 10 (docs/provenance/preset-variables.md, "Follow-ups after the rebuild"): a second Delete while the
+// variable's delete runs neither asks again nor deletes again, so one refresh lands instead of two. The rest must match.
+
+const presetGet = ["storage.get", "prompts", "preset-1"];
+const presetLists = [
+  ["storage.list", "prompt-sections", { filters: { presetId: "preset-1" } }],
+  ["storage.list", "prompt-groups", { filters: { presetId: "preset-1" } }],
+  ["storage.list", "prompt-variables", { filters: { presetId: "preset-1" } }],
+];
+
+const INTENDED: Readonly<Record<string, IntendedChange>> = {
+  "delete:held": {
+    followUps: "10",
+    steps: {
+      3: [[["calls"], []]],
+      4: [[["calls"], [presetGet, ...presetLists]]],
+    },
+  },
+};
+
 describe("PresetVariablesEditor replays the recorded old list", () => {
   it("covers every recorded scenario and step", () => {
+    expect(Object.keys(INTENDED).filter((id) => !scenarios.some(({ scenario }) => scenario.id === id))).toEqual([]);
     expect(scenarios).toHaveLength(194);
     expect(scenarios.reduce((sum, { scenario }) => sum + scenario.steps.length, 0)).toBe(1155);
   });
@@ -206,12 +229,14 @@ describe("PresetVariablesEditor replays the recorded old list", () => {
     async (_name, recording: Recording, scenario: Scenario) => {
       const { results, unhandledAfterUnmount } = await replayScenario(recording, scenario);
       expect(results).toHaveLength(scenario.steps.length);
+      const intended = intendedStepsFor(INTENDED, scenario.id, scenario.steps.length);
       results.forEach((result, index) => {
         const recorded = scenario.steps[index]!;
         const { unhandledAfterUnmount: _after, ...expected } = resolveStep(recording, recorded) as StepResult & {
           unhandledAfterUnmount?: string[];
         };
-        compareStep(result, expected as StepResult, `${scenario.id} step ${index} ${JSON.stringify(recorded.step)}`);
+        const label = `${scenario.id} step ${index} ${JSON.stringify(recorded.step)}`;
+        compareStep(result, withIntendedChanges(expected as StepResult, intended[index], label), label);
       });
       expect(unhandledAfterUnmount).toEqual(scenario.steps.at(-1)?.unhandledAfterUnmount ?? []);
     },

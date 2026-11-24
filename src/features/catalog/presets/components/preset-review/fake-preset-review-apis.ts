@@ -60,6 +60,8 @@ const state = {
   failures: new Map<ReviewOp, string>(),
   held: new Set<ReviewOp>(),
   waiting: new Map<ReviewOp, Array<() => void>>(),
+  /** The abort signals given to the reviewer and to the model stream, in call order (undefined when none). */
+  signals: [] as Array<{ to: "review" | "llm.stream"; signal: AbortSignal | undefined }>,
 };
 
 function newStream(): ScriptedStream {
@@ -103,6 +105,11 @@ export const fakePresetReviewApis = {
     state.failures.clear();
     state.held.clear();
     state.waiting.clear();
+    state.signals = [];
+  },
+  /** The abort signals the reviewer and the model stream were given, in call order. */
+  signals() {
+    return state.signals;
   },
   /** Gives the fake reviewer the real one, for `realMode` steps. */
   setRealReviewer(reviewer: Reviewer) {
@@ -160,6 +167,7 @@ export const fakeReviewStorageApi = {
 /** Stands in for `llmApi`: `stream` gives a scripted stream; `complete` is never called. */
 export const fakeLlmApi = {
   stream(request: unknown, signal?: AbortSignal) {
+    state.signals.push({ to: "llm.stream", signal });
     fakePresetOverviewApis.logCall(["llm.stream", copy(request), signal === undefined ? null : "signal"]);
     return newStream();
   },
@@ -188,6 +196,7 @@ export function fakeReviewPromptPreset(
     copy(input),
     extra.length,
   ]);
+  state.signals.push({ to: "review", signal: extra[0] as AbortSignal | undefined });
   if (!state.realMode) return newStream();
   if (!state.realReviewer) throw new Error("fakePresetReviewApis.setRealReviewer() was not called");
   return state.realReviewer(capabilities, input, ...extra);

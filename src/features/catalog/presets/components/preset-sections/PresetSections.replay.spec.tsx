@@ -1,3 +1,4 @@
+import { intendedStepsFor, withIntendedChanges, type IntendedChange } from "../replay-intended-changes";
 import { describe, expect, it, vi } from "vitest";
 import {
   replayScenario,
@@ -223,8 +224,95 @@ function compareStep(actual: StepResult, expected: StepResult, label: string) {
   ).toEqual(expectedCalls.map((call) => JSON.stringify(call)));
 }
 
+// ── Intended changes ───────────────────────────────────────────────────────────
+// The fixes after the rebuild (docs/provenance/preset-sections.md, "Follow-ups after the rebuild") change these
+// recorded steps on purpose. Follow-up 10: text not saved yet is saved when the content editor goes away (here, its
+// card collapsing), and closing the expanded editor after a hand-over saves once (the hand-over's timer) instead of
+// twice. Follow-up 8: Enter in the name input saves once. Each entry lists the values the fixed tab shows instead; the
+// rest must match.
+
+/** `n` refreshes of preset-1 landing together: the preset reads, then each refresh's nested lists. */
+const refreshes = (n = 1) => [
+  ...Array.from({ length: n }, () => ["storage.get", "prompts", "preset-1"]),
+  ...Array.from({ length: n }, () => [
+    ["storage.list", "prompt-sections", { filters: { presetId: "preset-1" } }],
+    ["storage.list", "prompt-groups", { filters: { presetId: "preset-1" } }],
+    ["storage.list", "prompt-variables", { filters: { presetId: "preset-1" } }],
+  ]).flat(),
+];
+const sectionSave = (sectionId: string, data: Record<string, unknown>) => [
+  ["mutate", "updateSection", { presetId: "preset-1", sectionId, ...data }],
+  ["storage.update", "prompt-sections", sectionId, data],
+];
+const contentSave = (content: string) => sectionSave("s-main", { content });
+/** The content text area, the third field of the expanded first card. */
+const CONTENT_VALUE = ["fields", 2, "value"] as const;
+
+const INTENDED: Readonly<Record<string, IntendedChange>> = {
+  // Collapsing with typing waiting for the 800 ms timer saves it; expanding again shows the saved text.
+  "content:collapse-pending": {
+    followUps: "10",
+    steps: {
+      4: [[["calls"], [...contentSave("Pending"), ...refreshes()]]],
+      6: [[CONTENT_VALUE, "Pending"]],
+    },
+  },
+  // The same with the expanded editor open: its text is saved as the card collapses.
+  "ed:collapse-card-while-open": {
+    followUps: "10",
+    steps: {
+      4: [[["calls"], [...contentSave("pending"), ...refreshes()]]],
+      6: [[CONTENT_VALUE, "pending"]],
+    },
+  },
+  // Closing after a hand-over: no second save of the handed-over text when it closes (its timer saves it later).
+  "ed:handoff-then-close": { followUps: "10", steps: { 5: [[["calls"], []]] } },
+  "ed:handoff-refresh-late": { followUps: "10", steps: { 6: [[["calls"], []]] } },
+  "ed:tab": { followUps: "10", steps: { 9: [[["calls"], []]] } },
+  "ed:held": {
+    followUps: "10",
+    steps: {
+      7: [[["calls"], []]],
+      // One save fewer, so one preset read fewer when the held saves land.
+      9: [[["calls"], refreshes(2)]],
+    },
+  },
+  // Escape after more typing: no save of the earlier hand-over, and the content editor shows the closing text (its
+  // timer saves it next).
+  "ed:handoff-then-more": {
+    followUps: "10",
+    steps: {
+      6: [
+        [["calls"], []],
+        [CONTENT_VALUE, "one two"],
+      ],
+    },
+  },
+  // Enter in the name input: one save and one refresh, not two.
+  "name:enter": {
+    followUps: "8",
+    steps: { 4: [[["calls"], [...sectionSave("s-main", { name: "Core Prompt" }), ...refreshes()]]] },
+  },
+  "name:marker": {
+    followUps: "8",
+    steps: { 4: [[["calls"], [...sectionSave("s-char", { name: "Char Card" }), ...refreshes()]]] },
+  },
+  "quick:content-then-name": {
+    followUps: "8",
+    steps: { 7: [[["calls"], [...sectionSave("s-main", { name: "Renamed" }), ...refreshes()]]] },
+  },
+  "name:held": {
+    followUps: "8",
+    steps: {
+      5: [[["calls"], sectionSave("s-main", { name: "First" })]],
+      9: [[["calls"], refreshes(2)]],
+    },
+  },
+};
+
 describe("PresetSectionsTab replays the recorded old tab", () => {
   it("covers every recorded scenario and step", () => {
+    expect(Object.keys(INTENDED).filter((id) => !scenarios.some(({ scenario }) => scenario.id === id))).toEqual([]);
     expect(scenarios).toHaveLength(254);
     expect(scenarios.reduce((sum, { scenario }) => sum + scenario.steps.length, 0)).toBe(1418);
   });
@@ -234,12 +322,14 @@ describe("PresetSectionsTab replays the recorded old tab", () => {
     async (_name, recording: Recording, scenario: Scenario) => {
       const { results, unhandledAfterUnmount } = await replayScenario(recording, scenario);
       expect(results).toHaveLength(scenario.steps.length);
+      const intended = intendedStepsFor(INTENDED, scenario.id, scenario.steps.length);
       results.forEach((result, index) => {
         const recorded = scenario.steps[index]!;
         const { unhandledAfterUnmount: _after, ...expected } = resolveStep(recording, recorded) as StepResult & {
           unhandledAfterUnmount?: string[];
         };
-        compareStep(result, expected as StepResult, `${scenario.id} step ${index} ${JSON.stringify(recorded.step)}`);
+        const label = `${scenario.id} step ${index} ${JSON.stringify(recorded.step)}`;
+        compareStep(result, withIntendedChanges(expected as StepResult, intended[index], label), label);
       });
       expect(unhandledAfterUnmount).toEqual(scenario.steps.at(-1)?.unhandledAfterUnmount ?? []);
     },
