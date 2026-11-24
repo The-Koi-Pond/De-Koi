@@ -1,3 +1,4 @@
+import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakePresetVariablesApis } from "./fake-preset-variables-apis";
 import { VariablesHarness, worldFor, type Recording, type Step } from "./preset-variables-replay-harness";
@@ -15,10 +16,21 @@ vi.mock("../../../../../shared/api/prompt-nested-api", async (importOriginal) =>
   ...(await importOriginal<object>()),
   promptNestedApi: (await import("./fake-preset-variables-apis")).fakePromptNestedApi,
 }));
-vi.mock("../../../../../shared/lib/app-dialogs", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  showConfirmDialog: (await import("./fake-preset-variables-apis")).fakeConfirmDialog,
-}));
+// Lets a test hold the confirm dialog open (the fake answers at once); the fake still logs the call.
+const confirmGate = vi.hoisted(() => ({ hold: false, answer: null as ((confirmed: boolean) => void) | null }));
+vi.mock("../../../../../shared/lib/app-dialogs", async (importOriginal) => {
+  const { fakeConfirmDialog } = await import("./fake-preset-variables-apis");
+  return {
+    ...(await importOriginal<object>()),
+    showConfirmDialog: async (options: unknown) => {
+      const answer = await fakeConfirmDialog(options);
+      if (!confirmGate.hold) return answer;
+      return new Promise<boolean>((resolve) => {
+        confirmGate.answer = resolve;
+      });
+    },
+  };
+});
 vi.mock("sonner", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   toast: (await import("./fake-preset-variables-apis")).fakeToast,
@@ -35,6 +47,8 @@ async function mount(steps: Step[] = []) {
 }
 
 afterEach(async () => {
+  confirmGate.hold = false;
+  confirmGate.answer = null;
   await harness?.unmount();
   harness = null;
 });
@@ -84,5 +98,17 @@ describe("PresetVariablesEditor follow-up 10", () => {
       "confirm",
       'delete {"presetId":"preset-1","variableId":"v-genre"}',
     ]);
+  });
+
+  it("a second Delete while the confirm is still open neither asks nor deletes again", async () => {
+    await mount();
+    confirmGate.hold = true;
+    await harness!.run(["delete", 0]);
+    await harness!.run(["delete", 0]);
+    expect(flow()).toEqual(["confirm"]);
+    confirmGate.hold = false;
+    await act(async () => confirmGate.answer!(true));
+    await harness!.run(["wait", 0]);
+    expect(flow()).toEqual(["confirm", 'delete {"presetId":"preset-1","variableId":"v-genre"}']);
   });
 });

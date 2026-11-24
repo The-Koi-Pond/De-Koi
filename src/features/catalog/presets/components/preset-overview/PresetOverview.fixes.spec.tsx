@@ -1,3 +1,4 @@
+import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
 import { fakePresetOverviewApis } from "./fake-preset-overview-apis";
@@ -34,10 +35,21 @@ vi.mock("../../../../../engine/generation/prompt-reviewer", async (importOrigina
   ...(await importOriginal<object>()),
   reviewPromptPreset: (await import("./fake-preset-overview-apis")).fakeReviewPromptPreset,
 }));
-vi.mock("../../../../../shared/lib/app-dialogs", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  showConfirmDialog: (await import("./fake-preset-overview-apis")).fakeConfirmDialog,
-}));
+// Lets a test hold the confirm dialog open (the fake answers at once); the fake still logs the call.
+const confirmGate = vi.hoisted(() => ({ hold: false, answer: null as ((confirmed: boolean) => void) | null }));
+vi.mock("../../../../../shared/lib/app-dialogs", async (importOriginal) => {
+  const { fakeConfirmDialog } = await import("./fake-preset-overview-apis");
+  return {
+    ...(await importOriginal<object>()),
+    showConfirmDialog: async (options: unknown) => {
+      const answer = await fakeConfirmDialog(options);
+      if (!confirmGate.hold) return answer;
+      return new Promise<boolean>((resolve) => {
+        confirmGate.answer = resolve;
+      });
+    },
+  };
+});
 vi.mock("sonner", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   toast: (await import("./fake-preset-overview-apis")).fakeToast,
@@ -56,6 +68,8 @@ async function mountEditor(): Promise<HTMLElement> {
 }
 
 afterEach(async () => {
+  confirmGate.hold = false;
+  confirmGate.answer = null;
   await harness?.unmount();
   harness = null;
 });
@@ -230,5 +244,16 @@ describe("PresetEditorShell follow-up fixes", () => {
     await run("delete");
     await run("switchPreset", "preset-2");
     expect(deleteFlow(await run("delete"))).toEqual(["confirm", "storage.delete"]);
+  });
+
+  it("7. a second Delete while the confirm is still open neither asks again nor deletes twice", async () => {
+    await mountEditor();
+    confirmGate.hold = true;
+    expect(deleteFlow(await run("delete"))).toEqual(["confirm"]);
+    expect(await run("delete")).toEqual([]);
+    confirmGate.hold = false;
+    await act(async () => confirmGate.answer!(true));
+    await harness!.run(["wait", 0]);
+    expect(deleteFlow(fakePresetOverviewApis.calls as unknown[][])).toEqual(["confirm", "storage.delete"]);
   });
 });
