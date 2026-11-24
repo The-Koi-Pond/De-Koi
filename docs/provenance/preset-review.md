@@ -119,7 +119,7 @@ Clicking the enabled button:
 5. In the end the tab stops reviewing.
 
 Nothing cancels a running review: leaving the tab, switching presets or
-closing the editor lets the stream run on with nothing shown. (**Changed by #FIXPR**, follow-up
+closing the editor lets the stream run on with nothing shown. (**Changed by #1821**, follow-up
 1: Stop and the tab unmounting abort the review's request.)
 
 ## Layout
@@ -145,7 +145,7 @@ Kept as recorded in the rebuild; each is its own small pull request after it. It
 recorded behavior on purpose: the replay spec keeps the recordings as they are and lists every step a fix changes
 (`INTENDED` in the replay spec), and the fix's new step sequences are in the module's `fixes` spec.
 
-1. **Fixed in #FIXPR.** The review gets an abort signal: a Stop button (shown while reviewing) and the
+1. **Fixed in #1821.** The review gets an abort signal: a Stop button (shown while reviewing) and the
    tab unmounting abort its request; the output so far stays and no error shows. Was: **No cancel.** A running review can't be stopped, and leaving the tab,
    switching presets or closing the editor doesn't stop it (the paid request
    runs on and its result is lost).
@@ -186,7 +186,7 @@ each one):
   review ends.
 - **Unmount.** Leaving the tab while reviewing shows a fresh tab when you come
   back (connections listed again, nothing chosen, no output); the old stream's
-  later events change nothing (**changed by #FIXPR**, follow-up 1: unmounting
+  later events change nothing (**changed by #1821**, follow-up 1: unmounting
   aborts the review). Switching presets unmounts the tab too (the shell shows
   its loading state).
 - **Connections.** Listed again on every mount. A held list shows only the
