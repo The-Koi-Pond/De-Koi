@@ -91,4 +91,26 @@ describe("reviewPromptPreset", () => {
     expect(tokenText(events)).toBe('{"summary":"ok"}');
     expect(events.at(-1)).toEqual({ type: "done", data: JSON.stringify({ summary: "ok" }, null, 2) });
   });
+
+  it("doesn't call the model when the signal aborts while the preset is read", async () => {
+    const controller = new AbortController();
+    const storage = promptReviewStorage();
+    const get = storage.get as ReturnType<typeof vi.fn>;
+    get.mockImplementationOnce(async (entity: string, id: string) => {
+      controller.abort();
+      return { id, name: "Preset", wrapFormat: "xml", description: entity };
+    });
+    const llm = streamLlm([{ type: "token", data: "never" } as unknown as LlmChunk]);
+    const stream = vi.spyOn(llm, "stream");
+    await expect(
+      collectEvents(
+        reviewPromptPreset(
+          { storage, llm },
+          { presetId: "preset-1", connectionId: "c-1", streaming: true },
+          controller.signal,
+        ),
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(stream).not.toHaveBeenCalled();
+  });
 });

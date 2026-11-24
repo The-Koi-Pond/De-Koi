@@ -121,6 +121,60 @@ describe("PresetSectionsTab follow-up 10", () => {
   });
 });
 
+/** The content saves sent so far, with their preset. */
+const contentSavesWithPreset = () =>
+  fakePresetSectionsApis.calls
+    .filter((call) => call[0] === "mutate" && call[1] === "updateSection")
+    .map((call) => call[2] as { presetId: string; sectionId: string; content?: unknown })
+    .filter((data) => "content" in data)
+    .map((data) => [data.presetId, data.sectionId, data.content]);
+
+describe("PresetSectionsTab follow-up 10, edges", () => {
+  it("text typed in the open expanded editor after a hand-over's timer started is saved when the tab goes away", async () => {
+    await mount([
+      ["toggle", 0],
+      ["expandEditor", 0],
+      ["type", "editor", "a"],
+      ["wait", 600],
+      ["wait", 300],
+      ["type", "editor", "ab"],
+      ["wait", 500],
+    ]);
+    expect(contentSaves()).toEqual([["s-main", "a"]]);
+    await harness!.unmount();
+    harness = null;
+    expect(contentSaves()).toEqual([
+      ["s-main", "a"],
+      ["s-main", "ab"],
+    ]);
+  });
+
+  it.each([
+    [
+      "inline",
+      [
+        ["focus", "content:0"],
+        ["type", "content:0", "Pending"],
+      ],
+    ],
+    [
+      "in the expanded editor",
+      [
+        ["expandEditor", 0],
+        ["type", "editor", "Pending"],
+      ],
+    ],
+  ] as Array<[string, Step[]]>)(
+    "text typed %s is saved to its preset when a cached preset opens",
+    async (_where, typing) => {
+      await mount([["switchPreset", "preset-2"], ["switchPreset", "preset-1"], ["toggle", 0], ...typing]);
+      await harness!.run(["switchPreset", "preset-2"]);
+      await harness!.run(["wait", 2000]);
+      expect(contentSavesWithPreset()).toEqual([["preset-1", "s-main", "Pending"]]);
+    },
+  );
+});
+
 describe("PresetSectionsTab follow-up 8", () => {
   it("Enter in the name input saves once", async () => {
     await mount([

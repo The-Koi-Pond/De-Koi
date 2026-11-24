@@ -61,7 +61,8 @@ export function ContentEditor({
     // Compared with the stored content as it is now, not when the timer fires.
     const storedNow = stored;
     saveTimer.current = setTimeout(() => {
-      unsaved.current = NONE;
+      // Newer text typed in the expanded editor since this change stays unsaved.
+      if (unsaved.current === next) unsaved.current = NONE;
       if (next !== storedNow) onSave(next as string);
     }, SAVE_MS);
   };

@@ -92,6 +92,8 @@ export async function* reviewPromptPreset(
     parameters: { temperature: 0.7, maxTokens: 8192, responseFormat: "json_object" },
   };
 
+  // Stopped while the preset was read: don't start the (paid) model call.
+  if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
   const raw = input.streaming
     ? yield* streamPromptReview(capabilities.llm, request, signal)
     : await capabilities.llm.complete(request, signal);

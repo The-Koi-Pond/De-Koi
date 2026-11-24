@@ -1,5 +1,5 @@
 import { Sparkles } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useConnectionList, usePromptReview, type ConnectionRow } from "./use-prompt-review";
 
 // The AI Review tab (docs/provenance/preset-review.md, "The tab"): the connection picker, Start Review, the error box
@@ -46,6 +46,14 @@ export function PresetReviewTab({ presetId }: { presetId: string }) {
   const connections = useConnectionList();
   const [connectionId, setConnectionId] = useState("");
   const review = usePromptReview(presetId);
+  const startButton = useRef<HTMLButtonElement>(null);
+  // Stop goes away when clicked; focus moves to Start Review once it is enabled again.
+  const focusStartAfterStop = useRef(false);
+  useEffect(() => {
+    if (review.reviewing || !focusStartAfterStop.current) return;
+    focusStartAfterStop.current = false;
+    startButton.current?.focus();
+  }, [review.reviewing]);
 
   return (
     <>
@@ -57,6 +65,7 @@ export function PresetReviewTab({ presetId }: { presetId: string }) {
         <div className="flex gap-2">
           <ConnectionPicker connections={connections} value={connectionId} onChange={setConnectionId} />
           <button
+            ref={startButton}
             type="button"
             onClick={() => void review.start(connectionId)}
             disabled={review.reviewing || !connectionId}
@@ -67,7 +76,10 @@ export function PresetReviewTab({ presetId }: { presetId: string }) {
           {review.reviewing && (
             <button
               type="button"
-              onClick={review.stop}
+              onClick={() => {
+                focusStartAfterStop.current = true;
+                review.stop();
+              }}
               className="rounded-xl bg-[var(--secondary)] px-3 py-2 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
             >
               Stop

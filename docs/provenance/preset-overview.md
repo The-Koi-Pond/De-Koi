@@ -324,7 +324,8 @@ maxTokens, …`), unknown keys dropped, tag text trimmed, nested
 - **Save while saving.** Save and Save & close are disabled; a click on the
   disabled button does nothing. Back during a running save shows the unsaved
   bar; when the save lands the notice shows, the draft is clean, and the bar
-  stays.
+  stays. (**Changed by #FIXPR**, follow-up 6: a save that leaves the draft clean hides
+  the bar; typing during the save stays unsaved, follow-up 2.)
 - **Save & close** after a failure stays open with the error under the bar; a
   second Save & close that works closes the editor.
 - **Back** with only the error bar showing (draft clean) closes at once. Back
@@ -343,7 +344,8 @@ maxTokens, …`), unknown keys dropped, tag text trimmed, nested
   (the store does it), so the editor isn't counted as unsaved after it closes.
 - **Focus.** Focusing the header name, description or author selects all of
   it; the Overview name keeps the cursor where it was. A refresh while typing
-  in a field replaces its text and puts the cursor at the end.
+  in a field replaces its text and puts the cursor at the end. (**Changed by #FIXPR**,
+  follow-up 1: a field typed in keeps its text and cursor.)
 
 ## Tests
 

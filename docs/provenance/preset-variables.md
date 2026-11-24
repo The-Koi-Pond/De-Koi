@@ -307,7 +307,9 @@ purpose (accessibility only):
 
 ## Follow-ups after the rebuild
 
-Kept as recorded in the rebuild; each is its own small pull request after it:
+Kept as recorded in the rebuild; each is its own small pull request after it. Items marked **Fixed** changed
+recorded behavior on purpose: the replay spec keeps the recordings as they are and lists every step a fix changes
+(`INTENDED` in the replay spec), and the fix's new step sequences are in the module's `fixes` spec.
 
 1. The separator saves on every keystroke and only shows a change after the
    refreshed row arrives, so fast typing can drop characters.
@@ -330,7 +332,8 @@ Kept as recorded in the rebuild; each is its own small pull request after it:
    doesn't have.
 9. Closing the value editor without typing can write an old value back over a
    newer one.
-10. A second Delete while one is running asks again and deletes twice.
+10. **Fixed in #FIXPR** (a second Delete while that variable's confirm is open or its delete runs does
+    nothing). Was: a second Delete while one is running asks again and deletes twice.
 11. Deleting a variable leaves its id in the preset's `variableOrder` (seen in
     real Chrome, old and new alike).
 12. Rows with non-text fields (a `null`, missing, number or boolean name,

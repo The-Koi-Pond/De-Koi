@@ -73,6 +73,8 @@ describe("PresetReviewTab follow-up fixes", () => {
     expect(stopButton(root)).toBeNull();
     expect(harness!.startButton().textContent).toContain("Start Review");
     expect(harness!.startButton().disabled).toBe(false);
+    // Stop goes away, so focus moves to Start Review.
+    expect(document.activeElement).toBe(harness!.startButton());
     expect(root.querySelector("pre")?.textContent).toBe("So far");
     expect(root.querySelector('[role="alert"]')).toBeNull();
 

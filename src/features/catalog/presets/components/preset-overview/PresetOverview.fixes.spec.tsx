@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useUIStore } from "../../../../../shared/stores/ui.store";
+import { fakePresetOverviewApis } from "./fake-preset-overview-apis";
 import { PresetOverviewHarness, worldFor, type Recording, type Step } from "./preset-overview-replay-harness";
 import show from "./test-fixtures/recorded-show.json";
 
 // The follow-up fixes after the rebuild (docs/provenance/preset-overview.md, "Follow-ups after the rebuild"), as new
-// step sequences on the recorder's default world. Each failed on the rebuild as merged.
+// step sequences on the recorder's default world. Most failed on the rebuild as merged; the rest guard edges the fix
+// round found (marked "guard").
 
 vi.mock("../../../../../shared/api/storage-api", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -68,6 +70,7 @@ const field = (root: HTMLElement, name: string) =>
   root.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[aria-label="${name}"]`)!.value;
 const updates = (calls: unknown[][]) => calls.filter((call) => call[0] === "storage.update" && call[1] === "prompts");
 const dirty = () => useUIStore.getState().editorDirty;
+const storedPreset = (id: string) => fakePresetOverviewApis.stored().presets.find((preset) => preset.id === id)!;
 /** The confirm and delete calls among `calls` (a delete also refreshes the preset list). */
 const deleteFlow = (calls: unknown[][]) =>
   calls.map((call) => call[0]).filter((name) => name === "confirm" || name === "storage.delete");
@@ -101,7 +104,7 @@ describe("PresetEditorShell follow-up fixes", () => {
     expect(dirty()).toBe(false);
   });
 
-  it("1. a refresh while clean still shows the new stored values", async () => {
+  it("1. guard: a refresh while clean still shows the new stored values", async () => {
     const root = await mountEditor();
     await run("refresh", { name: "Renamed elsewhere" });
     expect(field(root, "Name")).toBe("Renamed elsewhere");
@@ -171,5 +174,61 @@ describe("PresetEditorShell follow-up fixes", () => {
     expect(root.querySelector('[role="status"]')?.textContent).toBe("Changes saved");
     await run("wait", 500);
     expect(root.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("1, 2. guard: an outside change during a save; once the draft is clean it shows what is stored", async () => {
+    const root = await mountEditor();
+    await run("type", "name", "Saved name");
+    await run("hold", "prompts.update");
+    await run("save");
+    await run("refresh", { description: "Changed elsewhere mid-save" });
+    expect(field(root, "Description")).toBe("Changed elsewhere mid-save");
+    await run("release", "prompts.update");
+    expect(dirty()).toBe(false);
+    expect(field(root, "Name")).toBe("Saved name");
+    expect(field(root, "Description")).toBe(storedPreset("preset-1").description);
+  });
+
+  it("1, 2. guard: typing a field back to its stored value during a save keeps it unsaved", async () => {
+    const root = await mountEditor();
+    const original = field(root, "Name");
+    await run("type", "name", "Changed");
+    await run("hold", "prompts.update");
+    await run("save");
+    await run("type", "name", original);
+    await run("release", "prompts.update");
+    expect(field(root, "Name")).toBe(original);
+    expect(dirty()).toBe(true);
+  });
+
+  it("5. guard: a save that lands after another preset opened leaves that preset alone", async () => {
+    const root = await mountEditor();
+    await run("type", "name", "A typed");
+    await run("hold", "prompts.update");
+    await run("save");
+    await run("switchPreset", "preset-2");
+    await run("release", "prompts.update");
+    expect(dirty()).toBe(false);
+    await run("refresh", { name: "B renamed elsewhere" });
+    expect(field(root, "Name")).toBe("B renamed elsewhere");
+  });
+
+  it("5. guard: a save failing after another preset opened shows no error there", async () => {
+    const root = await mountEditor();
+    await run("type", "name", "A typed");
+    await run("hold", "prompts.update");
+    await run("fail", "prompts.update", "disk full");
+    await run("save");
+    await run("switchPreset", "preset-2");
+    await run("release", "prompts.update");
+    expect(root.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("7. guard: a delete running on one preset doesn't block Delete on the next one", async () => {
+    await mountEditor();
+    await run("hold", "prompts.delete");
+    await run("delete");
+    await run("switchPreset", "preset-2");
+    expect(deleteFlow(await run("delete"))).toEqual(["confirm", "storage.delete"]);
   });
 });
