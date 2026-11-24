@@ -64,6 +64,15 @@ export function PresetReviewTab({ presetId }: { presetId: string }) {
           >
             <Sparkles size="0.8125rem" aria-hidden="true" /> {review.reviewing ? "Reviewing…" : "Start Review"}
           </button>
+          {review.reviewing && (
+            <button
+              type="button"
+              onClick={review.stop}
+              className="rounded-xl bg-[var(--secondary)] px-3 py-2 text-xs font-medium text-[var(--foreground)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)]"
+            >
+              Stop
+            </button>
+          )}
         </div>
       </Field>
       {review.error && (

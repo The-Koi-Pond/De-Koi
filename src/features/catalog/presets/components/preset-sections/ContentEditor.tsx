@@ -10,11 +10,15 @@ const SAVE_MS = 800;
 const ICON_BUTTON =
   "rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]";
 
+/** No unsaved text. */
+const NONE = Symbol("none");
+
 /**
  * A section's prompt text (docs/provenance/preset-sections.md, "Content editor"). The text follows the stored
  * content except while the text area has focus. Typing saves 800 ms after the last change when the text differs from
- * the stored content as it was at that change; leaving the text area saves at once. A pending save is dropped when
- * the editor goes away (the card collapses or the section is deleted), as recorded.
+ * the stored content as it was at that change; leaving the text area saves at once. Text not saved yet (typed here
+ * or in the expanded editor) is saved when the editor goes away: the card collapses, the tab or the preset editor
+ * closes (spec follow-up 10).
  */
 export function ContentEditor({
   stored,
@@ -32,24 +36,38 @@ export function ContentEditor({
   const [macrosOpen, setMacrosOpen] = useState(false);
   const focused = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // The newest text not saved yet, and the props as of the last render, for the save when the editor goes away.
+  const unsaved = useRef<unknown>(NONE);
+  const latest = useRef({ stored, onSave });
+  latest.current = { stored, onSave };
 
   useEffect(() => {
     if (!focused.current) setText(stored);
   }, [stored]);
 
-  useEffect(() => () => clearTimeout(saveTimer.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(saveTimer.current);
+      const pending = unsaved.current;
+      if (pending !== NONE && pending !== latest.current.stored) latest.current.onSave(pending as string);
+    },
+    [],
+  );
 
   const change = (next: unknown) => {
     setText(next);
+    unsaved.current = next;
     clearTimeout(saveTimer.current);
     // Compared with the stored content as it is now, not when the timer fires.
     const storedNow = stored;
     saveTimer.current = setTimeout(() => {
+      unsaved.current = NONE;
       if (next !== storedNow) onSave(next as string);
     }, SAVE_MS);
   };
 
   const saveNow = () => {
+    unsaved.current = NONE;
     if (text !== stored) onSave(text as string);
   };
 
@@ -95,10 +113,13 @@ export function ContentEditor({
           name={name}
           value={text}
           onChange={change}
+          onDraft={(draft) => {
+            unsaved.current = draft;
+          }}
           onClose={() => {
+            // The closing text was just handed over; its own timer saves it, once (spec follow-up 10: the recorded
+            // editor also saved the text of this render, a second save of an earlier hand-over).
             setExpanded(false);
-            // Saves the text as this render shows it; text handed over just now is saved by its own timer.
-            saveNow();
           }}
         />
       )}

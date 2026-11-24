@@ -1,5 +1,5 @@
 import { AlertTriangle, FolderOpen, Layers, Plus, X } from "lucide-react";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
 import { toUserMessage } from "../../../../../shared/lib/error-message";
@@ -78,6 +78,11 @@ export function PresetSectionsTab({
   const agents = injectableAgents(agentConfigs);
   // Kept by section id, so a card stays expanded across moves and refreshes.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  // The ids of the sections as last rendered, set before any card's unmount cleanup of the same commit runs.
+  const listedIds = useRef(new Set<string>());
+  useLayoutEffect(() => {
+    listedIds.current = new Set(sections.map((section) => section.id));
+  }, [sections]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [rename, setRename] = useState<GroupRename | null>(null);
@@ -263,7 +268,12 @@ export function PresetSectionsTab({
               }}
               onDuplicate={() => void duplicate(section, index)}
               onDelete={() => onDeleteSection.mutate({ presetId, sectionId: section.id })}
-              update={(data) => onUpdateSection.mutate({ presetId, sectionId: section.id, ...data })}
+              update={(data) => {
+                // A deleted section's card goes away after its row leaves the list; the save its editor makes then
+                // (spec follow-up 10) is dropped. Collapsing, leaving the tab or closing the editor keeps it listed.
+                if (!listedIds.current.has(section.id)) return;
+                onUpdateSection.mutate({ presetId, sectionId: section.id, ...data });
+              }}
               drag={drag}
             />
           ))

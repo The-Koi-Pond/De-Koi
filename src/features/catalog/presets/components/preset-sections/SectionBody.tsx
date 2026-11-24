@@ -11,8 +11,7 @@ const SELECT = "rounded-lg bg-[var(--secondary)] ring-1 ring-[var(--border)]";
 const LABEL = "text-[var(--muted-foreground)]";
 
 /**
- * The name input: selects its text on focus; on blur (and on Enter, which then blurs, so Enter saves twice as
- * recorded) it saves the trimmed text when it isn't empty and differs from the stored name, else puts the stored
+ * The name input: selects its text on focus; on blur (Enter blurs) it saves the trimmed text when it isn't empty and differs from the stored name, else puts the stored
  * name back. A new stored name replaces the text, even while typing.
  */
 function NameInput({ stored, onSave }: { stored: unknown; onSave: (name: string) => void }) {
@@ -36,8 +35,8 @@ function NameInput({ stored, onSave }: { stored: unknown; onSave: (name: string)
       onChange={(event) => setText(event.target.value)}
       onBlur={save}
       onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+        // Enter leaves the input, and leaving saves (once; spec follow-up 8).
         if (event.key !== "Enter") return;
-        save();
         event.currentTarget.blur();
       }}
       className={`flex-1 px-2.5 py-1.5 text-xs ${FIELD}`}
