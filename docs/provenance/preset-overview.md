@@ -267,13 +267,17 @@ purpose (accessibility only):
 
 ## Follow-ups after the rebuild
 
-Kept as recorded in the rebuild; each is its own small pull request after it:
+Kept as recorded in the rebuild; each is its own small pull request after it. Items marked **Fixed** changed
+recorded behavior on purpose: the replay spec keeps the recordings as they are and lists every step a fix changes
+(`INTENDED` in the replay spec), and the fix's new step sequences are in the module's `fixes` spec.
 
-1. **Lost edits on refresh.** Any refresh of the preset with new content (a
+1. **Fixed in #FIXPR.** A refresh keeps the fields typed since the last stored value and takes the
+   stored value for the rest. Was: **Lost edits on refresh.** Any refresh of the preset with new content (a
    save in the Sections tab, a variable edit, a save finishing) replaces the
    draft with the stored values, while the editor still says the changes are
    unsaved.
-2. **Edits during a save are lost.** Typing while a save is running is replaced
+2. **Fixed in #FIXPR.** Typing during a save survives it and stays unsaved. Was: **Edits during a save are
+   lost.** Typing while a save is running is replaced
    by the saved values when it lands, and the draft counts as saved.
 3. **Unsaveable presets.** A stored preset the schema refuses (empty, missing
    or over-200-character name, an unknown wrap format, non-text fields,
@@ -283,16 +287,17 @@ Kept as recorded in the rebuild; each is its own small pull request after it:
 4. **Save rewrites the parameters.** Saving the Overview also stores the
    preset's parameters back through the schema: unknown keys are dropped and
    thinking-tag text is trimmed, even when nothing was edited.
-5. **Switching presets keeps the unsaved flag**: opening another preset with an
+5. **Fixed in #FIXPR** (another preset starts clean). Was: **Switching presets keeps the unsaved flag**: opening another preset with an
    unsaved draft shows the new preset as unsaved.
-6. The unsaved bar stays after a successful Save from the header.
+6. **Fixed in #FIXPR** (a save that leaves the draft clean hides the bar). Was: the unsaved bar stays after a
+   successful Save from the header.
 7. **Delete**: no check for unsaved changes; clicking Delete again before the
-   first finishes asks again and sends a second delete; a failure says
+   first finishes asks again and sends a second delete (**fixed in #FIXPR**: the second click is ignored); a failure says
    `Couldn't save that change. Try again.`.
 8. **Export** exports the stored preset, not the draft, and has no busy state
    (two clicks, two downloads).
-9. Two saves within 1.5 s: the first save's timer hides the second save's
-   notice early.
+9. **Fixed in #FIXPR** (the notice lasts 1.5 s from the latest save). Was: two saves within 1.5 s, the first
+   save's timer hides the second save's notice early.
 10. The name is edited in two places (header and Overview), and only one of
     them selects on focus.
 11. A whitespace-only name saves as is.

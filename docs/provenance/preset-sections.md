@@ -325,7 +325,9 @@ purpose (accessibility only):
 
 ## Follow-ups after the rebuild
 
-Kept as recorded in the rebuild; each is its own small pull request after it:
+Kept as recorded in the rebuild; each is its own small pull request after it. Items marked **Fixed** changed
+recorded behavior on purpose: the replay spec keeps the recordings as they are and lists every step a fix changes
+(`INTENDED` in the replay spec), and the fix's new step sequences are in the module's `fixes` spec.
 
 1. **Delete** removes a section at once, with no confirmation or undo.
 2. A failed save shows only the shared failure toast (an empty name is put
@@ -337,10 +339,12 @@ Kept as recorded in the rebuild; each is its own small pull request after it:
 5. A marker without a usable marker config shows no content and no note.
 6. Dragging works only with a mouse (the arrow buttons cover keyboard use).
 7. The add menu doesn't close on Escape.
-8. Enter in the name input saves twice.
+8. **Fixed in #FIXPR** (Enter blurs, and the blur saves once). Was: Enter in the name input saves twice.
 9. A section without a name breaks the name input's blur; duplicating it
    toasts `Duplicated "undefined"`.
-10. Pending content edits are lost when a card collapses, or when the section
+10. **Fixed in #FIXPR.** Text not saved yet (inline or in the expanded editor) is saved when the content
+    editor goes away (the card collapses, the tab or the editor closes); a deleted section gets no save;
+    closing the expanded editor saves once. Was: pending content edits are lost when a card collapses, or when the section
     is deleted or collapsed with the expanded editor open; closing the expanded
     editor after a hand-over saves twice.
 11. An unknown role shows System in the dropdown; duplicating it fails.
