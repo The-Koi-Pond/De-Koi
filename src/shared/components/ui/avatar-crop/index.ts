@@ -1,1 +1,1 @@
-export { AvatarCropWidget, type AvatarCropWidgetProps } from "./AvatarCropWidget";
+export { AvatarCropWidget } from "./AvatarCropWidget";

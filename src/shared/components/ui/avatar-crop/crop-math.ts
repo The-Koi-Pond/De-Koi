@@ -3,7 +3,7 @@ import type { AvatarCrop } from "../../../lib/utils";
 /** The stage is 360 x 360 px; pictures are fitted inside it and never enlarged. */
 export const STAGE_SIZE = 360;
 /** The smallest side a crop square can be given from a saved crop or a corner drag. */
-export const MIN_SQUARE = 24;
+const MIN_SQUARE = 24;
 
 /** The picture's display size in px, unrounded. */
 export interface DisplaySize {

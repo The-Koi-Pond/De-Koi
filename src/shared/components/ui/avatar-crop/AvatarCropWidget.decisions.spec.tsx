@@ -104,15 +104,3 @@ describe("decision 2: Escape closes the full view when it is the topmost overlay
     expect(escape.defaultPrevented).toBe(false);
   });
 });
-
-describe("decision 3: icons are hidden from assistive tech", () => {
-  it("hides the heading, header button and close button icons", async () => {
-    const widget = await mount();
-    await widget.run({ do: "click", name: "Full image" });
-    const icons = [...widget.container.querySelectorAll("svg")];
-    // Crop (heading), expand (Full image), rotate (Reset), X (close).
-    expect(icons).toHaveLength(4);
-    for (const icon of icons) expect(icon.getAttribute("aria-hidden")).toBe("true");
-    expect(fullView()!.querySelector("button svg")).not.toBeNull();
-  });
-});

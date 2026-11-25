@@ -8,10 +8,10 @@ import { AvatarCropWidget } from "./index";
 
 // ── Recording types ─────────────────────────────────────────────────────────────────────────────────────────
 
-export type Part = "box" | "tl" | "tr" | "bl" | "br";
+type Part = "box" | "tl" | "tr" | "bl" | "br";
 type ImgState = { state: "pending" | "loaded" | "broken"; w: number; h: number };
 
-export type Action =
+type Action =
   | { do: "load"; src: string }
   | { do: "loadSilent"; src: string }
   | { do: "break"; src: string }
@@ -26,14 +26,14 @@ export type Action =
   | { do: "key"; key: string }
   | { do: "unmount" };
 
-export interface ButtonShown {
+interface ButtonShown {
   text: string;
   title: string | null;
   type: string | null;
   label: string | null;
 }
 
-export interface FullShown {
+interface FullShown {
   src: string | null;
   alt: string | null;
   close: { text: string; type: string | null; label: string | null } | null;
@@ -52,7 +52,7 @@ export interface Shown {
   full?: FullShown | null;
 }
 
-export interface EventRecord {
+interface EventRecord {
   type: string;
   prevented: boolean;
   missing?: true;
@@ -107,6 +107,11 @@ Object.defineProperty(HTMLImageElement.prototype, "naturalHeight", {
     return s.state === "loaded" ? s.h : 0;
   },
 });
+
+/** Sets a picture's fake loading state without any event (for tests that need a picture to stop being complete). */
+export function setPictureState(src: string, state: ImgState["state"], w = 0, h = 0) {
+  IMAGES.set(src, { state, w, h });
+}
 
 // ── Pointer capture stub ────────────────────────────────────────────────────────────────────────────────────
 
@@ -188,7 +193,7 @@ function Caller({ initial, handsBack }: { initial: CallerProps; handsBack: boole
 
 // ── Parts and snapshot ──────────────────────────────────────────────────────────────────────────────────────
 
-export function findPart(root: Element, part: Part): HTMLElement | null {
+function findPart(root: Element, part: Part): HTMLElement | null {
   return root.querySelector<HTMLElement>(`[data-crop="${part}"]`);
 }
 
@@ -220,11 +225,11 @@ function texts(root: Element): string[] {
   return out;
 }
 
-export function widgetRoot(container: Element): HTMLElement | null {
+function widgetRoot(container: Element): HTMLElement | null {
   return (container.querySelector('[data-rec="parent"]')?.firstElementChild ?? null) as HTMLElement | null;
 }
 
-export function snapshot(container: HTMLElement): Shown {
+function snapshot(container: HTMLElement): Shown {
   if (container.querySelector('[data-rec="crashed"]')) return { crashed: true };
   const root = widgetRoot(container);
   if (!root) return { empty: true };

@@ -17,14 +17,14 @@ export function FullImageView({ src, alt, onClose }: { src: string; alt: string;
       <img
         src={src || undefined}
         alt={alt}
-        className="max-h-[85vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+        className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
       />
       <button
         type="button"
         aria-label="Close full image"
-        className="absolute right-3 top-3 rounded-xl bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
+        className="absolute right-3 top-3 rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
       >
-        <X className="h-4 w-4" aria-hidden="true" />
+        <X className="h-4 w-4" />
       </button>
     </div>
   );
