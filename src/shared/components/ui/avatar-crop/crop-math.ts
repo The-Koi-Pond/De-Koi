@@ -26,15 +26,6 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-/**
- * The same bounds for a saved crop's position, but a bound that isn't a number is skipped (a saved crop without a
- * usable `srcWidth` still places the square at its `srcX` / `srcY`). A NaN value stays NaN, and `lo` wins.
- */
-function clampSaved(v: number, lo: number, hi: number): number {
-  const capped = v > hi ? hi : v;
-  return Math.max(lo, capped);
-}
-
 /** Fits the natural size inside the stage; a natural side of 0 counts as 1. */
 export function displaySizeOf(naturalWidth: number, naturalHeight: number): DisplaySize {
   const nw = naturalWidth || 1;
@@ -50,18 +41,20 @@ export function defaultSquare({ w, h }: DisplaySize): Square {
 }
 
 /**
- * The square a saved crop shows. Only `srcX`, `srcY` and `srcWidth` are read, with `*` (so text numbers count and
- * missing fields give NaN). `crop` must not be legacy; null gives the default square.
+ * The square a saved crop gives while getting ready, before any clamping. Only `srcX`, `srcY` and `srcWidth` are
+ * read, with `*` (text numbers count, missing fields give NaN). `crop` must not be legacy; null gives the default.
  */
+export function unclampedSquareFromCrop(crop: AvatarCrop | null, display: DisplaySize): Square {
+  if (!crop) return defaultSquare(display);
+  return { x: crop.srcX * display.w, y: crop.srcY * display.h, size: crop.srcWidth * display.w };
+}
+
+/** The square a saved crop shows once followed: the same reads, clamped to the picture. Null gives the default. */
 export function squareFromCrop(crop: AvatarCrop | null, display: DisplaySize): Square {
   if (!crop) return defaultSquare(display);
   const { w, h } = display;
   const size = clamp(crop.srcWidth * w, MIN_SQUARE, Math.min(w, h));
-  return {
-    x: clampSaved(crop.srcX * w, 0, w - size),
-    y: clampSaved(crop.srcY * h, 0, h - size),
-    size,
-  };
+  return { x: clamp(crop.srcX * w, 0, w - size), y: clamp(crop.srcY * h, 0, h - size), size };
 }
 
 /** The crop handed to the caller: exactly these divisions, in this key order. */

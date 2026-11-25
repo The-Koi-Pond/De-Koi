@@ -9,6 +9,7 @@ import {
   dragSquare,
   squareFromCrop,
   STAGE_SIZE,
+  unclampedSquareFromCrop,
   type DisplaySize,
   type Square,
   type SquarePart,
@@ -56,11 +57,12 @@ export function AvatarCropWidget({ src, alt, crop, onChange }: AvatarCropWidgetP
   const display = measured && measured.src === src ? measured : null;
   const shown = display ? square : null;
 
-  // Getting ready sets the square from the crop prop, even mid-drag, and hands nothing over.
+  // Getting ready (also again, also mid-drag) sets a new display size and the unclamped square from the crop prop.
+  // The follow below then clamps it in a later commit, unless a drag is in progress. Hands nothing over.
   const becomeReady = (image: HTMLImageElement) => {
     const size = displaySizeOf(image.naturalWidth, image.naturalHeight);
     setMeasured({ src, ...size });
-    setSquare(squareFromCrop(currentCrop, size));
+    setSquare(unclampedSquareFromCrop(currentCrop, size));
   };
 
   // A cached picture can be complete before React listens for its `load`.
@@ -69,11 +71,12 @@ export function AvatarCropWidget({ src, alt, crop, onChange }: AvatarCropWidgetP
     if (!display && image && image.complete && image.naturalWidth > 0) becomeReady(image);
   });
 
-  // Follow a new crop prop (by identity) while ready and not dragging. A change during a drag is dropped for good.
-  const followedCrop = useRef(crop);
+  // Follow a new crop prop or display size (by identity) while ready and not dragging. A change during a drag is
+  // dropped for good.
+  const followed = useRef<{ crop: typeof crop; display: Measured | null }>({ crop, display: null });
   useEffect(() => {
-    if (followedCrop.current === crop) return;
-    followedCrop.current = crop;
+    if (followed.current.crop === crop && followed.current.display === display) return;
+    followed.current = { crop, display };
     if (!display || dragRef.current) return;
     setSquare(squareFromCrop(currentCrop, display));
   }, [crop, currentCrop, display]);
