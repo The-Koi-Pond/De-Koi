@@ -491,6 +491,7 @@ function llmProvider(
       const parameters = { ...baseParameters };
       if (typeof options.temperature === "number") parameters.temperature = options.temperature;
       if (typeof options.maxTokens === "number") parameters.maxTokens = options.maxTokens;
+      if (typeof options.reasoningEffort === "string") parameters.reasoningEffort = options.reasoningEffort;
       for await (const chunk of llm.stream(
         {
           connectionId,
@@ -1705,6 +1706,8 @@ export async function runFocusedRoleplayQualityAudit(
       contextSize: 6,
       maxTokens: 1200,
       temperature: 0,
+      // The audit has 8 seconds and only makes small cuts; a model's default thinking can use all of it.
+      reasoningEffort: "low",
     },
   };
 
