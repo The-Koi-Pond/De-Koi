@@ -133,8 +133,18 @@ A picture that fails (`error`) or never loads leaves the widget not ready: the
 frame stays hidden, there is no square, Reset does nothing, the preview has no
 crop style. Full image still opens.
 
-When it becomes ready the square is set from the `crop` prop (see
-"Following the crop prop"). **Getting ready hands over nothing.**
+**Getting ready** (each time: also a second `load` while already ready, and
+also while a drag is in progress) does two things, in this order:
+
+1. It sets a new display size (a new value, so it counts as a change below) and
+   sets the square **unclamped** from the `crop` prop: for a current crop
+   `x = crop.srcX * w`, `y = crop.srcY * h`, `size = crop.srcWidth * w`;
+   otherwise the default square.
+2. Then, when no drag is in progress, "Following the crop prop" applies (the
+   display size changed), which clamps it. During a drag the unclamped square
+   stays, and the drag carries on from its old start square.
+
+**Getting ready hands over nothing.**
 
 When `src` changes, the widget is no longer ready (frame hidden, square gone)
 until the new picture is ready as above. The stage picture is replaced, so the
@@ -159,7 +169,11 @@ applies it).
 
 The square is shown as an absolutely positioned box at `left: x`, `top: y`,
 `width: size`, `height: size` (px numbers as computed, no rounding), with four
-corner handles.
+corner handles. A value that isn't a number (`NaN`) is not a valid style, so the
+box keeps whatever that property showed before (or none, if it never had one).
+For example a saved `{ srcX: 0.1, srcY: 0.1 }` on a 240 × 360 display first
+shows `left: 24px; top: 36px` with no size (step 1 above), and the clamped
+`NaN`s from step 2 leave that as it is.
 
 ## Dragging
 
