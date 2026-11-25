@@ -261,6 +261,9 @@ export async function executeAgent(
             }
           : undefined,
         signal: context.signal,
+        ...(typeof config.settings.reasoningEffort === "string"
+          ? { reasoningEffort: config.settings.reasoningEffort }
+          : {}),
       }),
     );
 

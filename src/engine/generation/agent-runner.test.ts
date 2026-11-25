@@ -245,7 +245,9 @@ describe("generation agent runner", () => {
     expect(prompt).toContain("<assistant_response>");
     expect(prompt).toContain('"I accept," Celia says, taking the contract.');
     expect(prompt).not.toContain("user-customized manual editor prompt");
+    expect(prompt).toContain("Those are events, not choices");
     expect(requests[0]?.parameters?.maxTokens).toBeLessThanOrEqual(1200);
+    expect(requests[0]?.parameters?.reasoningEffort).toBe("low");
   });
 
   it("returns a normal failed result when the focused audit has no runnable model", async () => {
