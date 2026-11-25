@@ -121,12 +121,12 @@ a pan, a corner drag and Reset), `drag:<size>:<crop>:<script>:<back|ignore>`
 (812: drag scripts on seven sizes, three crops, handing back or not),
 specials `load:*`, `src:*`, `alt:*`, `crop:*`, `full:*`, `unmount:*` (31).
 
-**Decisions.** The recordings show the old behavior that decisions 1 to 3 in
+**Decisions.** The recordings show the old behavior that decisions 1 and 2 in
 the spec change on purpose: the close button's `type` and `label`
 (`null` → `"button"` / `"Close full image"`), and Escape with the full view
 open (`full:keys`: the view stays open; after decision 2 it closes on Escape
-and the event is default-prevented). Decision 3 adds `aria-hidden` to icons,
-which the snapshot doesn't read.
+and the event is default-prevented). Decision 3 was dropped (the icons were
+already `aria-hidden`).
 
 ## Real Chrome
 

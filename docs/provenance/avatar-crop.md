@@ -41,8 +41,9 @@ Lines not yet team-owned, from `node scripts/code-provenance.mjs --fast` at
 | `src/shared/components/ui/AvatarCropWidget.tsx` |       327 |      345 |
 
 Replaced, then deleted in the same change. The new module lives in
-`src/shared/components/ui/avatar-crop/` and exports `AvatarCropWidget` and the
-`AvatarCropWidgetProps` type with the same props:
+`src/shared/components/ui/avatar-crop/` and exports `AvatarCropWidget` with the
+same props (no caller imports the props type, and the unused-code check forbids
+unused exports, so the type isn't exported):
 
 ```ts
 {
@@ -146,10 +147,14 @@ also while a drag is in progress) does two things, in this order:
 
 **Getting ready hands over nothing.**
 
-When `src` changes, the widget is no longer ready (frame hidden, square gone)
-until the new picture is ready as above. The stage picture is replaced, so the
-new picture's `load` counts even when it is cached. A drag in progress is
-**not** ended by a `src` change (see "Recorded details").
+When `src` changes, the widget renders once more with the previous display size,
+square and preview (over the new picture), and right after that commit it is no
+longer ready (frame hidden, square gone) until the new picture is ready as
+above. Nothing about an earlier picture is kept: going back to a `src` that was
+shown before (A, then B, then A) needs A to get ready again (its `load`, or the
+complete check). The stage picture is replaced, so the new picture's `load`
+counts even when it is cached. A drag in progress is **not** ended by a `src`
+change (see "Recorded details").
 
 ## Following the crop prop
 
@@ -212,8 +217,8 @@ the start square's top-left `(L, T)` and bottom-right `(R, B) = (L + s, T + s)`:
 | `tr`   | `(R + dx, T + dy)`       | `clamp(min(px - L, B - py), 24, min(w - L, B))`     | `x = L`, `y = B - size`        |
 | `bl`   | `(L + dx, B + dy)`       | `clamp(min(R - px, py - T), 24, min(R, h - T))`     | `x = R - size`, `y = T`        |
 
-(Because `clamp` puts the minimum last, a display side under 24 px lets the
-square grow to 24 px, past the picture.)
+(Because the lower bound is applied last (`max(lo, …)` on the outside), a
+display side under 24 px lets the square grow to 24 px, past the picture.)
 
 ## Reset
 
@@ -261,8 +266,12 @@ a small picture (100 × 50, not enlarged), the persona editor, a hovered Reset, 
 focused Full image, mid-drag, after a corner drag and the full view. Colors,
 spacing, type sizes, the dimmed outside (the square has a huge dark outer
 shadow), the white outline, the white corner handles with a black border, and
-the cursors (`move` on the square, diagonal resize cursors on the corners)
-match them.
+the cursors (`move` on the square, `nwse-resize` on the top-left and
+bottom-right corners, `nesw-resize` on the other two) match them. The app sets
+its own cursor on every element (a global rule, and `cursor-move` is forced to
+it), so these cursors must be inline styles, which win over both. Corner radii
+match the screenshots in every theme: `rounded-xl` card, `rounded-lg` buttons,
+stage, full-view picture and close button.
 
 ## Test hooks
 
@@ -280,9 +289,9 @@ The rebuild keeps everything it shows and hands over. These change on purpose:
    shared overlay stack (`useEscapeOverlay`), so Escape closes it when it is the
    topmost overlay, and the key is marked handled. Today Escape does nothing
    while it is open.
-3. **Hidden icons.** The icons in the header buttons, the heading and the close
-   button are `aria-hidden` (their meaning is in the text or label next to
-   them).
+3. ~~Hidden icons~~ (dropped during the build): the icon library already marks
+   every icon `aria-hidden`, so the old widget's icons were already hidden and
+   nothing changes.
 
 ## Follow-ups after the rebuild
 
@@ -360,7 +369,7 @@ to the capturing element):
   visibility, the square's position and size and its four corners, the
   preview's style, the full view), which element captured the pointer, whether
   each dispatched event's default was prevented, and which events reached the
-  parent and the document, match, except where decisions 1 to 3 add attributes
+  parent and the document, match, except where decisions 1 and 2 add attributes
   or change a step. Render errors match by presence.
 - Each decision has a test.
 
@@ -399,4 +408,4 @@ in `.prettierignore`), each file under about 1 MB.
    after Save.
 
 The builder gets the recordings, the screenshots and this spec. The recordings
-show the old behavior that decisions 1 to 3 change on purpose.
+show the old behavior that decisions 1 and 2 change on purpose.
