@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Maximize2, Plus, X } from "lucide-react";
-import { AvatarCropWidget } from "../../../../../shared/components/ui/AvatarCropWidget";
+import { AvatarCropWidget } from "../../../../../shared/components/ui/avatar-crop";
 import { ExpandedTextarea } from "../../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../../shared/components/ui/HelpTooltip";
 import { TagInput } from "../../../../../shared/components/ui/TagInput";

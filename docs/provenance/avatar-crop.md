@@ -1,7 +1,7 @@
 # Avatar Crop Widget: Behavior Spec
 
-Status: draft 2026-11-25. Part of the code provenance plan
-(`docs/code-provenance-plan.md`, tracked in #1580).
+Status: agreed 2026-11-25 (decisions as recommended). Part of the code
+provenance plan (`docs/code-provenance-plan.md`, tracked in #1580).
 
 This spec describes the **avatar crop widget**: the "Avatar Crop" card at the
 top of the character editor's Metadata tab and the persona editor's Description

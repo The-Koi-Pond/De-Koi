@@ -9,7 +9,7 @@ import type {
 } from "../../../../engine/contracts/types/character";
 import { normalizeGeneratedImageResult } from "../../../../engine/contracts/generated-image";
 import { connectionCatalogApi } from "../../../../shared/api/connection-catalog-api";
-import { AvatarCropWidget } from "../../../../shared/components/ui/AvatarCropWidget";
+import { AvatarCropWidget } from "../../../../shared/components/ui/avatar-crop";
 import { ExpandedTextarea } from "../../../../shared/components/ui/ExpandedTextarea";
 import { HelpTooltip } from "../../../../shared/components/ui/HelpTooltip";
 import { TagInput } from "../../../../shared/components/ui/TagInput";
