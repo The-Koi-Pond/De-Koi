@@ -38,3 +38,5 @@ src/features/catalog/presets/components/preset-overview/test-fixtures/*.json
 src/features/catalog/presets/components/preset-review/test-fixtures/*.json
 # Peek Prompt viewer recordings, one line each for the same reason.
 src/features/modes/shared/chat-ui/components/peek-prompt/test-fixtures/*.json
+# Avatar crop widget recordings, one line each for the same reason.
+src/shared/components/ui/avatar-crop/test-fixtures/*.json

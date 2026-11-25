@@ -1,0 +1,1 @@
+export { AvatarCropWidget } from "./AvatarCropWidget";
