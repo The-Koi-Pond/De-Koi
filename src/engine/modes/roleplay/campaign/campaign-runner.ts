@@ -129,7 +129,7 @@ export async function runCampaignReplan(
   if (!chat || !state || state.status !== "playing") return null;
   let messages = await loadMessages(storage, chatId);
   const progress = currentProgress(state, messages);
-  const connectionId = await campaignRunConnection(storage, chat, "replan");
+  const connectionId = await campaignRunConnection(storage, chat, "replan", state.planningConnectionId);
   const replan = await campaignCall(
     capabilities,
     {
@@ -138,6 +138,7 @@ export async function runCampaignReplan(
       messages: replanMessages(state, progress, visibleTurns(messages).slice(-RECENT_FOR_REPLAN), why),
       schema: replanSchema,
       shape: REPLAN_SHAPE,
+      reasoningEffort: state.planningReasoningEffort,
     },
     options.signal,
   );

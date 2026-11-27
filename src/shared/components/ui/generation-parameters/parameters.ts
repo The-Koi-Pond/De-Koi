@@ -41,7 +41,8 @@ function parameterDefaults(maxTokens: number): EditableGenerationParameters {
     topK: 0,
     frequencyPenalty: 0,
     presencePenalty: 0,
-    reasoningEffort: "xhigh",
+    // Unset: the model's own default. A fixed level breaks models that lack it.
+    reasoningEffort: null,
     verbosity: "high",
     serviceTier: null,
     assistantPrefill: "",

@@ -25,13 +25,8 @@ import {
 import { noteHelperRun, resolveHelperRoute, type HelperRunRule } from "../../generation/helper-runs";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { detectFanficAiIsms } from "./ai-isms";
-import {
-  cleanFanficReply,
-  completeFanficJson,
-  FanficReplyParseError,
-  loadFanficConnection,
-  parseFanficJsonReply,
-} from "./llm-json";
+import { loadConnectionRow } from "../../generation/helper-connection";
+import { cleanFanficReply, completeFanficJson, FanficReplyParseError, parseFanficJsonReply } from "./llm-json";
 import { fanficCanonLine, fanficChapterLayout } from "./chapter-refs";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { detectFanficRepetition, fanficRepetitionNames } from "./repetition";
@@ -876,7 +871,7 @@ export async function runFanficQualityCheck(
   const connectionId = picked || readString(routedJudge?.id).trim() || readString(chat.connectionId).trim();
   const rule: FanficJudgeRule = picked ? (input.rule ?? "picked") : routedJudge ? "route" : "chat";
   if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection to judge with.");
-  const connection = await loadFanficConnection(deps.storage, connectionId);
+  const connection = await loadConnectionRow(deps.storage, connectionId);
   if (!isRecord(connection))
     throw userFacingError("That judge connection no longer exists. Pick another one to judge with.");
   try {

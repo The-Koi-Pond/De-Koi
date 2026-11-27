@@ -15,7 +15,14 @@ export function SetupConnectionPicker({
   loading,
   onChange,
   onSetUpConnection,
+  label = "Connection",
+  emptyLabel,
+  allowRandom = true,
 }: {
+  label?: string;
+  /** The first option's text; by default it names the connection a chat without one replies through. */
+  emptyLabel?: string;
+  allowRandom?: boolean;
   connectionId: string | null;
   /** Language connections only. */
   connections: readonly ConnectionSummary[];
@@ -50,7 +57,7 @@ export function SetupConnectionPicker({
   return (
     <div>
       <label htmlFor={selectId} className={SETUP_FIELD_LABEL_CLASS}>
-        Connection
+        {label}
       </label>
       <select
         id={selectId}
@@ -58,8 +65,8 @@ export function SetupConnectionPicker({
         onChange={(event) => onChange(event.target.value || null)}
         className={SETUP_SELECT_CLASS}
       >
-        <option value="">{defaultConnectionLabel(savedConnections)}</option>
-        <option value="random">🎲 Random</option>
+        <option value="">{emptyLabel ?? defaultConnectionLabel(savedConnections)}</option>
+        {allowRandom && <option value="random">🎲 Random</option>}
         {connections.map((connection) => (
           <option key={connection.id} value={connection.id}>
             {connection.name}

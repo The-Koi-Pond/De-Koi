@@ -20,13 +20,13 @@ import { loadCharacters, loadPersona } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { chatTranscriptLines, fitTranscript, tranceSessionLines } from "../../shared/text/chat-transcript";
 import { userFacingError } from "../../shared/user-facing-error";
+import { loadConnectionRow } from "../../generation/helper-connection";
 import {
   completeFanficJson,
   FANFIC_NO_CONNECTION,
   fanficCallBudget,
   fanficMessageChars,
   FanficReplyParseError,
-  loadFanficConnection,
   parseFanficJsonReply,
 } from "./llm-json";
 import { FANFIC_LINK_MODES, linkFanficChat } from "./links";
@@ -146,7 +146,7 @@ function parseDraft(raw: string): FanficRequest {
 /** The chat's own model, else the app's default text model. */
 async function draftConnection(storage: StorageGateway, chat: JsonRecord): Promise<{ id: string; row: JsonRecord }> {
   const own = readString(chat.connectionId).trim();
-  const row = own ? await loadFanficConnection(storage, own) : null;
+  const row = own ? await loadConnectionRow(storage, own) : null;
   if (row) return { id: own, row };
   const fallback = await resolveBackgroundTextConnection(storage).catch(() => null);
   const id = readString(fallback?.id).trim();

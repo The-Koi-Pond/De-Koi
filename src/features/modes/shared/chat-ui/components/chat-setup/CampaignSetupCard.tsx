@@ -1,11 +1,18 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowLeft, Check, Loader2, ScrollText, X } from "lucide-react";
 import type { CampaignHeat, CampaignLength } from "../../../../../../engine/contracts/types/roleplay-campaign";
+import { reasoningEffortSentAs } from "../../../../../../engine/generation/provider-visible-parameters";
+import {
+  ReasoningEffortField,
+  VerbosityField,
+  type EditableGenerationParameters,
+} from "../../../../../../shared/components/ui/generation-parameters";
 import { cn } from "../../../../../../shared/lib/utils";
 import type { ConnectionSummary } from "../../../../../catalog/connections/index";
 import { useCharacterSummariesByIds } from "../../../../../catalog/characters/index";
 import { CampaignLibraryPicker } from "./CampaignLibraryPicker";
 import { SetupConnectionPicker } from "./SetupConnectionPicker";
+import type { SetupParameters } from "./SetupParametersPanel";
 import { SetupPersonaPicker } from "./SetupPersonaPicker";
 import {
   SETUP_FIELD_LABEL_CLASS,
@@ -29,6 +36,11 @@ const LENGTH_OPTIONS: ReadonlyArray<{ value: CampaignLength; label: string; help
   { value: "medium", label: "A few sessions", help: "About 80 replies." },
   { value: "long", label: "A long haul", help: "About 200 replies." },
 ];
+
+const sentAsFor = (connection: ConnectionSummary | null) =>
+  connection
+    ? (effort: string) => reasoningEffortSentAs({ provider: connection.provider, model: connection.model }, effort)
+    : undefined;
 
 const EXAMPLE_ASK = "A Gothic Victorian mystery that really tests my ethics, with hard choices. Oh, and monsterboys.";
 
@@ -86,6 +98,7 @@ export function CampaignSetupCard({
   connectionsLoading,
   personaId,
   folderId,
+  parameters,
   onPickConnection,
   onPickPersona,
   onSetUpConnection,
@@ -103,6 +116,8 @@ export function CampaignSetupCard({
   connectionsLoading: boolean;
   personaId: string | null;
   folderId: string | null;
+  /** The message model's connection defaults, under the reasoning and verbosity picked here. */
+  parameters: SetupParameters;
   onPickConnection: (connectionId: string | null) => void;
   onPickPersona: (personaId: string | null) => void;
   onSetUpConnection: () => void;
@@ -134,6 +149,27 @@ export function CampaignSetupCard({
     setCharacters((current) => (current.length > 0 ? current : initialCharacters.data.map(toSetupCharacter)));
   }, [initialCharacters.data, initialCharacters.isLoading]);
   const [blind, setBlind] = useState(false);
+  const [planningConnectionId, setPlanningConnectionId] = useState<string | null>(null);
+  const [planningReasoningEffort, setPlanningReasoningEffort] =
+    useState<EditableGenerationParameters["reasoningEffort"]>(null);
+  const [messageReasoningEffort, setMessageReasoningEffort] =
+    useState<EditableGenerationParameters["reasoningEffort"]>(null);
+  const [messageVerbosity, setMessageVerbosity] = useState<EditableGenerationParameters["verbosity"]>(null);
+  const messageConnection = allConnections.find((candidate) => candidate.id === connectionId) ?? null;
+  // shortcut: the note reads the picked planning model, else the message model, never a Helper Models route;
+  // read the route too if more models than Gemini get their level changed.
+  const planningConnection = planningConnectionId
+    ? (allConnections.find((candidate) => candidate.id === planningConnectionId) ?? null)
+    : messageConnection;
+  // Only the message model's picks go on the chat, over its connection's defaults; unset keeps those defaults.
+  const chatParameters =
+    messageReasoningEffort || messageVerbosity
+      ? {
+          ...parameters.value,
+          ...(messageReasoningEffort ? { reasoningEffort: messageReasoningEffort } : {}),
+          ...(messageVerbosity ? { verbosity: messageVerbosity } : {}),
+        }
+      : null;
   const { start, stop, step } = useCampaignBuild();
   const building = step !== null;
   const canBuild = ask.trim().length > 0 && !building && connections.length > 0;
@@ -151,6 +187,9 @@ export function CampaignSetupCard({
       length,
       blind,
       connectionId,
+      planningConnectionId,
+      planningReasoningEffort,
+      chatParameters,
       personaId,
       folderId,
     });
@@ -293,17 +332,53 @@ export function CampaignSetupCard({
             </h3>
             <SetupPersonaPicker personaId={personaId} labelledBy={personaHeadingId} onPick={onPickPersona} />
           </section>
-          <SetupConnectionPicker
-            connectionId={connectionId}
-            connections={connections}
-            savedConnections={allConnections}
-            loading={connectionsLoading}
-            onChange={onPickConnection}
-            onSetUpConnection={onSetUpConnection}
-          />
+          {connections.length > 0 && (
+            <div className="space-y-2">
+              <SetupConnectionPicker
+                label="Planning model"
+                emptyLabel="Same as the message model, unless Helper Models picks one"
+                allowRandom={false}
+                connectionId={planningConnectionId}
+                connections={connections}
+                savedConnections={allConnections}
+                loading={connectionsLoading}
+                onChange={setPlanningConnectionId}
+                onSetUpConnection={onSetUpConnection}
+              />
+              <ReasoningEffortField
+                label="Planning reasoning effort"
+                value={planningReasoningEffort}
+                onChange={setPlanningReasoningEffort}
+                sentAs={sentAsFor(planningConnection)}
+              />
+            </div>
+          )}
+          <div className="space-y-2">
+            <SetupConnectionPicker
+              label="Message model"
+              connectionId={connectionId}
+              connections={connections}
+              savedConnections={allConnections}
+              loading={connectionsLoading}
+              onChange={onPickConnection}
+              onSetUpConnection={onSetUpConnection}
+            />
+            {connections.length > 0 && (
+              <>
+                <ReasoningEffortField
+                  label="Message reasoning effort"
+                  value={messageReasoningEffort}
+                  onChange={setMessageReasoningEffort}
+                  sentAs={sentAsFor(messageConnection)}
+                />
+                <VerbosityField label="Message verbosity" value={messageVerbosity} onChange={setMessageVerbosity} />
+              </>
+            )}
+          </div>
           <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
-            Planning uses this connection for a few minutes; a strong model plans a better campaign. After each reply, a
-            short extra call keeps the game master's notes.
+            The planning model plans the campaign for a few minutes and rewrites its plan now and then; a strong model
+            plans a better campaign. The message model writes every reply; change its other settings in the chat's
+            settings once you're playing. After each reply, a short extra call keeps the game master's notes.
           </p>
         </div>
       )}

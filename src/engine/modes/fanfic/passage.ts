@@ -23,13 +23,8 @@ import {
   readFanficLedger,
   renderFanficLedgerState,
 } from "./ledger";
-import {
-  cleanFanficReply,
-  fanficCallBudget,
-  fanficMessageChars,
-  FanficWindowTooSmallError,
-  loadFanficConnection,
-} from "./llm-json";
+import { loadConnectionRow } from "../../generation/helper-connection";
+import { cleanFanficReply, fanficCallBudget, fanficMessageChars, FanficWindowTooSmallError } from "./llm-json";
 import { untilAborted } from "../../shared/until-aborted";
 import {
   buildFanficChapterGuide,
@@ -159,7 +154,7 @@ export async function loadFanficChapterForEdit(
   if (!state) throw userFacingError("Fill in the fanfic request first.");
   const connectionId = readString(input.connectionId).trim() || readString(chat.connectionId).trim();
   if (!connectionId || connectionId === "random") throw userFacingError("Pick a connection for this fic first.");
-  const connection = await loadFanficConnection(storage, connectionId);
+  const connection = await loadConnectionRow(storage, connectionId);
   if (!isRecord(connection))
     throw userFacingError("That connection no longer exists. Pick another connection for this fic.");
   const messages = (await storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord);

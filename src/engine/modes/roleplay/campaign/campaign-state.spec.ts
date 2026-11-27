@@ -123,6 +123,8 @@ function campaign(overrides: Partial<RoleplayCampaignState> = {}): RoleplayCampa
     lastReplanTurn: 0,
     narratorCharacterId: null,
     lorebookId: null,
+    planningConnectionId: null,
+    planningReasoningEffort: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,

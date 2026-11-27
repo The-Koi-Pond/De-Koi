@@ -15,6 +15,7 @@ import { appendChatSummaryEntryToMetadata } from "../../shared/text/chat-summary
 import { userFacingError } from "../../shared/user-facing-error";
 import { fanficCanonLine, fanficChapterLayout } from "./chapter-refs";
 import { readFanficLedger, renderFanficLedgerForPrompt } from "./ledger";
+import { loadConnectionRow } from "../../generation/helper-connection";
 import {
   completeFanficJson,
   FANFIC_CONNECTION_GONE,
@@ -22,7 +23,6 @@ import {
   fanficCallBudget,
   fanficMessageChars,
   FanficReplyParseError,
-  loadFanficConnection,
   parseFanficJsonReply,
 } from "./llm-json";
 import { linkFanficChat } from "./links";
@@ -267,7 +267,7 @@ export async function startChatFromFanfic(
 
   const connectionId = readString(fic.connectionId).trim();
   if (!connectionId) throw userFacingError(FANFIC_NO_CONNECTION);
-  const connection = await loadFanficConnection(deps.storage, connectionId);
+  const connection = await loadConnectionRow(deps.storage, connectionId);
   if (!connection) throw userFacingError(FANFIC_CONNECTION_GONE);
 
   const cards = await linkedCards(deps.storage, fic);

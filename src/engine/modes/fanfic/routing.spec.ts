@@ -6,7 +6,7 @@ import { readHelperRuns } from "../../generation/helper-runs";
 import type { JsonRecord } from "../../generation/runtime-records";
 import { checkFanficChapterContinuity } from "./continuity";
 import { fanficChapterTextKey, updateFanficLedger } from "./ledger";
-import { isFanficNoConnectionError, pickFanficHelperConnection } from "./llm-json";
+import { isNoHelperConnectionError, pickHelperConnection } from "../../generation/helper-connection";
 import { generateFanficOutline } from "./outline";
 import { loadFanficChapterForEdit } from "./passage";
 import { createFanficState, defaultFanficRequest } from "./request";
@@ -127,10 +127,10 @@ const PICK = {
   gone: "That connection no longer exists.",
 };
 
-describe("pickFanficHelperConnection", () => {
+describe("pickHelperConnection", () => {
   it("uses the fic's connection when the helper has no route, and says so", async () => {
     const { storage, chat } = fic();
-    await expect(pickFanficHelperConnection(storage, "fanficChecks", chat, PICK)).resolves.toMatchObject({
+    await expect(pickHelperConnection(storage, "fanficChecks", chat, PICK)).resolves.toMatchObject({
       connectionId: "writer",
       rule: "chat",
     });
@@ -140,13 +140,13 @@ describe("pickFanficHelperConnection", () => {
 
   it("uses the helper's route over the fic's connection", async () => {
     const { storage, chat } = fic({ routes: { fanficChecks: "cheap" } });
-    await expect(pickFanficHelperConnection(storage, "fanficChecks", chat, PICK)).resolves.toMatchObject({
+    await expect(pickHelperConnection(storage, "fanficChecks", chat, PICK)).resolves.toMatchObject({
       connectionId: "cheap",
       rule: "route",
     });
     // The other fanfic helper keeps the fic's connection.
     await expect(
-      pickFanficHelperConnection(storage, "fanficPlanning", chat, { ...PICK, job: "outline" }),
+      pickHelperConnection(storage, "fanficPlanning", chat, { ...PICK, job: "outline" }),
     ).resolves.toMatchObject({
       connectionId: "writer",
       rule: "chat",
@@ -156,10 +156,10 @@ describe("pickFanficHelperConnection", () => {
   it("lets a connection named for the run outrank the route, but not leave the device", async () => {
     const { storage, chat } = fic({ routes: { fanficChecks: "ollama" }, localOnly: ["fanficChecks"] });
     await expect(
-      pickFanficHelperConnection(storage, "fanficChecks", chat, { ...PICK, connectionId: "ollama" }),
+      pickHelperConnection(storage, "fanficChecks", chat, { ...PICK, connectionId: "ollama" }),
     ).resolves.toMatchObject({ connectionId: "ollama", rule: "picked" });
     await expect(
-      pickFanficHelperConnection(storage, "fanficChecks", chat, { ...PICK, connectionId: "cheap" }),
+      pickHelperConnection(storage, "fanficChecks", chat, { ...PICK, connectionId: "cheap" }),
     ).rejects.toMatchObject({ code: "route_unavailable", problem: "not_local" });
     const [run] = (await readHelperRuns(storage)).fanficChecks ?? [];
     expect(run).toMatchObject({ connectionId: "cheap", rule: "picked" });
@@ -168,7 +168,7 @@ describe("pickFanficHelperConnection", () => {
 
   it("never falls back to the fic's connection when the route is broken", async () => {
     const { storage, chat } = fic({ routes: { fanficChecks: "deleted" } });
-    await expect(pickFanficHelperConnection(storage, "fanficChecks", chat, PICK)).rejects.toMatchObject({
+    await expect(pickHelperConnection(storage, "fanficChecks", chat, PICK)).rejects.toMatchObject({
       code: "route_unavailable",
     });
     expect((await readHelperRuns(storage)).fanficChecks?.[0]?.problem).toContain("no longer exists");
@@ -176,16 +176,16 @@ describe("pickFanficHelperConnection", () => {
 
   it("marks a fic with no connection, and takes the random pool only where allowed", async () => {
     const { storage, chat } = fic({ connectionId: "" });
-    const error = await pickFanficHelperConnection(storage, "fanficChecks", chat, PICK).catch((caught) => caught);
+    const error = await pickHelperConnection(storage, "fanficChecks", chat, PICK).catch((caught) => caught);
     expect(error.message).toBe("Pick a connection for the story ledger.");
-    expect(isFanficNoConnectionError(error)).toBe(true);
+    expect(isNoHelperConnectionError(error)).toBe(true);
 
     const random = fic({ connectionId: "random" });
-    await expect(pickFanficHelperConnection(random.storage, "fanficChecks", random.chat, PICK)).rejects.toThrow(
+    await expect(pickHelperConnection(random.storage, "fanficChecks", random.chat, PICK)).rejects.toThrow(
       "Pick a connection for the story ledger.",
     );
     await expect(
-      pickFanficHelperConnection(random.storage, "fanficPlanning", random.chat, { ...PICK, allowRandom: true }),
+      pickHelperConnection(random.storage, "fanficPlanning", random.chat, { ...PICK, allowRandom: true }),
     ).resolves.toEqual({ connectionId: "random", connection: null, rule: "chat" });
   });
 });

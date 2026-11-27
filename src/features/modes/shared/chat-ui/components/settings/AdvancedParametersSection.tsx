@@ -19,6 +19,7 @@ import {
   type ConnectionSummary,
 } from "../../../../../catalog/connections/index";
 import { useUpdateChatMetadata } from "../../../../../catalog/chats/index";
+import { reasoningEffortSentAs } from "../../../../../../engine/generation/provider-visible-parameters";
 import { resolveRecommendedGenerationProfile } from "../../../../../../engine/generation/recommended-generation-profile";
 import { ChatSettingsSectionHeader } from "./ChatSettingsSections";
 
@@ -180,6 +181,11 @@ export function AdvancedParametersSection({
                 value={effectiveParams}
                 onChange={setParameters}
                 serviceTierOptions={serviceTierOptionsForProvider(conn?.provider)}
+                reasoningSentAs={
+                  conn
+                    ? (effort) => reasoningEffortSentAs({ provider: conn.provider, model: conn.model }, effort)
+                    : undefined
+                }
               />
               {/* Save as Default for Connection */}
               {storedConnection && (

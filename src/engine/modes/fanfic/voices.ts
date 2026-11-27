@@ -7,6 +7,7 @@ import type { FanficRequest, FanficState, FanficVoiceQuote, FanficVoiceSheet } f
 import { loadCharacters } from "../../generation/prompt-assembly";
 import { isRecord, parseRecord, readString } from "../../generation/runtime-records";
 import { effectiveMaxContext } from "../../generation/context-window";
+import { pickHelperConnection } from "../../generation/helper-connection";
 import {
   completeFanficJson,
   fanficCallBudget,
@@ -15,7 +16,6 @@ import {
   parseFanficJsonReply,
   FANFIC_CONNECTION_GONE,
   FANFIC_NO_CONNECTION,
-  pickFanficHelperConnection,
 } from "./llm-json";
 import { renderFanficCastCards, renderFanficRequestForPrompt } from "./prompts";
 import { fanficSearchableText } from "./quality";
@@ -204,7 +204,7 @@ export async function buildFanficVoiceSheets(
   if (!state) throw userFacingError("Fill in the fanfic request first.");
   const characters = fanficVoiceCharacters(state.request);
   if (characters.length === 0) throw userFacingError("Name the characters in the request to build voice sheets.");
-  const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficPlanning", chat, {
+  const { connectionId, connection } = await pickHelperConnection(deps.storage, "fanficPlanning", chat, {
     chatId: input.chatId,
     connectionId: input.connectionId,
     job: "voice sheets",

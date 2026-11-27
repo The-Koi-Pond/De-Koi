@@ -14,6 +14,12 @@ import chromeJson from "./test-fixtures/recorded-chrome.json";
 // `getEditableGenerationParameters(ROLEPLAY_PARAMETER_DEFAULTS, null)`, every handed-over value is taken back, and
 // Save stores the value as it is, after which the editor reloads the connection's (key-sorted) stored defaults.
 
+// Decision 6: the defaults now start with reasoning effort Unset; the recordings started it at X High.
+const RECORDED_ROLEPLAY_DEFAULTS: EditableGenerationParameters = {
+  ...ROLEPLAY_PARAMETER_DEFAULTS,
+  reasoningEffort: "xhigh",
+};
+
 interface ShownFields {
   values: Record<string, string>;
   tags: Array<[string, string]>;
@@ -151,7 +157,7 @@ describe("the connection editor flows replay against the new fields", () => {
   });
 
   it.each(flows.map((flow) => [`${flow.width} ${flow.scheme}`, flow] as const))("%s", (_name, flow) => {
-    const start = getEditableGenerationParameters(ROLEPLAY_PARAMETER_DEFAULTS, null);
+    const start = getEditableGenerationParameters(RECORDED_ROLEPLAY_DEFAULTS, null);
     const fields = new FieldsHarness(start, serviceTierOptionsForProvider("openai"), true);
     harness = fields;
     let saves = 0;
@@ -167,7 +173,7 @@ describe("the connection editor flows replay against the new fields", () => {
         expect(sortedJson(encode(fields.value)), `${step.label} stores the recorded defaults`).toBe(sortedJson(stored));
         // ConnectionEditor reloads the saved connection: the fields get the stored defaults back, keys sorted.
         const reloaded: EditableGenerationParameters = getEditableGenerationParameters(
-          ROLEPLAY_PARAMETER_DEFAULTS,
+          RECORDED_ROLEPLAY_DEFAULTS,
           stored,
         );
         fields.run({ do: "rerender", patch: { ...reloaded } });

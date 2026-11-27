@@ -42,8 +42,9 @@ const TASK_SCOPE: Record<ModelRouteTask, string> = {
     "A fic's story ledger, continuity and voice checks, and the editor pass. Chapters stay on the fic's connection.",
   encounters:
     "Setting up Roleplay combat encounters, each turn, and the fight summary. The Combat agent's own connection isn't used.",
-  campaign:
-    "A campaign's notes after each reply: what changed, what's owed, and how the next reply should pace. Building a campaign and rewriting its plan stay on the chat's model.",
+  campaign: "A campaign's notes after each reply: what changed, what's owed, and how the next reply should pace.",
+  campaignPlanning:
+    "Building a campaign and rewriting its plan. A planning model picked when building it comes first; replies stay on the chat's model.",
 };
 
 function connectionLabel(connection: JsonRecord): string {
@@ -62,6 +63,7 @@ function sameAsTodayText(task: ModelRouteTask, agentDefault: JsonRecord | null):
   if (task === "summaries" && agentDefault) {
     return `Same as today: each chat's connection. Summarize chat uses Default for Agents (${connectionLabel(agentDefault)}) first.`;
   }
+  if (task === "campaignPlanning") return "Same as today: the campaign's own connection.";
   return "Same as today: each chat's connection.";
 }
 

@@ -488,6 +488,11 @@ function isGeminiModel(model: string): boolean {
   return model.toLowerCase().includes("gemini");
 }
 
+/** Gemini's OpenAI-compatible effort stops at "high" (mirrors `cap_gemini_reasoning_effort` in the llm crate). */
+function capGeminiReasoningEffort(model: string, effort: string | null): string | null {
+  return effort && isGeminiModel(model) && ["xhigh", "maximum", "max"].includes(effort) ? "high" : effort;
+}
+
 function isGemini25ProModel(model: string): boolean {
   const normalized = model.toLowerCase();
   return isGemini25Model(normalized) && normalized.includes("-pro");
@@ -913,7 +918,7 @@ function visibleOpenAiCompatibleParameters(
 
   if (provider === "custom" && isGeminiModel(model)) {
     const supportsNoReasoningEffort = !isGemini25Model(model);
-    const effort = openRouterReasoningEffort(parameters);
+    const effort = capGeminiReasoningEffort(model, openRouterReasoningEffort(parameters));
     if (effort && (effort !== "none" || supportsNoReasoningEffort)) body.reasoning_effort = effort;
     if (!effort && supportsNoReasoningEffort && responseFormat === "json_object") body.reasoning_effort = "none";
   } else if (provider === "openrouter") {
@@ -945,7 +950,7 @@ function visibleOpenAiCompatibleParameters(
     if (options.hasTools === true && parallelToolCalls != null)
       body.parallel_tool_calls = boolish(parallelToolCalls, true);
   } else if (provider === "nanogpt") {
-    const effort = nanoGptReasoningEffort(parameters);
+    const effort = capGeminiReasoningEffort(model, nanoGptReasoningEffort(parameters));
     if (effort) body.reasoning_effort = effort;
     const reasoning = nanoGptReasoningConfig(parameters);
     if (reasoning) body.reasoning = reasoning;
@@ -1087,6 +1092,19 @@ export function providerVisibleLlmParameters(
   if (capped > 0) visible.maxTokens = capped;
   delete visible._marinara;
   return visible;
+}
+
+/**
+ * The reasoning level a request on `connection` actually sends for `effort`, when the provider takes a level; null
+ * when it takes none or sends a token budget instead (Gemini 2.5, older Claude), so callers can't tell.
+ */
+export function reasoningEffortSentAs(connection: JsonRecord, effort: string): string | null {
+  const sent = generationInfoFromVisibleParameters(
+    connection,
+    providerVisibleLlmParameters(connection, { reasoningEffort: effort }),
+  ).reasoningEffort;
+  if (!sent) return null;
+  return sent === "max" ? "maximum" : sent;
 }
 
 // Claude Code takes only the reasoning effort from these settings; max tokens, temperature, top-p and

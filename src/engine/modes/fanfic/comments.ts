@@ -13,7 +13,8 @@ import { isRecord, parseRecord, readString, type JsonRecord } from "../../genera
 import { userFacingError } from "../../shared/user-facing-error";
 import { fanficCanonLine, fanficChapterLayout } from "./chapter-refs";
 import { fanficChapterTextKey, readFanficLedger, renderFanficLedgerForPrompt } from "./ledger";
-import { cleanFanficReply, FANFIC_NO_CONNECTION, loadFanficConnection } from "./llm-json";
+import { loadConnectionRow } from "../../generation/helper-connection";
+import { cleanFanficReply, FANFIC_NO_CONNECTION } from "./llm-json";
 import { untilAborted } from "../../shared/until-aborted";
 import {
   fanficContentRules,
@@ -286,7 +287,7 @@ async function threadMessages(storage: StorageGateway, threadChatId: string): Pr
 async function notesConnectionId(storage: StorageGateway, thread: JsonRecord, ficChatId: string): Promise<string> {
   const fic = await storage.get<JsonRecord>("chats", ficChatId);
   for (const candidate of [readString(thread.connectionId).trim(), readString(fic?.connectionId).trim()]) {
-    if (candidate && (await loadFanficConnection(storage, candidate))) return candidate;
+    if (candidate && (await loadConnectionRow(storage, candidate))) return candidate;
   }
   throw userFacingError(FANFIC_NO_CONNECTION);
 }

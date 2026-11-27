@@ -9,7 +9,8 @@ import { fanficLoreScanText } from "./lore";
 import { buildFanficOutlineMessages, renderFanficCastCards } from "./prompts";
 import { normalizeFanficOutline, readFanficState } from "./request";
 import { userFacingError } from "../../shared/user-facing-error";
-import { FANFIC_CONNECTION_GONE, FANFIC_NO_CONNECTION, pickFanficHelperConnection } from "./llm-json";
+import { pickHelperConnection } from "../../generation/helper-connection";
+import { FANFIC_CONNECTION_GONE, FANFIC_NO_CONNECTION } from "./llm-json";
 
 const OUTLINE_MAX_TOKENS = 6000;
 
@@ -73,7 +74,7 @@ export async function generateFanficOutline(
   if (readString(chat.mode) !== "fanfic") throw new Error("Outlines are only written for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
   if (!state) throw userFacingError("Fill in the fanfic request first.");
-  const { connectionId } = await pickFanficHelperConnection(deps.storage, "fanficPlanning", chat, {
+  const { connectionId } = await pickHelperConnection(deps.storage, "fanficPlanning", chat, {
     chatId: input.chatId,
     connectionId: input.connectionId,
     job: "outline",

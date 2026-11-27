@@ -21,6 +21,17 @@ vi.mock("../../../../../catalog/connections/index", async (importOriginal) => ({
   }),
 }));
 
+// Decision 6 changed only the defaults' starting reasoning effort (Unset, was X High); the callers' logic is replayed
+// against the defaults the recordings were made with.
+vi.mock("../../../../../../shared/components/ui/generation-parameters", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../../../../shared/components/ui/generation-parameters")>();
+  return {
+    ...actual,
+    CHAT_PARAMETER_DEFAULTS: { ...actual.CHAT_PARAMETER_DEFAULTS, reasoningEffort: "xhigh" },
+    ROLEPLAY_PARAMETER_DEFAULTS: { ...actual.ROLEPLAY_PARAMETER_DEFAULTS, reasoningEffort: "xhigh" },
+  };
+});
+
 // No caller recording leaves Custom Parameters with rejected text (the only change decision 4 makes to what the
 // fields show), and the callers read none of the names or attributes decisions 1-3 add, so every recorded step
 // is expected exactly as recorded: there is no table of intended differences here.

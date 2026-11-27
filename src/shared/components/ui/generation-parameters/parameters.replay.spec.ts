@@ -50,8 +50,16 @@ describe("generation parameter helpers replay the recorded old helpers", () => {
 
   it("exports the recorded constants", () => {
     expectRecorded(EDITABLE_GENERATION_PARAMETER_KEYS, recorded.constants.EDITABLE_GENERATION_PARAMETER_KEYS, "keys");
-    expectRecorded(CHAT_PARAMETER_DEFAULTS, recorded.constants.CHAT_PARAMETER_DEFAULTS, "chat defaults");
-    expectRecorded(ROLEPLAY_PARAMETER_DEFAULTS, recorded.constants.ROLEPLAY_PARAMETER_DEFAULTS, "roleplay defaults");
+    // Decision 6: reasoning effort starts Unset (the model's own default); the recordings started it at X High.
+    expect(CHAT_PARAMETER_DEFAULTS.reasoningEffort).toBeNull();
+    expect(ROLEPLAY_PARAMETER_DEFAULTS.reasoningEffort).toBeNull();
+    const asRecorded = (defaults: EditableGenerationParameters) => ({ ...defaults, reasoningEffort: "xhigh" });
+    expectRecorded(asRecorded(CHAT_PARAMETER_DEFAULTS), recorded.constants.CHAT_PARAMETER_DEFAULTS, "chat defaults");
+    expectRecorded(
+      asRecorded(ROLEPLAY_PARAMETER_DEFAULTS),
+      recorded.constants.ROLEPLAY_PARAMETER_DEFAULTS,
+      "roleplay defaults",
+    );
   });
 
   it.each(recorded.parseGenerationParameterRecord)("parseGenerationParameterRecord(%s)", (key, result) => {

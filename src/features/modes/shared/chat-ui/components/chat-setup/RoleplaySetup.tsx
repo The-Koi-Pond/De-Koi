@@ -259,6 +259,7 @@ export function RoleplaySetup({
             connectionsLoading={connectionsQuery.isLoading}
             personaId={personaId}
             folderId={chat.folderId ?? null}
+            parameters={parameters}
             onPickConnection={pickConnection}
             onPickPersona={pickPersona}
             onSetUpConnection={() => leaveTo("connections")}

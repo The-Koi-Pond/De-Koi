@@ -1516,6 +1516,9 @@ pub(crate) fn apply_openai_parameters(body: &mut Value, request: &LlmRequest) {
         normalize_nanogpt_glm_52_reasoning_effort(body, &request.connection.model);
         normalize_nanogpt_no_reasoning_effort(body, &request.connection.model, &request.parameters);
     }
+    if matches!(request.connection.provider.as_str(), "nanogpt" | "custom") {
+        cap_gemini_reasoning_effort(body, &request.connection.model);
+    }
     if request.connection.provider == "mistral" {
         if let Some(body) = body.as_object_mut() {
             body.retain(|key, _| !is_mistral_unsupported_custom_parameter_key(key));
@@ -1650,6 +1653,32 @@ fn switch_nanogpt_thinking_off(object: &mut serde_json::Map<String, Value>) {
         }
         None => {
             object.insert("reasoning".to_string(), json!({ "enabled": false }));
+        }
+    }
+}
+
+/// Gemini's OpenAI-compatible `reasoning_effort` stops at "high": "xhigh" and
+/// "max" get a 400 (seen for gemini-4-argon through NanoGPT), so they are sent
+/// as "high", Gemini's strongest level.
+fn cap_gemini_reasoning_effort(body: &mut Value, model: &str) {
+    if !is_gemini_model(model) {
+        return;
+    }
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    for key in ["reasoning_effort", "reasoningEffort"] {
+        let too_high = object
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|effort| {
+                matches!(
+                    effort.to_ascii_lowercase().as_str(),
+                    "xhigh" | "maximum" | "max"
+                )
+            });
+        if too_high {
+            object.insert(key.to_string(), json!("high"));
         }
     }
 }
