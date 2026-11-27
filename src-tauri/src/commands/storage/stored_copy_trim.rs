@@ -14,6 +14,7 @@ use crate::state::AppState;
 use marinara_core::AppResult;
 use marinara_storage::FileStorage;
 use serde_json::{Map, Value};
+use std::collections::{HashMap, HashSet};
 
 const PERSONA_SNAPSHOT_TEXT_FIELDS: [&str; 5] = [
     "description",
@@ -100,17 +101,111 @@ pub(crate) fn trim_stored_copies(state: &AppState) -> AppResult<StoredCopyTrimRe
         "capture-job-copies-v1",
         clear_completed_capture_job_copies,
     )?;
-    let chat_ids: Vec<String> = storage
-        .list_projected("chats", &["id".to_string()], &Map::new())?
+    report.prompt_snapshot_messages = evict_stale_prompt_snapshots(storage)?;
+    Ok(report)
+}
+
+/// The same eviction `chats::evict_prompt_snapshots` does for one chat, for every chat at once:
+/// each store is read once, so a large install doesn't hold startup for minutes.
+fn evict_stale_prompt_snapshots(storage: &FileStorage) -> AppResult<u64> {
+    let stale = stale_prompt_snapshot_message_ids(storage)?;
+    if stale.is_empty() {
+        return Ok(0);
+    }
+    let mut evicted = HashSet::new();
+    storage.transform_collection_streaming(
+        "messages",
+        "prompt-snapshots-v1",
+        |_index, row| {
+            let Some(id) = row.get("id").and_then(Value::as_str).map(str::to_string) else {
+                return Ok(false);
+            };
+            let changed = stale.contains(&id) && strip_prompt_snapshots(row);
+            if changed {
+                evicted.insert(id);
+            }
+            Ok(changed)
+        },
+        |_index, _row| Ok(()),
+    )?;
+    storage.transform_collection_streaming(
+        message_swipes::COLLECTION,
+        "prompt-snapshots-v1",
+        |_index, row| {
+            let Some(message_id) = row
+                .get("messageId")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            else {
+                return Ok(false);
+            };
+            let changed = stale.contains(&message_id) && strip_prompt_snapshots(row);
+            if changed {
+                evicted.insert(message_id);
+            }
+            Ok(changed)
+        },
+        |_index, _row| Ok(()),
+    )?;
+    Ok(evicted.len() as u64)
+}
+
+/// Every assistant message of an existing chat except its latest `PROMPT_SNAPSHOT_KEEP_LAST`,
+/// ordered by `createdAt` then id as `chats::evict_prompt_snapshots` orders them.
+fn stale_prompt_snapshot_message_ids(storage: &FileStorage) -> AppResult<HashSet<String>> {
+    let id_field = ["id".to_string()];
+    let chat_ids: HashSet<String> = storage
+        .list_projected("chats", &id_field, &Map::new())?
         .iter()
         .filter_map(|chat| chat.get("id").and_then(Value::as_str).map(str::to_string))
         .collect();
-    for chat_id in chat_ids {
-        let evicted = chats::evict_prompt_snapshots(state, &chat_id, PROMPT_SNAPSHOT_KEEP_LAST)?;
-        report.prompt_snapshot_messages +=
-            evicted.get("evicted").and_then(Value::as_u64).unwrap_or(0);
+    let fields = ["id", "chatId", "role", "createdAt"].map(str::to_string);
+    let mut by_chat: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for message in storage.list_projected("messages", &fields, &Map::new())? {
+        let text = |field: &str| message.get(field).and_then(Value::as_str);
+        if text("role") != Some("assistant") {
+            continue;
+        }
+        let (Some(chat_id), Some(id)) = (text("chatId"), text("id")) else {
+            continue;
+        };
+        if !chat_ids.contains(chat_id) {
+            continue;
+        }
+        by_chat
+            .entry(chat_id.to_string())
+            .or_default()
+            .push((text("createdAt").unwrap_or("").to_string(), id.to_string()));
     }
-    Ok(report)
+    let mut stale = HashSet::new();
+    for mut assistants in by_chat.into_values() {
+        assistants.sort();
+        let cutoff = assistants.len().saturating_sub(PROMPT_SNAPSHOT_KEEP_LAST);
+        stale.extend(assistants.into_iter().take(cutoff).map(|(_, id)| id));
+    }
+    Ok(stale)
+}
+
+/// Clears prompt snapshots from a message or swipe row and from a message's embedded swipes.
+fn strip_prompt_snapshots(row: &mut Value) -> bool {
+    let mut changed = false;
+    if let Some(swipes) = row.get_mut("swipes").and_then(Value::as_array_mut) {
+        for swipe in swipes.iter_mut() {
+            changed |= strip_extra(swipe);
+        }
+    }
+    changed | strip_extra(row)
+}
+
+fn strip_extra(row: &mut Value) -> bool {
+    let Some(next) = chats::strip_snapshot_from_extra(row.get("extra")) else {
+        return false;
+    };
+    let Some(object) = row.as_object_mut() else {
+        return false;
+    };
+    object.insert("extra".to_string(), next);
+    true
 }
 
 #[cfg(test)]
@@ -230,6 +325,58 @@ mod tests {
             trim_stored_copies(&state).unwrap(),
             StoredCopyTrimReport::default()
         );
+        drop(state);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn trim_keeps_only_each_chats_latest_assistant_prompt_snapshot() {
+        let (state, path) = test_state("snapshots");
+        let snapshot = json!({ "generationPromptSnapshot": { "messages": [] }, "keep": true });
+        for chat in ["chat-1", "chat-2"] {
+            state
+                .storage
+                .create(
+                    "chats",
+                    json!({ "id": chat, "name": chat, "mode": "roleplay" }),
+                )
+                .unwrap();
+        }
+        for (id, chat, at) in [
+            ("old", "chat-1", "2026-11-01T00:00:00Z"),
+            ("new", "chat-1", "2026-11-02T00:00:00Z"),
+            ("only", "chat-2", "2026-11-01T00:00:00Z"),
+        ] {
+            state
+                .storage
+                .create(
+                    "messages",
+                    json!({ "id": id, "chatId": chat, "role": "assistant", "content": "x",
+                            "createdAt": at, "extra": snapshot }),
+                )
+                .unwrap();
+        }
+        state
+            .storage
+            .create(
+                message_swipes::COLLECTION,
+                json!({ "id": "old-swipe", "chatId": "chat-1", "messageId": "old", "index": 0,
+                        "content": "x", "extra": snapshot }),
+            )
+            .unwrap();
+
+        assert_eq!(
+            trim_stored_copies(&state).unwrap().prompt_snapshot_messages,
+            1
+        );
+        assert_eq!(
+            row_by_id(&state, "messages", "old")["extra"],
+            json!({ "keep": true })
+        );
+        let swipe = row_by_id(&state, message_swipes::COLLECTION, "old-swipe");
+        assert_eq!(swipe["extra"], json!({ "keep": true }));
+        assert_eq!(row_by_id(&state, "messages", "new")["extra"], snapshot);
+        assert_eq!(row_by_id(&state, "messages", "only")["extra"], snapshot);
         drop(state);
         let _ = std::fs::remove_dir_all(path);
     }
