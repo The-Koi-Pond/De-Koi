@@ -246,6 +246,9 @@ export const storedCampaignSchema = z.object({
   lastReplanTurn: z.number().int().min(0),
   narratorCharacterId: storedText.nullable(),
   lorebookId: storedText.nullable(),
+  // Campaigns built before planning had its own model have none.
+  planningConnectionId: storedText.nullable().default(null),
+  planningReasoningEffort: storedText.nullable().default(null),
   createdAt: storedText,
   updatedAt: storedText,
 });

@@ -253,7 +253,7 @@ const PROMPT_SNAPSHOT_KEYS: [&str; 2] = [
 /// Drop saved prompt snapshots from an `extra` object, returning the rewritten
 /// object only when something was actually removed. Leaves every other field
 /// (including legacy `cachedPrompt`) untouched.
-fn strip_snapshot_from_extra(extra: Option<&Value>) -> Option<Value> {
+pub(crate) fn strip_snapshot_from_extra(extra: Option<&Value>) -> Option<Value> {
     let object = json_object_value(extra)?;
     let mut next = object.as_object()?.clone();
     let mut changed = false;

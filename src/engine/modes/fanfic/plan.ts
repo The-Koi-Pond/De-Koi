@@ -9,6 +9,7 @@ import { effectiveMaxContext } from "../../generation/context-window";
 import { isRecord, parseRecord, readString, type JsonRecord } from "../../generation/runtime-records";
 import { fanficCanonLine, fanficChapterLayout, type FanficChapterLayout, type FanficChapterRef } from "./chapter-refs";
 import { fanficChapterTextKey, fanficLedgerStatus, readFanficLedger, renderFanficLedgerState } from "./ledger";
+import { pickHelperConnection } from "../../generation/helper-connection";
 import {
   completeFanficJson,
   fanficCallBudget,
@@ -17,7 +18,6 @@ import {
   parseFanficJsonReply,
   FANFIC_CONNECTION_GONE,
   FANFIC_NO_CONNECTION,
-  pickFanficHelperConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt, renderFanficVoiceSheets } from "./prompts";
 import { readFanficState } from "./request";
@@ -271,7 +271,7 @@ export async function proposeFanficPlan(
   if (readString(chat.mode) !== "fanfic") throw new Error("Plans are only kept for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
   if (!state?.outline || !state.outlineApproved) throw userFacingError("Approve the outline first.");
-  const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficPlanning", chat, {
+  const { connectionId, connection } = await pickHelperConnection(deps.storage, "fanficPlanning", chat, {
     chatId: input.chatId,
     connectionId: input.connectionId,
     job: "living outline",

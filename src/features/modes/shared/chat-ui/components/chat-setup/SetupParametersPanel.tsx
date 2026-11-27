@@ -8,6 +8,7 @@ import {
   serviceTierOptionsForProvider,
   type EditableGenerationParameters,
 } from "../../../../../../shared/components/ui/generation-parameters";
+import { reasoningEffortSentAs } from "../../../../../../engine/generation/provider-visible-parameters";
 import type { ConnectionSummary } from "../../../../../catalog/connections/index";
 import { SetupSwitch } from "./SetupSwitch";
 
@@ -44,6 +45,9 @@ export function useSetupParameters({
     value,
     setValue: (next: EditableGenerationParameters) => setEdited({ connectionId, value: next }),
     serviceTierOptions: serviceTierOptionsForProvider(connection?.provider),
+    reasoningSentAs: connection
+      ? (effort: string) => reasoningEffortSentAs({ provider: connection.provider, model: connection.model }, effort)
+      : undefined,
     /** What finishing saves as `chatParameters`. */
     chatParameters: enabled ? value : null,
   };
@@ -63,6 +67,7 @@ export function SetupParametersPanel({ parameters }: { parameters: SetupParamete
           value={parameters.value}
           onChange={parameters.setValue}
           serviceTierOptions={parameters.serviceTierOptions}
+          reasoningSentAs={parameters.reasoningSentAs}
         />
       )}
     </div>

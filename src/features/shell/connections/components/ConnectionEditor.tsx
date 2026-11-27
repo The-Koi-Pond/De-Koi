@@ -64,6 +64,7 @@ import {
   serviceTierOptionsForProvider,
   type EditableGenerationParameters,
 } from "../../../../shared/components/ui/generation-parameters";
+import { reasoningEffortSentAs } from "../../../../engine/generation/provider-visible-parameters";
 import {
   IMAGE_DEFAULTS_STORAGE_KEY,
   COMFYUI_SAMPLER_OPTIONS,
@@ -1864,6 +1865,9 @@ export function ConnectionEditor() {
                       markDirty();
                     }}
                     serviceTierOptions={serviceTierOptionsForProvider(localProvider)}
+                    reasoningSentAs={(effort) =>
+                      reasoningEffortSentAs({ provider: localProvider, model: localModel }, effort)
+                    }
                   />
                 </div>
               ) : (

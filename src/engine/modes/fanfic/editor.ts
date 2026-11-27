@@ -10,6 +10,7 @@ import { parseJsonObject } from "../../core/json";
 import { fanficCanonLine, fanficChapterLayout, fanficChaptersBefore, type FanficChapterRef } from "./chapter-refs";
 import { locateFanficPassage } from "./continuity";
 import { fanficChapterTextKey, fanficLedgerBefore, readFanficLedger, type FanficLedgerProgress } from "./ledger";
+import { pickHelperConnection } from "../../generation/helper-connection";
 import {
   completeFanficJson,
   fanficCallBudget,
@@ -17,7 +18,6 @@ import {
   FanficReplyParseError,
   parseFanficJsonReply,
   FANFIC_CONNECTION_GONE,
-  pickFanficHelperConnection,
 } from "./llm-json";
 import {
   loadFanficChapterForEdit,
@@ -301,7 +301,7 @@ export async function runFanficEditorPass(
   if (readString(chat.mode) !== "fanfic") throw new Error("The editor pass only runs for fanfic chats.");
   const state = readFanficState(parseRecord(chat.metadata));
   if (!state) throw userFacingError("Fill in the fanfic request first.");
-  const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, {
+  const { connectionId, connection } = await pickHelperConnection(deps.storage, "fanficChecks", chat, {
     chatId: input.chatId,
     connectionId: input.connectionId,
     job: "editor pass",

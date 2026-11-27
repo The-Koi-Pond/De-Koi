@@ -171,6 +171,10 @@ export interface RoleplayCampaignState {
   /** Library rows the campaign created, so the player can find them and a failed build can remove them. */
   narratorCharacterId: string | null;
   lorebookId: string | null;
+  /** The planning model picked when building it, which replans use too; null uses the Helper Models route or the chat's. */
+  planningConnectionId: string | null;
+  /** The planning model's reasoning effort, which replans use too; null leaves it to the connection's defaults. */
+  planningReasoningEffort: string | null;
   createdAt: string;
   updatedAt: string;
 }

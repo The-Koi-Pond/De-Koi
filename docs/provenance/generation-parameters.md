@@ -356,6 +356,15 @@ The rebuild keeps every returned and handed-over value as above, except the one 
      the next save drops it; confirmed identical in the old helpers;
    - Enter in a number field and Ctrl/Cmd+Enter in Custom Parameters also act
      during IME composition.
+6. **Reasoning effort starts at X High.** Both default sets started reasoning
+   effort at `"xhigh"`, so turning on custom parameters anywhere saved X High
+   even for models that reject it (Gemini through Nano-GPT answered 400). Now
+   both start at Unset (`null`): the model's own default. The replays check the
+   callers against the recorded defaults (X High) and the constants test names
+   this one difference. Under Reasoning Effort, the callers that know the
+   connection add one line when its model gets a different level than the one
+   picked ("This model doesn't take X High; it gets High."), read from what the
+   request builder sends (`reasoningEffortSentAs`).
 
 ## Layout and text targets
 

@@ -11,4 +11,4 @@ export {
   type EditableGenerationParameters,
   type GenerationServiceTier,
 } from "./parameters";
-export { GenerationParametersFields } from "./GenerationParametersFields";
+export { GenerationParametersFields, ReasoningEffortField, VerbosityField } from "./GenerationParametersFields";

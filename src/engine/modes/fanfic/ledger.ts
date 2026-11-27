@@ -9,6 +9,12 @@ import { isRecord, parseRecord, readString, type JsonRecord } from "../../genera
 import { effectiveMaxContext } from "../../generation/context-window";
 import { fanficCanonLine, fanficChapterLayout, type FanficChapterRef } from "./chapter-refs";
 import {
+  isNoHelperConnectionError,
+  noteHelperPick,
+  pickHelperConnection,
+  type HelperPick,
+} from "../../generation/helper-connection";
+import {
   completeFanficJson,
   fanficCallBudget,
   fanficMessageChars,
@@ -16,10 +22,6 @@ import {
   FanficWindowTooSmallError,
   parseFanficJsonReply,
   type FanficCallBudget,
-  isFanficNoConnectionError,
-  noteFanficHelperRun,
-  pickFanficHelperConnection,
-  type FanficHelperPick,
 } from "./llm-json";
 import { renderFanficRequestForPrompt } from "./prompts";
 import { readFanficState } from "./request";
@@ -411,18 +413,18 @@ export async function updateFanficLedger(
       gone: "That story ledger connection no longer exists. Pick another one for the ledger.",
       note: false,
     };
-    let pick: FanficHelperPick;
+    let pick: HelperPick;
     try {
-      pick = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, pickInput);
+      pick = await pickHelperConnection(deps.storage, "fanficChecks", chat, pickInput);
     } catch (error) {
       // The quiet update after a chapter skips a fic with no connection; a broken route still says why.
-      if (input.onlyIfInUse && isFanficNoConnectionError(error)) return ledger;
+      if (input.onlyIfInUse && isNoHelperConnectionError(error)) return ledger;
       throw error;
     }
     const { connectionId, connection } = pick;
     if (!connection) throw userFacingError(pickInput.missing);
     if (input.onlyIfInUse && !fanficLedgerInUse(saved, chapters, connection)) return ledger;
-    await noteFanficHelperRun(deps.storage, "fanficChecks", pickInput, pick);
+    await noteHelperPick(deps.storage, "fanficChecks", pickInput, pick);
 
     const toRead = chapters.slice(status.fresh.length);
     const window = effectiveMaxContext(connection, {});

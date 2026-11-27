@@ -4299,6 +4299,28 @@ data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":
     }
 
     #[test]
+    fn gemini_openai_compatible_bodies_send_high_for_xhigh_and_maximum() {
+        for provider in ["nanogpt", "custom"] {
+            for effort in ["xhigh", "maximum"] {
+                let request = request_for(
+                    provider,
+                    "google/gemini-4-argon",
+                    json!({ "reasoningEffort": effort }),
+                );
+                let mut body = json!({});
+
+                apply_openai_parameters(&mut body, &request);
+
+                assert_eq!(
+                    body["reasoning_effort"],
+                    json!("high"),
+                    "{provider} {effort}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn nanogpt_older_gemini_keeps_no_reasoning_effort() {
         for model in ["google/gemini-2.0-flash-001", "google/gemini-1.5-pro"] {
             let request = request_for("nanogpt", model, json!({ "reasoningEffort": "none" }));

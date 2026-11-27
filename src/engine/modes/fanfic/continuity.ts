@@ -28,6 +28,7 @@ import {
   renderFanficLedgerState,
   updateFanficLedger,
 } from "./ledger";
+import { noteHelperPick, pickHelperConnection } from "../../generation/helper-connection";
 import {
   completeFanficJson,
   fanficCallBudget,
@@ -36,8 +37,6 @@ import {
   parseFanficJsonReply,
   type FanficCallBudget,
   FANFIC_CONNECTION_GONE,
-  noteFanficHelperRun,
-  pickFanficHelperConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt, stripFanficChapterHeading } from "./prompts";
 import { fanficModelRecord, fanficRewrittenVersion } from "./versions";
@@ -525,7 +524,7 @@ export async function checkFanficChapterContinuity(
     gone: FANFIC_CONNECTION_GONE,
     note: false,
   };
-  const pick = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, pickInput);
+  const pick = await pickHelperConnection(deps.storage, "fanficChecks", chat, pickInput);
   const { connectionId, connection } = pick;
   if (!connection) throw userFacingError(pickInput.missing);
 
@@ -557,7 +556,7 @@ export async function checkFanficChapterContinuity(
   }
   const checkContext = context;
 
-  await noteFanficHelperRun(deps.storage, "fanficChecks", pickInput, pick);
+  await noteHelperPick(deps.storage, "fanficChecks", pickInput, pick);
   onPhase?.("checking");
   const sweeps = await Promise.all(
     FANFIC_CONTINUITY_SWEEPS.map((categories) =>

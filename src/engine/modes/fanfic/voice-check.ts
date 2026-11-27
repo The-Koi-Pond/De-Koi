@@ -9,6 +9,7 @@ import { fanficChapterLayout, fanficChaptersBefore, type FanficChapterRef } from
 import { locateFanficPassage, type FanficContinuityFix } from "./continuity";
 import { fanficChapterTextKey } from "./ledger";
 import { effectiveMaxContext } from "../../generation/context-window";
+import { pickHelperConnection } from "../../generation/helper-connection";
 import {
   completeFanficJson,
   fanficCallBudget,
@@ -16,7 +17,6 @@ import {
   FanficReplyParseError,
   parseFanficJsonReply,
   FANFIC_CONNECTION_GONE,
-  pickFanficHelperConnection,
 } from "./llm-json";
 import { renderFanficRequestForPrompt, renderFanficVoiceSheets } from "./prompts";
 import { fanficSamePassage, fanficSearchableText } from "./quality";
@@ -288,7 +288,7 @@ export async function checkFanficChapterVoice(
     missing: "Pick a connection for the voice check.",
     gone: FANFIC_CONNECTION_GONE,
   };
-  const { connectionId, connection } = await pickFanficHelperConnection(deps.storage, "fanficChecks", chat, pickInput);
+  const { connectionId, connection } = await pickHelperConnection(deps.storage, "fanficChecks", chat, pickInput);
   if (!connection) throw userFacingError(pickInput.missing);
 
   const messages = (await deps.storage.listChatMessages<JsonRecord>(input.chatId)).filter(isRecord);

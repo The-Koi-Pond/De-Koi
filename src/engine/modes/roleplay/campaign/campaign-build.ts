@@ -15,7 +15,12 @@ import { userFacingError } from "../../../shared/user-facing-error";
 import { undoThenThrow } from "../scene/scene-errors";
 import { deleteChatAndTranscript } from "../scene/scene-removal";
 import { resolveUniversalPresetWithHints } from "../scene/universal-preset";
-import { campaignBuildConnection, campaignCall, type CampaignCapabilities } from "./campaign-calls";
+import {
+  campaignBuildConnection,
+  campaignCall,
+  campaignPlanningConnection,
+  type CampaignCapabilities,
+} from "./campaign-calls";
 import { assemblePlan, planProblems } from "./campaign-plan";
 import {
   BIBLE_SHAPE,
@@ -55,8 +60,14 @@ export interface BuildCampaignInput {
   offTable?: string;
   length: CampaignLength;
   blind: boolean;
-  /** The connection the campaign is built with and played on; null uses the app default. */
+  /** The story model the campaign is played on; null uses the app default. */
   connectionId: string | null;
+  /** The model that plans it (and later replans); null uses the Campaign planning route, else the story model. */
+  planningConnectionId?: string | null;
+  /** The planning model's reasoning effort (and later replans'); null leaves it to the connection's defaults. */
+  planningReasoningEffort?: string | null;
+  /** The chat's own generation parameters (setup's custom parameters); null keeps the connection's defaults. */
+  chatParameters?: Record<string, unknown> | null;
   /** The persona the player plays; null uses the active persona. */
   personaId: string | null;
   folderId?: string | null;
@@ -137,6 +148,7 @@ async function draftCampaign(
   options: { connectionId: string; onStep?: (step: CampaignBuildStep) => void; signal?: AbortSignal },
 ): Promise<CampaignDraft> {
   const { connectionId, onStep, signal } = options;
+  const reasoningEffort = input.planningReasoningEffort ?? null;
   let request = cleanRequest(input);
   const [persona, library] = await Promise.all([
     personaFor(capabilities.storage, input.personaId),
@@ -149,7 +161,7 @@ async function draftCampaign(
   const askBible = (messages: typeof bibleRequest) =>
     campaignCall(
       capabilities,
-      { kind: "bible", connectionId, messages, schema: bibleSchema, shape: BIBLE_SHAPE },
+      { kind: "bible", connectionId, messages, schema: bibleSchema, shape: BIBLE_SHAPE, reasoningEffort },
       signal,
     );
   let bible = await askBible(bibleRequest);
@@ -189,6 +201,7 @@ async function draftCampaign(
       messages: situationMessages(request, context, bible),
       schema: situationsSchema,
       shape: SITUATIONS_SHAPE,
+      reasoningEffort,
     },
     signal,
   );
@@ -203,6 +216,7 @@ async function draftCampaign(
       messages: reviewMessages(request, context, bible, first, problems),
       schema: situationsSchema,
       shape: SITUATIONS_SHAPE,
+      reasoningEffort,
     },
     signal,
   );
@@ -216,6 +230,7 @@ async function draftCampaign(
       messages: contentMessages(request, context, bible, situations),
       schema: contentSchema,
       shape: CONTENT_SHAPE,
+      reasoningEffort,
     },
     signal,
   );
@@ -233,7 +248,10 @@ async function draftCampaign(
 /** The stored campaign for a draft. */
 function campaignStateFromDraft(
   draft: CampaignDraft,
-  rows: { narratorCharacterId: string | null; lorebookId: string | null },
+  rows: Pick<
+    RoleplayCampaignState,
+    "narratorCharacterId" | "lorebookId" | "planningConnectionId" | "planningReasoningEffort"
+  >,
   now: string,
 ): RoleplayCampaignState {
   const plan = assemblePlan(draft.bible, draft.situations);
@@ -264,6 +282,8 @@ function campaignStateFromDraft(
     lastReplanTurn: 0,
     narratorCharacterId: rows.narratorCharacterId,
     lorebookId: rows.lorebookId,
+    planningConnectionId: rows.planningConnectionId,
+    planningReasoningEffort: rows.planningReasoningEffort,
     createdAt: now,
     updatedAt: now,
   };
@@ -352,7 +372,16 @@ async function saveCampaignDraft(
     );
 
     const preset = await resolveUniversalPresetWithHints(storage, presetHints(draft.request.heat));
-    const state = campaignStateFromDraft(draft, { narratorCharacterId: narratorId, lorebookId }, now);
+    const state = campaignStateFromDraft(
+      draft,
+      {
+        narratorCharacterId: narratorId,
+        lorebookId,
+        planningConnectionId: input.planningConnectionId ?? null,
+        planningReasoningEffort: input.planningReasoningEffort ?? null,
+      },
+      now,
+    );
     const lorebookIds = [lorebookId, ...ownLorebookIds];
     const chat = await storage.create<JsonRecord>("chats", {
       name: title,
@@ -367,6 +396,7 @@ async function saveCampaignDraft(
         [CAMPAIGN_METADATA_KEY]: state,
         activeLorebookIds: lorebookIds,
         enableMemoryRecall: true,
+        ...(input.chatParameters ? { chatParameters: input.chatParameters } : {}),
         ...(preset.presetId ? { presetChoices: preset.presetChoices } : {}),
       },
     });
@@ -398,7 +428,12 @@ export async function buildCampaign(
   if (building.get(storage)) throw userFacingError("A campaign is already being built. Wait for it to finish.");
   building.set(storage, true);
   try {
-    const connectionId = await campaignBuildConnection(storage, input.connectionId);
+    const connectionId = await campaignPlanningConnection(storage, {
+      storyConnectionId: await campaignBuildConnection(storage, input.connectionId),
+      planningConnectionId: input.planningConnectionId ?? null,
+      job: "build",
+      chatConnectionId: input.connectionId,
+    });
     const draft = await draftCampaign(capabilities, input, {
       connectionId,
       onStep: options.onStep,

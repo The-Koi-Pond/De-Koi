@@ -104,10 +104,74 @@ interface GenerationParametersFieldsProps {
   value: EditableGenerationParameters;
   onChange: (next: EditableGenerationParameters) => void;
   serviceTierOptions?: readonly GenerationServiceTier[];
+  /** The level the connection's model is really sent for a reasoning effort, or null when that isn't known. */
+  reasoningSentAs?: (effort: string) => string | null;
+}
+
+const reasoningLabel = (effort: string) => REASONING_OPTIONS.find((option) => option.value === effort)?.label ?? effort;
+
+/** The reasoning effort buttons, with a note when the model is sent a different level than the one picked. */
+export function ReasoningEffortField({
+  value,
+  onChange,
+  sentAs: reasoningSentAs,
+  label = "Reasoning Effort",
+}: {
+  value: EditableGenerationParameters["reasoningEffort"];
+  onChange: (next: EditableGenerationParameters["reasoningEffort"]) => void;
+  sentAs?: (effort: string) => string | null;
+  label?: string;
+}) {
+  const sentAs = value && reasoningSentAs ? reasoningSentAs(value) : null;
+  return (
+    <>
+      <OptionButtons
+        label={label}
+        help={REASONING_HELP}
+        group="reasoning"
+        options={REASONING_OPTIONS}
+        selected={value}
+        tint="purple"
+        onSelect={onChange}
+      />
+      {value && sentAs && sentAs !== value && (
+        <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
+          This model doesn't take {reasoningLabel(value)}; it gets {reasoningLabel(sentAs)}.
+        </p>
+      )}
+    </>
+  );
+}
+
+export function VerbosityField({
+  value,
+  onChange,
+  label = "Verbosity",
+}: {
+  value: EditableGenerationParameters["verbosity"];
+  onChange: (next: EditableGenerationParameters["verbosity"]) => void;
+  label?: string;
+}) {
+  return (
+    <OptionButtons
+      label={label}
+      help={VERBOSITY_HELP}
+      group="verbosity"
+      options={VERBOSITY_OPTIONS}
+      selected={value}
+      tint="blue"
+      onSelect={onChange}
+    />
+  );
 }
 
 /** The shared generation parameter fields. Every edit hands over the whole value with one key replaced. */
-export function GenerationParametersFields({ value, onChange, serviceTierOptions }: GenerationParametersFieldsProps) {
+export function GenerationParametersFields({
+  value,
+  onChange,
+  serviceTierOptions,
+  reasoningSentAs,
+}: GenerationParametersFieldsProps) {
   const set = <K extends keyof EditableGenerationParameters>(key: K, next: EditableGenerationParameters[K]) =>
     onChange({ ...value, [key]: next });
 
@@ -156,24 +220,12 @@ export function GenerationParametersFields({ value, onChange, serviceTierOptions
             onSelect={(next) => set("serviceTier", next)}
           />
         )}
-        <OptionButtons
-          label="Reasoning Effort"
-          help={REASONING_HELP}
-          group="reasoning"
-          options={REASONING_OPTIONS}
-          selected={value.reasoningEffort}
-          tint="purple"
-          onSelect={(next) => set("reasoningEffort", next)}
+        <ReasoningEffortField
+          value={value.reasoningEffort}
+          onChange={(next) => set("reasoningEffort", next)}
+          sentAs={reasoningSentAs}
         />
-        <OptionButtons
-          label="Verbosity"
-          help={VERBOSITY_HELP}
-          group="verbosity"
-          options={VERBOSITY_OPTIONS}
-          selected={value.verbosity}
-          tint="blue"
-          onSelect={(next) => set("verbosity", next)}
-        />
+        <VerbosityField value={value.verbosity} onChange={(next) => set("verbosity", next)} />
       </div>
     </div>
   );
